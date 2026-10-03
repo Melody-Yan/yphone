@@ -10,6 +10,7 @@ const vm = require('vm');
 const DIR = __dirname;
 let failed = 0, passed = 0;
 let fetchImpl = null;   // 测试里按需塞一份假的 fetch，验证拉模型/发消息这两条网络路径
+let battImpl = null;    // 同理：塞一份假的 navigator.getBattery，验证电量同步那条路
 
 /* ── 极简 DOM ── */
 function makeEl(tag) {
@@ -145,7 +146,7 @@ function makeSandbox() {
     console, Math, Date, JSON, Object, Array, String, Number, RegExp, Function,
     setTimeout, clearTimeout, setInterval, clearInterval,
     requestAnimationFrame: fn => { fn(0); return 0; },
-    navigator: { vibrate: () => {} },
+    navigator: { vibrate: () => {}, getBattery: () => battImpl ? battImpl() : Promise.reject(new Error('测试没配电池')) },
     fetch: (url, opts) => fetchImpl ? fetchImpl(url, opts) : Promise.reject(new Error('测试没配 fetch')),
     localStorage: {
       getItem: k => (store.has(k) ? store.get(k) : null),
@@ -1672,6 +1673,69 @@ console.log('\n[24] 存档读取不许弄丢数据');
   store.set('xiaoshouji.v1', good);
   boot();
   ok('把原档放回去，数据一条不少', sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.events.length === 1);
+}
+
+/* 27. 电量读真机 + 自己改密码（会重新 boot，放在【24】之后 */
+console.log('\n[27] 电量同步 / 改密码');
+{
+  /* 垫片默认没有 navigator.getBattery —— 平时走的是"装死"的伪值那条路。
+     这里塞一份真机电池进去，验证真机那条路真的接上了。 */
+  store.set('xiaoshouji.v1', JSON.stringify({
+    widgets: [[{ id: 'wg-clock', type: 'clock' }, { id: 'wg-batt', type: 'battery' }], [], []]
+  }));
+  battImpl = () => Promise.resolve({ level: 0.07, charging: true, addEventListener: () => {} });
+  boot();
+  await new Promise(r => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
+  ok('接上真机电池后，状态栏显示真电量', byId['sb-batt'].textContent === '7%', byId['sb-batt'].textContent);
+  ok('充电中会在状态栏上标出来', byId.phone._class.has('charging'));
+  const bfill = walk(byId['home']).find(n => n._class.has('wg-batt-fill'));
+  ok('桌面电量插件跟状态栏同值', !!bfill && bfill.style.width === '7%', bfill && bfill.style.width);
+
+  battImpl = null;   // 退回"没有电池接口"的老路
+  boot();
+  await new Promise(r => setTimeout(r, 0));
+  ok('没有电池接口时退回伪值，不白屏', /^\d+%$/.test(byId['sb-batt'].textContent), byId['sb-batt'].textContent);
+  ok('没有电池接口时不冒充充电中', !byId.phone._class.has('charging'));
+}
+
+{
+  /* 改密码：以前根本没有入口，而且关一次锁屏就把密码抹回 1234 */
+  const App = sandbox.SJ;
+  const LV = openFresh('look');
+  const pwRow = walk(LV).find(n => n._class.has('row') && /^锁屏密码/.test(n.textContent.trim()));
+  ok('外观里有「锁屏密码」入口', !!pwRow);
+  pwRow.click();
+  const fld = ph => findIn(LV, ph), saveBtn = () => findBtn(LV, '保存');
+  ok('点进去有两个密码框 + 保存', !!fld('新密码（4 位数字）') && !!fld('再输一遍') && !!saveBtn());
+
+  const before = App.state.password;
+  fld('新密码（4 位数字）').value = '12345';
+  fld('再输一遍').value = '12345';
+  saveBtn().click();
+  ok('不是 4 位数字就不认', App.state.password === before, App.state.password);
+
+  fld('新密码（4 位数字）').value = '5678';
+  fld('再输一遍').value = '9999';
+  saveBtn().click();
+  ok('两次不一样也不改', App.state.password === before, App.state.password);
+
+  fld('新密码（4 位数字）').value = '5678';
+  fld('再输一遍').value = '5678';
+  saveBtn().click();
+  ok('两次一致才真换掉', App.state.password === '5678', App.state.password);
+  ok('换完自己退回外观首页', !!findBtn(LV, '上传'), '找不到「上传」说明没退回');
+
+  /* 以前 toggleLock 关掉锁屏写 password=''，再开回来又是 1234 —— 自己设的密码白设 */
+  App.state.lock = true; App.state.password = '5678'; App.save();
+  boot();
+  const lockRow = () => walk(byId.stack).find(n => n._class.has('row') && /^锁屏/.test(n.textContent.trim()));
+  openFresh('settings');
+  ok('设置里有「锁屏」开关行', !!lockRow());
+  lockRow().click();
+  ok('关掉锁屏不会顺手把密码抹掉', App.state.password === '5678', App.state.password);
+  lockRow().click();
+  ok('再开回来还是自己设的那个，不是 1234', App.state.password === '5678' && App.state.lock === true, App.state.password);
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

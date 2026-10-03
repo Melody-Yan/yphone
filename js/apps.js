@@ -469,19 +469,41 @@ const APPS = [
         }));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
-        if (!rows.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有聊天对象。先去「通讯录」造一个角色。'));
+
+        /* 人一多翻列表就痛。四个人以下不给搜索框，那会儿它只是占地方。 */
+        const search = SJ.el('input', { class: 'wsearch', placeholder: '搜索', oninput: () => paint() });
+        if (rows.length > 4) box.append(SJ.el('div', { class: 'wsearch-wrap' }, [search]));
+
+        const feed = SJ.el('div', { class: 'wfeed' });
+        const preview = last => {
+          if (!last) return '还没聊过';
+          const body = last.img ? '[图片]' : last.transfer ? '[转账]' : (last.text || '');
+          return (last.me ? '我：' : '') + String(body).replace(/\n/g, ' ').slice(0, 28);
+        };
+        function paint() {
+          feed.innerHTML = '';
+          const q = (search.value || '').trim();
+          const list = q
+            ? rows.filter(({ c, last }) => (c.name + ' ' + ((last && last.text) || '')).indexOf(q) >= 0)
+            : rows;
+          if (!list.length) {
+            feed.append(SJ.el('div', { class: 'empty' },
+              q ? `没有找到「${q}」。` : '还没有聊天对象。先去「通讯录」造一个角色。'));
+            return;
+          }
+          list.forEach(({ c, last }) => {
+            feed.append(SJ.el('div', { class: 'row wrow', onclick: () => chatView(c.id) }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, c.name),
+                SJ.el('div', { class: 'row-sub' }, preview(last))
+              ]),
+              last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null
+            ]));
+          });
         }
-        rows.forEach(({ c, last }) => {
-          box.append(SJ.el('div', { class: 'row', onclick: () => chatView(c.id) }, [
-            avatarNode(c),
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, c.name),
-              SJ.el('div', { class: 'row-sub' }, last ? (last.me ? '我：' : '') + last.text.slice(0, 28) : '还没聊过')
-            ]),
-            last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null
-          ]));
-        });
+        paint();
+        box.append(feed);
         root.append(box, tabBar('msg'));
       }
 
@@ -1752,6 +1774,34 @@ const APPS = [
     icon: 'palette',
     color: 'linear-gradient(150deg,#e3d3e8,#b196bf)',
     render(root, close) {
+      /* 改密码。这里是玩具锁不是保险箱：可以改、可以关，绝不搞"输错就清空数据"。 */
+      function passwordView() {
+        root.innerHTML = '';
+        root.append(navBar('锁屏密码', { back: main }));
+        const mk = ph => SJ.el('input', {
+          class: 'field', placeholder: ph, inputmode: 'numeric', maxlength: 4, value: ''
+        });
+        const a = mk('新密码（4 位数字）'), b = mk('再输一遍');
+        const save = SJ.el('button', {
+          class: 'btn',
+          onclick: () => {
+            const x = a.value.trim(), y = b.value.trim();
+            if (!/^\d{4}$/.test(x)) { toast('要 4 位数字'); a.value = ''; return; }
+            if (x !== y) { toast('两次不一样，重来'); b.value = ''; return; }
+            SJ.state.password = x;
+            SJ.save();
+            toast('密码换好了，下次解锁用它');
+            main();
+          }
+        }, '保存');
+        root.append(SJ.el('div', { class: 'pad' }, [
+          a, b, save,
+          SJ.el('div', { class: 'hint' },
+            `现在用的是 ${SJ.state.password || '1234'}。` +
+            '这是玩具锁，忘了在锁屏上点「忘记密码」就能关掉它，聊天记录不会动。')
+        ]));
+      }
+
       function main() {
         root.innerHTML = '';
         root.append(navBar('外观', {
@@ -1811,6 +1861,15 @@ const APPS = [
         ]));
 
         box.append(SJ.el('div', { class: 'group-title' }, '锁屏'));
+        box.append(SJ.el('div', { class: 'row', onclick: () => passwordView() }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '锁屏密码'),
+            SJ.el('div', { class: 'row-sub' }, SJ.state.lock
+              ? `现在用 ${SJ.state.password || '1234'}，点这里改`
+              : '锁屏还没开；先把密码定好，再去「设置 → 锁屏」打开')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]));
         box.append(toggleRow('显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
           SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
         }));
@@ -1870,7 +1929,7 @@ const APPS = [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '锁屏'),
             SJ.el('div', { class: 'row-sub' }, SJ.state.lock
-              ? '打开小手机先输 4 位密码，密码是 ' + (SJ.state.password || '1234')
+              ? '打开小手机先输 4 位密码（密码去「外观 → 锁屏密码」改）'
               : '现在没开。点一下立刻锁上，之后每次打开都要输密码')
           ]),
           SJ.el('div', { class: 'row-time' }, SJ.state.lock ? '已开启 ›' : '已关闭 ›')
@@ -2063,8 +2122,9 @@ const APPS = [
       }
 
       function toggleLock() {
-        if (SJ.state.lock) { SJ.state.lock = false; SJ.state.password = ''; }
-        else { SJ.state.lock = true; SJ.state.password = '1234'; }
+        // 关掉锁屏不再抹掉密码：下次想开回来还是你自己设的那个。
+        if (SJ.state.lock) SJ.state.lock = false;
+        else { SJ.state.lock = true; if (!SJ.state.password) SJ.state.password = '1234'; }
         SJ.save(); main();
         if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
       }

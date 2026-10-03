@@ -87,9 +87,26 @@ function swipeEnd() {
 }
 
 /* ══ 状态栏 ══ */
-/* 电量：浏览器没有电池 API，用一个随时间的平滑伪值，纯装饰。
-   状态栏和桌面电量插件共用这一份，别再各写一条正弦曲线。 */
-function batteryLevel() { return 62 + Math.round(30 * Math.sin(Date.now() / 6e5)); }
+/* 电量：Chrome / 安卓有 navigator.getBattery，就直接读真机的电量和充电状态。
+   iOS Safari 从没实现过这个 API，无痕模式里还会 reject —— 两种情况都退回
+   一条平滑的伪曲线（纯装饰，但至少稳定，不会来回跳）。
+   注意：桌面 Chrome 常年报 100%，那是浏览器的假值，不是我们坏了。 */
+let battObj = null;   // 拿到真机电池就挂这儿，拿不到就是 null
+function batteryLevel() {
+  if (battObj) return Math.round(battObj.level * 100);
+  return 62 + Math.round(30 * Math.sin(Date.now() / 6e5));
+}
+function batteryCharging() { return !!(battObj && battObj.charging); }
+function watchBattery() {
+  if (typeof navigator === 'undefined' || !navigator.getBattery) return;
+  navigator.getBattery().then(b => {
+    battObj = b;
+    const upd = () => { tickStatus(); renderHome(); };
+    b.addEventListener('levelchange', upd);
+    b.addEventListener('chargingchange', upd);
+    upd();
+  }).catch(() => {});
+}
 
 function tickStatus() {
   const now = SJ.virtualNow();
@@ -98,6 +115,7 @@ function tickStatus() {
   phone.classList.toggle('night', h >= 19 || h < 7);
 
   const v = batteryLevel();
+  phone.classList.toggle('charging', batteryCharging());
   SJ.$('#sb-batt').textContent = v + '%';
   SJ.$('#sb-batt-fill').style.width = v + '%';
   SJ.$('#sb-batt-fill').style.background = v < 20 ? '#ff453a' : '';
@@ -589,6 +607,7 @@ function boot() {
   renderLock(true);
   bindLockGesture();
   tickStatus();
+  watchBattery();          // 有真机电池就跟它同步，没有就继续用伪值
   setInterval(tickStatus, 5000);
 
   // 长按桌面空白处加插件。.page 元素不会被 renderHome 重建，绑一次就够

@@ -40,6 +40,17 @@ const WALLS = [
 ];
 const isDarkWall = css => { const w = WALLS.find(w => w[1] === css); return w ? w[2] : false; };
 
+/* 桌面插件登记表。span = 占几列，桌面是 4 列网格：4 = 整行，2 = 半行（两个并排）。 */
+const WIDGET_TYPES = [
+  { type: 'clock',    name: '时钟',   icon: '🕘', span: 4 },
+  { type: 'calendar', name: '日历',   icon: '📅', span: 4 },
+  { type: 'notes',    name: '备忘录', icon: '📝', span: 4 },
+  { type: 'chat',     name: '聊天',   icon: '💬', span: 2 },
+  { type: 'battery',  name: '电量',   icon: '🔋', span: 2 },
+  { type: 'gallery',  name: '相册',   icon: '🖼', span: 2 }
+];
+const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
+
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
   wallpaper: WALLS[0][1], // 默认晨雾
@@ -70,7 +81,8 @@ const DEFAULTS = {
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
   worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
   memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
-  events: []             // 日历：[{id,date,time,title,done}, ...]
+  events: [],            // 日历：[{id,date,time,title,done}, ...]
+  widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []]  // 桌面插件：每页一组 [{id,type}, ...]
 };
 
 /* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
@@ -78,7 +90,7 @@ const DEFAULTS = {
 const SCHEMA = {
   wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
   notes: 'array', characters: 'array', chats: 'object',
-  worldbook: 'array', memories: 'object', events: 'array'
+  worldbook: 'array', memories: 'object', events: 'array', widgets: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -143,6 +155,15 @@ function migrate(saved) {
       done: !!e.done
     }))
     .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date));
+  // 桌面插件：按页归一。认不出的 type 直接丢掉（渲染层也判，但状态里别留垃圾）。
+  // 同样不能用 uid()（TDZ），id 用 'wg-页码-序号'。
+  const knownWg = WIDGET_TYPES.map(w => w.type);
+  out.widgets = Array.from({ length: WIDGET_PAGES }, (_, p) => {
+    const group = Array.isArray(out.widgets) && Array.isArray(out.widgets[p]) ? out.widgets[p] : [];
+    return group
+      .filter(w => w && typeof w === 'object' && knownWg.indexOf(w.type) >= 0)
+      .map((w, i) => ({ id: String(w.id || (`wg-${p}-${i}`)), type: w.type }));
+  });
   return out;
 }
 
@@ -441,6 +462,58 @@ function busyDays(year, month) {
 function upcomingEvents(n = 3) {
   const today = dayKey();
   return state.events.filter(e => !e.done && String(e.date) >= today).slice(0, n);
+}
+
+/* ══════════════════════════════════════════════════════
+   L1.7 桌面插件
+   状态是「每页一组」：state.widgets[页码] = [{id,type}, ...]。
+   真正画成什么样在 app.js，这里只管数据，方便自检。
+   ══════════════════════════════════════════════════════ */
+const widgetDef = type => WIDGET_TYPES.find(w => w.type === type) || null;
+
+/* 该页的插件数组。永远返回数组，调用方不用判空。 */
+function widgetsOf(page) {
+  const p = Math.max(0, Math.min(WIDGET_PAGES - 1, Number(page) || 0));
+  if (!Array.isArray(state.widgets)) state.widgets = [[], [], []];
+  while (state.widgets.length < WIDGET_PAGES) state.widgets.push([]);
+  if (!Array.isArray(state.widgets[p])) state.widgets[p] = [];
+  return state.widgets[p];
+}
+
+function addWidget(page, type) {
+  if (!widgetDef(type)) return null;
+  const w = { id: uid(), type: type };
+  widgetsOf(page).push(w);
+  save();
+  return w;
+}
+
+function removeWidget(page, id) {
+  const list = widgetsOf(page);
+  const i = list.findIndex(w => w.id === id);
+  if (i < 0) return false;
+  list.splice(i, 1);
+  save();
+  return true;
+}
+
+function clearWidgets(page) {
+  const list = widgetsOf(page);
+  const n = list.length;
+  list.length = 0;
+  save();
+  return n;
+}
+
+/* 会话里最后一张图片（相册插件用）。没有就返回 null。 */
+function latestImage() {
+  let best = null;
+  Object.keys(state.chats || {}).forEach(id => {
+    (state.chats[id] || []).forEach(m => {
+      if (m && m.img && (!best || (m.ts || 0) > (best.ts || 0))) best = m;
+    });
+  });
+  return best;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -745,5 +818,7 @@ window.SJ = {
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
+  /* 桌面插件 */
+  WIDGET_TYPES, WIDGET_PAGES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
   exportState, importState
 };

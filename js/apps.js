@@ -1210,4 +1210,5 @@ window.APPS = APPS;
 window.ICONSVG = svg;
 window.navBar = navBar;
 window.confirmBox = confirmBox;
+window.sheet = sheet;   // app.js 的桌面插件面板要用
 })();

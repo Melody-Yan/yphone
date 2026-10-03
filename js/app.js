@@ -87,14 +87,17 @@ function swipeEnd() {
 }
 
 /* ══ 状态栏 ══ */
+/* 电量：浏览器没有电池 API，用一个随时间的平滑伪值，纯装饰。
+   状态栏和桌面电量插件共用这一份，别再各写一条正弦曲线。 */
+function batteryLevel() { return 62 + Math.round(30 * Math.sin(Date.now() / 6e5)); }
+
 function tickStatus() {
   const now = SJ.virtualNow();
   SJ.$('#sb-clock').textContent = SJ.fmtTime(now);
   const h = now.getHours();
   phone.classList.toggle('night', h >= 19 || h < 7);
 
-  // 电量：浏览器没有电池 API，用一个随时间的平滑伪值，纯装饰
-  const v = 62 + Math.round(30 * Math.sin(Date.now() / 6e5));
+  const v = batteryLevel();
   SJ.$('#sb-batt').textContent = v + '%';
   SJ.$('#sb-batt-fill').style.width = v + '%';
   SJ.$('#sb-batt-fill').style.background = v < 20 ? '#ff453a' : '';
@@ -104,6 +107,15 @@ function tickStatus() {
     SJ.$('#lock-time').textContent = SJ.fmtTime(now);
     SJ.$('#lock-date').textContent = SJ.fmtDate();
   }
+
+  // 桌面时钟插件同理。用独一无二的 class 找，不依赖后代选择器
+  // （自检垫片的 querySelector 只认简单选择器）。
+  const wt = SJ.$('.wg-clock-time');
+  if (wt) wt.textContent = SJ.fmtTime(now);
+  const wd = SJ.$('.wg-clock-date');
+  if (wd) wd.textContent = SJ.fmtDate();
+  const wb = SJ.$('.wg-batt-fill');
+  if (wb) wb.style.width = v + '%';
 }
 
 /* ══ 桌面 ══ */
@@ -122,27 +134,169 @@ function iconNode(app, { small = false } = {}) {
 
 let dragging = null;
 
+/* ══ 桌面插件 ══
+   6 种插件，每种就一段内容。点插件进对应的 App（时钟/电量没地方去，就不加跳转）。 */
+const WIDGET_APP = { calendar: 'calendar', notes: 'notes', chat: 'chat', gallery: 'gallery' };
+
+function widgetBody(type) {
+  switch (type) {
+    case 'clock':
+      return [
+        SJ.el('div', { class: 'widget-time wg-clock-time' }, SJ.fmtTime(SJ.virtualNow())),
+        SJ.el('div', { class: 'widget-date wg-clock-date' }, SJ.fmtDate())
+      ];
+
+    case 'calendar': {
+      const evs = SJ.todayEvents().slice(0, 2);
+      return [
+        SJ.el('div', { class: 'wg-head' }, '今天 · ' + SJ.fmtDate()),
+        evs.length
+          ? SJ.el('div', { class: 'wg-list' }, evs.map(e => SJ.el('div', { class: 'wg-row' + (e.done ? ' done' : '') }, [
+              SJ.el('span', { class: 'wg-time' }, e.time || '全天'),
+              SJ.el('span', { class: 'wg-title' }, e.title || '无标题')
+            ])))
+          : SJ.el('div', { class: 'wg-empty' }, '今天没有安排')
+      ];
+    }
+
+    case 'notes': {
+      const list = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 2);
+      return [
+        SJ.el('div', { class: 'wg-head' }, '备忘录'),
+        list.length
+          ? SJ.el('div', { class: 'wg-list' }, list.map(n => SJ.el('div', { class: 'wg-row' }, [
+              SJ.el('span', { class: 'wg-title' }, n.title || '无标题'),
+              SJ.el('span', { class: 'wg-time' }, SJ.fmtAgo(n.ts))
+            ])))
+          : SJ.el('div', { class: 'wg-empty' }, '还没有备忘')
+      ];
+    }
+
+    case 'chat': {
+      const top = SJ.chatList()[0];
+      const last = top && top.last;
+      return [
+        SJ.el('div', { class: 'wg-head' }, '聊天'),
+        last
+          ? SJ.el('div', { class: 'wg-list' }, SJ.el('div', { class: 'wg-row' }, [
+              SJ.el('span', { class: 'wg-who' }, top.c.name),
+              SJ.el('span', { class: 'wg-title' }, String(last.text || '').slice(0, 20))
+            ]))
+          : SJ.el('div', { class: 'wg-empty' }, '还没聊过天')
+      ];
+    }
+
+    case 'battery': {
+      const v = batteryLevel();
+      return [
+        SJ.el('div', { class: 'wg-head' }, '电量 ' + v + '%'),
+        SJ.el('div', { class: 'wg-bar' }, SJ.el('i', { class: 'wg-batt-fill', style: { width: v + '%' } }))
+      ];
+    }
+
+    case 'gallery': {
+      const m = SJ.latestImage();
+      let body;
+      if (!m) body = SJ.el('div', { class: 'wg-empty' }, '还没有照片');
+      // 贴纸存的是表情符号，相册里压出来的才是 data URI，分开画
+      else if (/^data:/.test(m.img)) body = SJ.el('div', { class: 'wg-photo', style: { backgroundImage: `url("${m.img}")` } });
+      else body = SJ.el('div', { class: 'wg-photo wg-emoji' }, m.img);
+      return [SJ.el('div', { class: 'wg-head' }, '相册'), body];
+    }
+  }
+  return [];
+}
+
+function widgetNode(pageIndex, w) {
+  const def = SJ.widgetDef(w.type);
+  if (!def) return null;
+  const to = WIDGET_APP[w.type];
+  const node = SJ.el('div', { class: 'widget wg-' + w.type, style: { gridColumn: 'span ' + def.span } });
+  if (to) {
+    node.classList.add('tappable');
+    node.addEventListener('click', () => openApp(to));
+  }
+  // 删除：✕ 常驻但很淡。不做「长按插件删除」——插件在 .page 里，长按会同时
+  // 触发页面长按（加插件），两个计时器都会响，要额外加标志位才压得住。
+  node.append(SJ.el('button', {
+    class: 'wg-x', title: '移除插件',
+    onclick: e => {
+      e.stopPropagation();
+      window.confirmBox(`移除这个「${def.name}」插件？`, () => {
+        SJ.removeWidget(pageIndex, w.id);
+        renderHome();
+      });
+    }
+  }, '✕'));
+  widgetBody(w.type).forEach(c => node.append(c));
+  return node;
+}
+
+/* 长按桌面空白处 → 挑插件。绑在 .page 上，而 .page 元素不会被 renderHome 重建，
+   所以在 boot() 里只绑一次就够了。 */
+function bindPageHold(pageEl, pageIndex) {
+  let timer = null;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  const begin = () => {
+    cancel();
+    timer = setTimeout(() => {
+      timer = null;
+      if (dragging) return;   // 已经变成拖图标了，别抢
+      openWidgetSheet(pageIndex);
+    }, 550);
+  };
+  pageEl.addEventListener('mousedown', begin);
+  pageEl.addEventListener('touchstart', begin, { passive: true });
+  pageEl.addEventListener('mouseup', cancel);
+  pageEl.addEventListener('mouseleave', cancel);
+  pageEl.addEventListener('touchend', cancel);
+  pageEl.addEventListener('touchmove', cancel, { passive: true });
+}
+
+function openWidgetSheet(pageIndex) {
+  const items = SJ.WIDGET_TYPES.map(def => ({
+    icon: def.icon,
+    label: def.name,
+    hint: def.span === 4 ? '整行' : '半行',
+    run: () => { SJ.addWidget(pageIndex, def.type); renderHome(); }
+  }));
+  if (SJ.widgetsOf(pageIndex).length) {
+    items.push({
+      icon: '🧹', label: '清空这一页插件', hint: '',
+      run: () => { SJ.clearWidgets(pageIndex); renderHome(); }
+    });
+  }
+  window.sheet(items);
+}
+
 function renderHome() {
   const order = appOrder();
   const dockIds = order.slice(0, 3);
   const rest = order.slice(3);
+  const pagesEls = SJ.$$('.page');
 
-  const perPage = 24;
-  const pages = [rest.slice(0, perPage), rest.slice(perPage, perPage * 2), rest.slice(perPage * 2)];
-  SJ.$$('.page').forEach((page, i) => {
+  // 插件和图标抢同一块地方：桌面大约放得下 6 行图标，一个插件平均吃掉 2 行。
+  // ponytail: 固定估算，没按真实高度测；插件多到图标装不下时再改成量高度。
+  let cursor = 0;
+  const slice = pagesEls.map((page, i) => {
+    const n = Math.max(4, (6 - SJ.widgetsOf(i).length * 2) * 4);
+    const part = rest.slice(cursor, cursor + n);
+    cursor += n;
+    return part;
+  });
+
+  pagesEls.forEach((page, i) => {
     page.innerHTML = '';
-    if (i === 0) {
-      page.append(SJ.el('div', { class: 'widget' }, [
-        SJ.el('div', { class: 'widget-time' }, SJ.fmtTime(SJ.virtualNow())),
-        SJ.el('div', { class: 'widget-date' }, SJ.fmtDate())
-      ]));
-    }
-    pages[i].forEach((id, idx) => {
+    SJ.widgetsOf(i).forEach(w => {
+      const node = widgetNode(i, w);
+      if (node) page.append(node);
+    });
+    slice[i].forEach((id, idx) => {
       const app = window.APPS.find(a => a.id === id);
       if (!app) return;
       const node = iconNode(app);
       node.dataset.appId = id;
-      bindDrag(node, i * perPage + idx);
+      bindDrag(node, i * 24 + idx);
       page.append(node);
     });
   });
@@ -154,10 +308,13 @@ function renderHome() {
     if (app) dock.append(iconNode(app, { small: true }));
   });
 
-  const used = pages.filter(p => p.length).length || 1;
+  const used = slice.filter((p, i) => p.length || SJ.widgetsOf(i).length).length || 1;
   const dots = SJ.$('#dots');
   dots.innerHTML = '';
   for (let i = 0; i < used; i++) dots.append(SJ.el('i', { class: i === 0 ? 'on' : '' }));
+
+  // 当前页的圆点得跟上（加完插件重绘后别跳回第一页）
+  goPage(currentPage);
 }
 
 /* ── 长按拖动排序（同时支持鼠标和触摸）── */
@@ -401,6 +558,9 @@ function boot() {
   bindLockGesture();
   tickStatus();
   setInterval(tickStatus, 5000);
+
+  // 长按桌面空白处加插件。.page 元素不会被 renderHome 重建，绑一次就够
+  SJ.$$('.page').forEach((p, i) => bindPageHold(p, i));
 
   // 左边缘手势
   phone.addEventListener('touchstart', swipeStart, { passive: true });

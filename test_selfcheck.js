@@ -85,9 +85,15 @@ function match(n, sel) {
 function dispatch(node, type, ev) {
   let n = node, handled = 0;
   if (ev.target === undefined) ev.target = node;        // 浏览器会给的事件字段，垫片自己补
+  let stopped = false;
+  // 源码里用到了 stopPropagation（比如插件右上角的 ✕ 别把点击冒泡给整个卡片），
+  // 垫片以前不认这个调用，会直接 TypeError
+  if (typeof ev.stopPropagation !== 'function') ev.stopPropagation = () => { stopped = true; };
+  if (typeof ev.preventDefault !== 'function') ev.preventDefault = () => {};
   while (n) {
     ev.currentTarget = n;
     (n._listeners[type] || []).forEach(fn => { fn(ev); handled++; });
+    if (stopped) break;
     n = n.parentNode;
   }
   return handled;
@@ -987,6 +993,106 @@ ok('重绘锁屏后密码盘内容被清空（否则会残留）', walk(byId['lo
   walk(byId['lock-pad']).length + ' 个残留节点');
 
 lk.state.lock = false; lk.state.password = ''; lk.deleteEvent(lwEv.id); lk.save();
+
+/* 22. 桌面插件：每页多个 + 长按增删 */
+console.log('\n[22] 桌面插件');
+const wk = sandbox.SJ;
+while (S.SHELL.stack.length) S.closeTop(true);
+const pageKids = i => pages[i].children;
+const wgOn = i => pageKids(i).filter(c => c._class.has('widget'));
+const iconOn = i => pageKids(i).filter(c => c._class.has('icon')).length;
+const resetWg = () => { wk.state.widgets = [[{ id: 'wg-clock', type: 'clock' }], [], []]; wk.save(); S.SHELL.renderHome(); };
+
+resetWg();
+ok('默认第一页有一个时钟插件（老存档也一样，桌面不会变空）',
+  wgOn(0).length === 1 && wgOn(0)[0]._class.has('wg-clock'),
+  wgOn(0).map(n => n.className).join(','));
+ok('时钟插件上写着虚拟时间', wgOn(0)[0].textContent.includes(wk.fmtTime(wk.virtualNow())),
+  wgOn(0)[0].textContent);
+ok('其它页默认没有插件', wgOn(1).length === 0 && wgOn(2).length === 0);
+ok('桌面图标还是 8 个（插件没吃掉 App）', iconsOn() === 8, iconsOn() + ' 个');
+
+/* 长按桌面空白处弹面板 */
+dispatch(pages[1], 'mousedown', {});
+ok('长按桌面空白处弹出插件面板', await waitFor(() => sheetLabels().length >= 6), JSON.stringify(sheetLabels()));
+ok('面板里 6 种插件都在',
+  ['时钟', '日历', '备忘录', '聊天', '电量', '相册'].every(t => sheetLabels().includes(t)), JSON.stringify(sheetLabels()));
+clickSheet('日历');
+ok('选了「日历」→ 第二页多了一个日历插件',
+  wgOn(1).length === 1 && wgOn(1)[0]._class.has('wg-calendar'), wgOn(1).map(n => n.className).join(','));
+ok('日历插件里能看见今天没有安排', wgOn(1)[0].textContent.includes('今天'));
+
+/* 短按（不是长按）不该弹面板 */
+dispatch(pages[2], 'mousedown', {});
+dispatch(pages[2], 'mouseup', {});
+await sleep(700);
+ok('短按一下不弹面板', sheetLabels().length === 0, JSON.stringify(sheetLabels()));
+
+/* 插件多了，每页图标上限自动缩水，多出来的挤到下一页 */
+wk.addWidget(0, 'notes'); wk.addWidget(0, 'chat');
+S.SHELL.renderHome();
+ok('第一页 3 个插件 → 图标位缩到 1 行（4 个）', iconOn(0) === 4, iconOn(0) + ' 个');
+ok('装不下的图标挤到了第二页', iconOn(1) >= 1, iconOn(1) + ' 个');
+ok('图标总数没丢（还是 8 个）', iconsOn() === 8, iconsOn() + ' 个');
+
+/* 点日历插件直接进日历 App */
+resetWg();
+wk.addWidget(0, 'calendar'); S.SHELL.renderHome();
+ok('第一页现在是「时钟 + 日历」两个插件', wgOn(0).length === 2);
+wgOn(0)[1].click();
+ok('点插件进对应的 App', S.SHELL.stack.length === 1 && walk(S.SHELL.stack[0].node).some(n => n._class.has('cal-head')));
+S.closeTop(true);
+
+/* ✕ 删插件：点歪到卡片上不该顺带把 App 打开 */
+resetWg();
+wk.addWidget(0, 'calendar'); S.SHELL.renderHome();
+const calWg = wgOn(0)[1];
+const xBtn = walk(calWg).find(n => n._class.has('wg-x'));
+ok('插件右上角有 ✕', !!xBtn);
+xBtn.click();
+ok('点 ✕ 弹确认框', !!walk(byId.phone).find(n => n._class.has('confirm')));
+ok('点 ✕ 不会顺手把日历 App 打开（stopPropagation 生效）', S.SHELL.stack.length === 0,
+  '栈深度 ' + S.SHELL.stack.length);
+findBtn(byId.phone, '确定').click();
+ok('确认后插件被移除', wgOn(0).length === 1, wgOn(0).length + ' 个');
+ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringify(wk.state.widgets[0]));
+
+/* 取消就不删 */
+const xBtn2 = walk(wgOn(0)[0]).find(n => n._class.has('wg-x'));
+xBtn2.click();
+findBtn(byId.phone, '取消').click();
+ok('点取消不删', wgOn(0).length === 1 && wk.state.widgets[0].length === 1);
+ok('确认框关掉了', !walk(byId.phone).find(n => n._class.has('confirm')));
+
+/* 清空这一页 */
+dispatch(pages[0], 'mousedown', {});
+await waitFor(() => sheetLabels().includes('清空这一页插件'));
+clickSheet('清空这一页插件');
+ok('「清空这一页插件」把本页清空', wgOn(0).length === 0 && wk.state.widgets[0].length === 0);
+
+/* 电量插件跟状态栏用同一个值 */
+wk.addWidget(1, 'battery'); S.SHELL.renderHome();
+const battFill = walk(wgOn(1)[0]).find(n => n._class.has('wg-batt-fill'));
+ok('电量插件画了进度条，且跟状态栏是同一个值',
+  !!battFill && battFill.style.width === byId['sb-batt-fill'].style.width,
+  (battFill && battFill.style.width) + ' vs ' + byId['sb-batt-fill'].style.width);
+ok('电量插件写着百分比', /\d+%/.test(wgOn(1)[0].textContent), wgOn(1)[0].textContent);
+
+/* 相册插件没有照片时给提示，有图就画出来 */
+wk.addWidget(2, 'gallery'); S.SHELL.renderHome();
+ok('相册插件没照片时给一句提示', wgOn(2)[0].textContent.includes('还没有照片'), wgOn(2)[0].textContent);
+const gC = wk.state.characters[0] || wk.makeCharacter({ name: '相册测试' });
+wk.pushMessage(gC.id, false, '[图片]', { kind: 'img', img: '🐱' });
+S.SHELL.renderHome();
+ok('相册插件有图时显示它', wgOn(2)[0].textContent.includes('🐱'), wgOn(2)[0].textContent);
+
+/* 未知类型不会画出来，也不会留在存档里 */
+wk.save(); wk.state.widgets = [[{ id: 'x', type: '不存在的东西' }], [], []]; wk.save();
+const reloaded = wk.load();
+ok('认不出的插件类型在存档里被丢掉',
+  reloaded.widgets[0].length === 0, JSON.stringify(reloaded.widgets));
+
+resetWg();
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);

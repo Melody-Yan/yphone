@@ -433,6 +433,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 
 /* 密码键盘 */
 #lock-pad { display: flex; flex-direction: column; align-items: center; gap: 20px; margin-bottom: 60px; }
+#lock-pad[hidden] { display: none; }   /* ID 的 display 会盖掉 UA 的 [hidden]，得自己写一条 */
 .pad-dots { font-size: 19px; letter-spacing: 13px; height: 22px; }
 .pad-grid { display: grid; grid-template-columns: repeat(3, 74px); gap: 14px; }
 .pk {
@@ -606,3 +607,56 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .cal-today .group-title { padding: 0 2px 2px; }
 .cal-today .row-title.done { text-decoration: line-through; opacity: .45; }
 .nav-btn.plus { font-size: 21px; line-height: 1; }
+
+/* ══ 锁屏 L2：今日安排卡片 + 底部快捷按钮 + 出入场动效 ══ */
+.wall.follow {
+  display: grid; place-items: center; background: #fff;
+  border-style: dashed; border-color: rgba(0, 0, 0, .16);
+  font-size: 11px; color: var(--fg-dim);
+}
+.wall.follow::after { content: '跟随桌面'; }
+.wall.follow.on { border-style: solid; border-color: var(--accent); }
+#lock-widgets { margin-top: 20px; width: 100%; display: flex; justify-content: center; }
+.lw-card {
+  width: 74%; max-width: 290px; padding: 11px 14px; border-radius: 18px;
+  background: rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .05);
+}
+.lw-empty { font-size: 12.5px; opacity: .5; text-align: center; }
+.lw-row { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; line-height: 1.95; }
+.lw-row.done { opacity: .42; text-decoration: line-through; }
+.lw-time { flex: none; width: 40px; opacity: .55; font-variant-numeric: tabular-nums; }
+.lw-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-more { font-size: 11.5px; opacity: .5; }
+
+#lock-hint { margin-bottom: 16px; }
+#lock-quick { display: flex; gap: 24px; margin-bottom: 34px; }
+#lock-quick[hidden] { display: none; }
+#lock-quick .qk {
+  border: 0; background: none; padding: 0; cursor: pointer; font: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.qk-art {
+  width: 42px; height: 42px; border-radius: 13px; color: #fff;
+  display: grid; place-items: center; box-shadow: 0 4px 12px rgba(0, 0, 0, .10);
+}
+.qk-name { font-size: 10.5px; opacity: .62; }
+#lock-quick .qk:active .qk-art { transform: scale(.92); }
+
+#lock.enter { animation: lockIn .36s ease-out; }
+@keyframes lockIn { from { opacity: 0; transform: translateY(-3%) scale(1.03); } }
+#phone.unlocking #home { animation: unlockIn .42s cubic-bezier(.2, .8, .3, 1); }
+@keyframes unlockIn { from { opacity: .18; transform: scale(1.06); } }
+
+/* 锁屏壁纸单独一张时，文字对比度按锁屏那张判，不跟桌面走 */
+#phone.lock-dark #lock-time,
+#phone.lock-dark #lock-date,
+#phone.lock-dark #lock-hint,
+#phone.lock-dark .lw-row,
+#phone.lock-dark .lw-time,
+#phone.lock-dark .lw-empty,
+#phone.lock-dark .lw-more,
+#phone.lock-dark .qk-name { color: #fff; }
+#phone.lock-dark .lw-card { background: rgba(0, 0, 0, .22); }
+#phone.lock-dark .pad-dots { color: #fff; }

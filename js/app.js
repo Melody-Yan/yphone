@@ -98,6 +98,12 @@ function tickStatus() {
   SJ.$('#sb-batt').textContent = v + '%';
   SJ.$('#sb-batt-fill').style.width = v + '%';
   SJ.$('#sb-batt-fill').style.background = v < 20 ? '#ff453a' : '';
+
+  // 锁屏上的大时钟也得跟着走（以前只在 renderLock 时写一次，会冻在开屏那一刻）
+  if (locked) {
+    SJ.$('#lock-time').textContent = SJ.fmtTime(now);
+    SJ.$('#lock-date').textContent = SJ.fmtDate();
+  }
 }
 
 /* ══ 桌面 ══ */
@@ -249,22 +255,89 @@ function goPage(i) {
 
 /* ══ 锁屏 ══ */
 let locked = !!SJ.state.lock;
+let pendingApp = null;   // 锁屏快捷按钮点了谁，解锁后直接进去
 
-function renderLock() {
+/* 锁屏上的「今日安排」卡片，数据来自日历 App 的 events */
+function paintLockWidgets() {
+  const box = SJ.$('#lock-widgets');
+  if (!box) return;
+  box.innerHTML = '';
+  if (SJ.state.settings.lockWidgets === false) return;
+  const evs = SJ.todayEvents();
+  const card = SJ.el('div', { class: 'lw-card' });
+  if (!evs.length) {
+    card.append(SJ.el('div', { class: 'lw-empty' }, '今天没有安排'));
+  } else {
+    evs.slice(0, 3).forEach(ev => card.append(SJ.el('div', { class: 'lw-row' + (ev.done ? ' done' : '') }, [
+      SJ.el('span', { class: 'lw-time' }, ev.time || '全天'),
+      SJ.el('span', { class: 'lw-title' }, ev.title || '（没写标题）')
+    ])));
+    if (evs.length > 3) card.append(SJ.el('div', { class: 'lw-more' }, '还有 ' + (evs.length - 3) + ' 条'));
+  }
+  box.append(card);
+}
+
+/* 锁屏底部快捷按钮：点了先进解锁（有密码的话），解锁后直接进那个 App */
+const LOCK_QUICK = ['calendar', 'notes', 'chat', 'gallery'];
+function paintLockQuick() {
+  const box = SJ.$('#lock-quick');
+  if (!box) return;
+  const off = SJ.state.settings.lockQuick === false;
+  box.hidden = off;
+  box.innerHTML = '';
+  if (off) return;
+  LOCK_QUICK.map(id => window.APPS.find(a => a.id === id)).filter(Boolean).forEach(app => {
+    box.append(SJ.el('button', {
+      class: 'qk', title: app.name,
+      onclick: () => { pendingApp = app.id; unlock(); }
+    }, [
+      SJ.el('span', { class: 'qk-art', html: window.ICONSVG(app.icon, 21), style: { background: app.color } }),
+      SJ.el('span', { class: 'qk-name' }, app.name)
+    ]));
+  });
+}
+
+function renderLock(anim) {
   const paint = () => {
     SJ.$('#lock-time').textContent = SJ.fmtTime(SJ.virtualNow());
     SJ.$('#lock-date').textContent = SJ.fmtDate();
+    paintLockWidgets();
   };
   paint();
   SJ.onTime(paint);
   lockEl.style.display = locked ? 'flex' : 'none';
-  SJ.$('#lock-pad').hidden = true;
+  const pad = SJ.$('#lock-pad');
+  pad.hidden = true;
+  pad.innerHTML = '';                 // 不清的话上次的键盘会留在锁屏上
+  SJ.$('#lock-hint').hidden = false;
   SJ.$('#lock-hint').textContent = SJ.state.lock ? '输入 4 位密码' : '上滑解锁';
+  paintLockQuick();
+  if (anim && locked) {
+    lockEl.classList.remove('enter');
+    void lockEl.offsetWidth;          // 强制重排，动画才会重播
+    lockEl.classList.add('enter');
+  }
+}
+
+/* 解锁瞬间：桌面从小放大淡入 */
+function playUnlock() {
+  phone.classList.add('unlocking');
+  setTimeout(() => phone.classList.remove('unlocking'), 460);
+}
+
+function openPending() {
+  const id = pendingApp;
+  pendingApp = null;
+  if (id) openApp(id);
 }
 
 function unlock() {
-  if (!SJ.state.lock) { locked = false; renderLock(); return; }
-  SJ.$('#lock-hint').textContent = '输入 4 位密码（默认 1234）';
+  lockEl.classList.remove('enter');   // 别和 .shake 抢 animation
+  if (!SJ.state.lock) { locked = false; renderLock(); playUnlock(); openPending(); return; }
+  const hint = SJ.$('#lock-hint'), quick = SJ.$('#lock-quick');
+  hint.textContent = '输入 4 位密码（默认 1234）';
+  hint.hidden = true;
+  quick.hidden = true;
   const pad = SJ.$('#lock-pad');
   pad.hidden = false;
   pad.innerHTML = '';
@@ -280,7 +353,7 @@ function unlock() {
       else if (buf.length < 4) buf += k;
       paint();
       if (buf.length === 4) {
-        if (buf === (SJ.state.password || '1234')) { locked = false; renderLock(); }
+        if (buf === (SJ.state.password || '1234')) { locked = false; renderLock(); playUnlock(); openPending(); }
         else { lockEl.classList.add('shake'); setTimeout(() => lockEl.classList.remove('shake'), 400); buf = ''; paint(); }
       }
     }
@@ -311,17 +384,20 @@ function bindLockGesture() {
 function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 function applyWallpaper() {
+  const s = SJ.state.settings;
+  const lockBg = s.lockWallpaper || SJ.state.wallpaper;   // 锁屏可以单独一张，留空就跟随桌面
   homeEl.style.background = SJ.state.wallpaper;
-  lockEl.style.background = SJ.state.wallpaper;
-  // 深色壁纸翻白字；浅色（默认）走 styles.css 的基础色
+  lockEl.style.background = lockBg;
+  // 深色壁纸翻白字；浅色（默认）走 styles.css 的基础色。锁屏单独判，两边可以不一样
   phone.classList.toggle('dark-wall', SJ.isDarkWall(SJ.state.wallpaper));
+  phone.classList.toggle('lock-dark', SJ.isDarkWall(lockBg));
 }
 
 /* ══ 启动 ══ */
 function boot() {
   applyWallpaper();
   renderHome();
-  renderLock();
+  renderLock(true);
   bindLockGesture();
   tickStatus();
   setInterval(tickStatus, 5000);
@@ -335,7 +411,7 @@ function boot() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (stack.length) closeTop();
-      else if (!locked && SJ.state.lock) { locked = true; renderLock(); }
+      else if (!locked && SJ.state.lock) { locked = true; renderLock(true); }
     }
   });
 
@@ -344,6 +420,8 @@ function boot() {
 
   // 暴露给调试和自检
   window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper };
+  // 设置页开启锁屏后，立刻锁上给用户看一眼
+  window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };
 }
 
 boot();

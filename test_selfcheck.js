@@ -95,7 +95,8 @@ function dispatch(node, type, ev) {
 
 /* ── 搭骨架 ── */
 const ids = ['stage', 'phone', 'statusbar', 'sb-clock', 'sb-notch', 'sb-right', 'sb-batt', 'sb-batt-fill',
-  'home', 'pages', 'dots', 'dock', 'stack', 'lock', 'lock-time', 'lock-date', 'lock-hint', 'lock-pad', 'homebar'];
+  'home', 'pages', 'dots', 'dock', 'stack', 'lock', 'lock-time', 'lock-date', 'lock-widgets', 'lock-hint',
+  'lock-quick', 'lock-pad', 'homebar'];
 const body = makeEl('body');
 const byId = {};
 ids.forEach(id => { const n = makeEl('div'); n.attrs.id = id; byId[id] = n; body.append(n); });
@@ -223,14 +224,15 @@ sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpape
 /* 设置页点壁纸缩略图要真的换壁纸（曾经这里调 SJ.applyWallpaper 是 undefined 直接抛） */
 S.openApp('settings');
 const sv = S.SHELL.stack[0].node;
-const wallTiles = walk(sv).filter(n => n._class.has('wall'));
-ok('设置页渲染出 7 张壁纸缩略图', wallTiles.length === sandbox.SJ.WALLS.length, wallTiles.length + ' 张');
+const wallStrip = walk(sv).find(n => n._class.has('desktop-walls'));
+const wallTiles = walk(wallStrip).filter(n => n._class.has('wall'));
+ok('桌面壁纸栏渲染出 7 张缩略图', wallTiles.length === sandbox.SJ.WALLS.length, wallTiles.length + ' 张');
 try {
   wallTiles[4].click();
   ok('点第 5 张缩略图能换壁纸且不抛异常', sandbox.SJ.state.wallpaper === sandbox.SJ.WALLS[4][1],
     String(sandbox.SJ.state.wallpaper).slice(0, 30));
   ok('换完桌面背景同步了', byId.home.style.background === sandbox.SJ.WALLS[4][1]);
-  ok('选中框只留一个', walk(sv).filter(n => n._class.has('wall') && n._class.has('on')).length === 1);
+  ok('桌面壁纸栏选中框只留一个', walk(wallStrip).filter(n => n._class.has('on')).length === 1);
 } catch (e) { ok('点第 5 张缩略图能换壁纸且不抛异常', false, e.message); }
 S.closeTop(true);
 sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();ok('刷新后布局顺序保持', JSON.stringify(sandbox.SJ.state.layout.slice(0, 3)) === '["calc","notes","chat"]');
@@ -903,6 +905,88 @@ ok('导入存档时丢掉日期不合法的日程',
   imp.ok && wb.state.events.length === 1 && wb.state.events[0].title === '好的',
   JSON.stringify(wb.state.events));
 ok('导入的日程没有 id 也补一个（否则删不掉）', !!wb.state.events[0].id, String(wb.state.events[0].id));
+
+/* 21. 锁屏升级：今日安排 + 快捷按钮 + 独立壁纸 */
+console.log('\n[21] 锁屏升级');
+const lk = sandbox.SJ;
+while (S.SHELL.stack.length) S.closeTop(true);   // 上几节可能还留着视图
+lk.state.lock = true; lk.state.password = '1234'; lk.save();
+const tday = lk.dayKey();
+const lwEv = lk.saveEvent(lk.makeEvent({ date: tday, time: '09:30', title: '锁屏上要看得见' }));
+S.SHELL.lock();
+ok('锁屏出现', byId.lock.style.display === 'flex', byId.lock.style.display);
+ok('重新锁上时放了入场动效', byId.lock._class.has('enter'));
+ok('锁屏上列出今天的安排', byId['lock-widgets'].textContent.includes('锁屏上要看得见'), byId['lock-widgets'].textContent);
+ok('日程时间也显示了', byId['lock-widgets'].textContent.includes('09:30'));
+const qks = () => walk(byId['lock-quick']).filter(n => n._class.has('qk'));
+ok('锁屏底部有 4 个快捷按钮', qks().length === 4, qks().length + ' 个');
+
+/* 点快捷按钮 → 先要密码 → 解锁后直接进那个 App */
+qks().find(n => n.textContent.includes('日历')).click();
+ok('点快捷按钮先弹密码盘', byId['lock-pad'].hidden === false);
+ok('要密码时把快捷按钮收起来', byId['lock-quick'].hidden === true);
+ok('提示语也收起来了', byId['lock-hint'].hidden === true);
+const pk2 = walk(byId['lock-pad']).filter(n => n._class.has('pk'));
+['1', '2', '3', '4'].forEach(k => { const b = pk2.find(n => n.textContent === k); b && b.click(); });
+ok('解锁后直接进了那个 App（日历）',
+  S.SHELL.stack.length === 1 && walk(S.SHELL.stack[0].node).some(n => n._class.has('cal-head')),
+  '栈深度 ' + S.SHELL.stack.length);
+ok('解锁瞬间桌面做了入场动效', byId.phone._class.has('unlocking'));
+S.closeTop(true);
+
+/* 锁屏可以单独一张壁纸 */
+const DESK_W = lk.WALLS[0][1], LOCK_W = lk.WALLS[6][1];
+lk.state.wallpaper = DESK_W;
+lk.state.settings.lockWallpaper = LOCK_W;
+lk.applyWallpaper();
+ok('锁屏背景 = 锁屏那张', byId.lock.style.background === LOCK_W);
+ok('桌面背景 = 桌面那张（两边互不干扰）', byId.home.style.background === DESK_W);
+ok('锁屏壁纸深色 → 锁屏翻白字（lock-dark）', byId.phone._class.has('lock-dark'));
+ok('桌面壁纸浅色 → 桌面不加 dark-wall（分开判）', !byId.phone._class.has('dark-wall'));
+lk.state.settings.lockWallpaper = '';
+lk.applyWallpaper();
+ok('锁屏壁纸留空 = 跟随桌面', byId.lock.style.background === DESK_W);
+ok('跟随桌面后 lock-dark 也跟桌面走', !byId.phone._class.has('lock-dark'));
+
+/* 设置页：锁屏壁纸栏 + 两个开关 */
+const sv2 = openFresh('settings');
+const lws = walk(sv2).find(n => n._class.has('lock-walls'));
+ok('设置页有锁屏壁纸栏', !!lws);
+ok('锁屏壁纸栏第一格是「跟随桌面」', lws.firstChild._class.has('follow'));
+ok('锁屏壁纸栏 = 跟随桌面 + 7 张', walk(lws).filter(n => n._class.has('wall')).length === 8,
+  walk(lws).filter(n => n._class.has('wall')).length + ' 格');
+ok('跟随桌面时第一格是选中态', lws.firstChild._class.has('on'));
+S.closeTop(true);
+lk.state.settings.lockWallpaper = lk.WALLS[3][1]; lk.save(); lk.applyWallpaper();
+const sv3 = openFresh('settings');
+const lws2 = walk(sv3).find(n => n._class.has('lock-walls'));
+const follow2 = walk(lws2).find(n => n._class.has('follow'));
+ok('有单独壁纸时「跟随桌面」不是选中态', !follow2._class.has('on'));
+follow2.click();
+ok('点「跟随桌面」清空锁屏壁纸', lk.state.settings.lockWallpaper === '', String(lk.state.settings.lockWallpaper));
+ok('清空后锁屏背景立刻跟随桌面', byId.lock.style.background === lk.state.wallpaper);
+ok('跟随桌面变成选中态', follow2._class.has('on'));
+ok('设置页有「锁屏显示今日安排」开关', !!walk(sv3).find(n => n.textContent.includes('锁屏显示今日安排')));
+ok('设置页有「锁屏快捷按钮」开关', !!walk(sv3).find(n => n.textContent.includes('锁屏快捷按钮')));
+S.closeTop(true);
+
+/* 两个开关真的管用 */
+lk.state.settings.lockWidgets = false; S.SHELL.lock();
+ok('关掉「今日安排」后锁屏上没有卡片', walk(byId['lock-widgets']).length === 0);
+lk.state.settings.lockWidgets = true;
+lk.state.settings.lockQuick = false; S.SHELL.lock();
+ok('关掉快捷按钮后锁屏底部空着且收起来', walk(byId['lock-quick']).length === 0 && byId['lock-quick'].hidden === true);
+lk.state.settings.lockQuick = true;
+
+/* 重绘锁屏必须把密码盘清空，否则上次的键盘会残留在锁屏上 */
+S.SHELL.lock(); S.SHELL.unlock();
+ok('要密码时密码盘展开且有 12 个键', byId['lock-pad'].hidden === false && walk(byId['lock-pad']).length > 0);
+S.SHELL.lock();
+ok('重绘锁屏后密码盘收起', byId['lock-pad'].hidden === true);
+ok('重绘锁屏后密码盘内容被清空（否则会残留）', walk(byId['lock-pad']).length === 0,
+  walk(byId['lock-pad']).length + ' 个残留节点');
+
+lk.state.lock = false; lk.state.password = ''; lk.deleteEvent(lwEv.id); lk.save();
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);

@@ -889,20 +889,43 @@ const APPS = [
 
         /* 壁纸（列表在 core.js 的 WALLS，别在这里再抄一份） */
         const walls = SJ.WALLS;
-        box.append(SJ.el('div', { class: 'group-title' }, '壁纸'));
-        const wallBox = SJ.el('div', { class: 'walls' });
-        walls.forEach(([name, css], i) => wallBox.append(SJ.el('div', {
-          class: 'wall' + (SJ.state.wallpaper === css ? ' on' : ''),
-          style: { background: css },
-          title: name,
+        function wallStrip(cur, pick, cls) {
+          const wrap = SJ.el('div', { class: 'walls ' + cls });
+          walls.forEach(([name, css]) => {
+            const cell = SJ.el('div', {
+              class: 'wall' + (cur === css ? ' on' : ''),
+              style: { background: css },
+              title: name,
+              onclick: () => {
+                pick(css);
+                SJ.$$('.wall', wrap).forEach(w => w.classList.remove('on'));
+                cell.classList.add('on');
+              }
+            });
+            wrap.append(cell);
+          });
+          return wrap;
+        }
+
+        box.append(SJ.el('div', { class: 'group-title' }, '桌面壁纸'));
+        box.append(wallStrip(SJ.state.wallpaper, css => {
+          SJ.state.wallpaper = css; SJ.save(); SJ.applyWallpaper();
+        }, 'desktop-walls'));
+
+        box.append(SJ.el('div', { class: 'group-title' }, '锁屏壁纸'));
+        const lockWalls = wallStrip(SJ.state.settings.lockWallpaper, css => {
+          SJ.state.settings.lockWallpaper = css; SJ.save(); SJ.applyWallpaper();
+        }, 'lock-walls');
+        lockWalls.insertBefore(SJ.el('div', {
+          class: 'wall follow' + (SJ.state.settings.lockWallpaper ? '' : ' on'),
+          title: '跟随桌面',
           onclick: () => {
-            SJ.state.wallpaper = css; SJ.save();
-            SJ.applyWallpaper();
-            SJ.$$('.wall', wallBox).forEach(w => w.classList.remove('on'));
-            wallBox.children[i].classList.add('on');
+            SJ.state.settings.lockWallpaper = ''; SJ.save(); SJ.applyWallpaper();
+            SJ.$$('.wall', lockWalls).forEach(w => w.classList.remove('on'));
+            lockWalls.firstChild.classList.add('on');
           }
-        })));
-        box.append(wallBox);
+        }), lockWalls.firstChild);
+        box.append(lockWalls);
 
         /* 通用 */
         box.append(SJ.el('div', { class: 'group-title' }, '通用'));
@@ -910,6 +933,12 @@ const APPS = [
           SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, '锁屏')]),
           SJ.el('div', { class: 'row-time' }, SJ.state.lock ? '已开启 ›' : '已关闭 ›')
         ]));
+        box.append(toggleRow('锁屏显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
+          SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
+        }));
+        box.append(toggleRow('锁屏快捷按钮', '不解锁也能直接进日历 / 备忘录', SJ.state.settings.lockQuick !== false, () => {
+          SJ.state.settings.lockQuick = !SJ.state.settings.lockQuick; SJ.save(); main();
+        }));
         box.append(SJ.el('div', { class: 'row', onclick: () => toggle24() }, [
           SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, '24 小时制')]),
           SJ.el('div', { class: 'row-time' }, SJ.state.settings.clock24 ? '开 ›' : '关 ›')
@@ -1047,6 +1076,7 @@ const APPS = [
         if (SJ.state.lock) { SJ.state.lock = false; SJ.state.password = ''; }
         else { SJ.state.lock = true; SJ.state.password = '1234'; }
         SJ.save(); main();
+        if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
       }
       function toggle24() { SJ.state.settings.clock24 = !SJ.state.settings.clock24; SJ.save(); main(); }
 

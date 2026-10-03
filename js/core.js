@@ -60,7 +60,11 @@ const DEFAULTS = {
     scanDepth: 4,        // 关键词只在最近几条消息里找
     historyKeep: 40,     // 原文最多带最近几条（更早的靠记忆卡片顶上）
     autoMemory: true,    // 攒够就自动总结
-    autoEvery: 20        // 攒够多少条新消息自动总结一次
+    autoEvery: 20,       // 攒够多少条新消息自动总结一次
+    /* 锁屏 */
+    lockWallpaper: '',   // 空 = 跟随桌面壁纸
+    lockWidgets: true,   // 锁屏上显示「今日安排」
+    lockQuick: true      // 锁屏底部快捷按钮
   },
   characters: [],        // 通讯录：[{id,name,avatar,color,desc,persona,greeting,alias,relation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }

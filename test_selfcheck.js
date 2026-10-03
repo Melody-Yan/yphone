@@ -190,7 +190,10 @@ console.log('\n小手机 · 自检');
 console.log('\n[1] 启动与渲染');
 try { boot(); ok('三个 js 文件载入并执行 boot() 无异常', true); }
 catch (e) { ok('三个 js 文件载入并执行 boot() 无异常', false, e.message); }
-ok('window.APPS 已注册 9 个 App', sandbox.APPS.length === 9, '实际 ' + sandbox.APPS.length);
+/* 别写死数量（加个 App 就得改一次测试）；这条查的是真不变量：id 不重名、都有 render */
+ok('App 注册表里 id 不重名、每条都有 render',
+  new Set(sandbox.APPS.map(a => a.id)).size === sandbox.APPS.length &&
+  sandbox.APPS.every(a => typeof a.render === 'function'), '实际 ' + sandbox.APPS.length + ' 个');
 ok('window.SHELL 调试出口就位', !!(sandbox.SHELL && sandbox.SHELL.openApp && sandbox.SHELL.stack));
 ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
 ok('首页有桌面挂件（大时钟）', pages[0].children.some(c => c._class.has('widget')));
@@ -1241,6 +1244,158 @@ ok('设置里的「世界书」直接打开世界书 App',
 while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.worldbook.length = 0; wb.save();
 wb.deleteCharacter(wcA.id);
+
+/* 25. 外卖 + 音乐 + 图标能拖（放 [24] 前面：[24] 会直接改 store 和 boot()） */
+console.log('\n[25] 外卖、音乐与桌面图标拖动');
+{
+  /* S 只是个极简门面（openApp/closeTop/SHELL），新 App 要的东西它没暴露，直接用 sandbox.SJ */
+  const App = sandbox.SJ;
+  /* ── 歌单解析：纯函数，先把三种贴法钉死 ── */
+  const pl = App.parsePlaylist([
+    '晴天 - 周杰伦 | https://a.test/qing.mp3',
+    'https://a.test/feng.mp3 起风了 - 买辣椒也用券',
+    '#EXTINF:-1,夜曲 - 周杰伦',
+    'https://a.test/ye.mp3',
+    'https://a.test/bare.mp3',            // 前面没有 #EXTINF，只能拿链接尾段当名字
+    '这一行根本没有链接，必须被丢掉',
+    'https://a.test/qing.mp3',            // 和第一行同一条链接
+    '又一段乱写的东西'
+  ].join('\n'));
+  ok('歌单：解析出 4 首（没链接的行丢掉、重复链接去重）', pl.length === 4, pl.length + ' 首');
+  ok('歌单：「歌名 - 歌手 | 链接」拆对了', pl[0].name === '晴天' && pl[0].artist === '周杰伦', JSON.stringify(pl[0]));
+  ok('歌单：链接在前、歌名在后也认', pl[1].name === '起风了' && pl[1].artist === '买辣椒也用券', JSON.stringify(pl[1]));
+  ok('歌单：m3u 的 #EXTINF 标题跟到下一行', pl[2].name === '夜曲' && pl[2].artist === '周杰伦', JSON.stringify(pl[2]));
+  ok('歌单：只有链接就拿链接尾段当歌名（上一条的标题不会串下来）', pl[3].name === 'bare.mp3', pl[3].name);
+  ok('空歌单不会炸', App.parsePlaylist('').length === 0 && App.parsePlaylist(null).length === 0);
+
+  /* ── 导入 / 去重 / 删除 ── */
+  App.musicClear();
+  ok('导入 3 首', App.musicAdd(pl.slice(0, 3)) === 3, App.musicTracks().length + ' 首');
+  ok('同一批再导一次，一首都不加', App.musicAdd(pl.slice(0, 3)) === 0, App.musicTracks().length + ' 首');
+  const tk = App.musicTracks()[0];
+  App.musicSetNow(tk.id);
+  ok('能设为正在播放', !!App.musicNow() && App.musicNow().id === tk.id);
+  App.musicRemove(tk.id);
+  ok('删掉正在播的那首，now 也一起清掉', App.musicTracks().length === 2 && App.musicNow() === null);
+  ok('存档里只留 http(s) 链接的歌', App.normalizeTracks([{ name: 'x', url: 'ftp://a' }, { name: 'y', url: 'https://b' }]).length === 1);
+
+  /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */
+  App.musicClear();                    // 空态才有那个「粘贴歌单导入」按钮
+  const muApp = openFresh('music');
+  ok('音乐 App 空态给的是「粘贴歌单导入」', !!findBtn(muApp, '粘贴歌单导入'));
+  findBtn(muApp, '粘贴歌单导入').click();
+  const ta = walk(muApp).find(n => n.tagName === 'TEXTAREA');
+  ok('导入页有粘贴框', !!ta);
+  ta.value = '起风了 - 买辣椒也用券 | https://a.test/feng.mp3';
+  findBtn(muApp, '导入').click();
+  ok('粘一行进去就进歌单了', App.musicTracks().some(t => t.name === '起风了'), App.musicTracks().map(t => t.name).join(','));
+  ok('导入后回到列表，行上能看到歌名', walk(muApp).some(n => n._class.has('row-title') && /起风了/.test(n.textContent)));
+
+  /* ── 外卖：商家是让 AI 现生成的 ── */
+  App.state.settings.apiBase = 'https://api.example.com/v1';   // askOnce 没配好会直接抛，先把接口配齐
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  let sentBody = null;
+  fetchImpl = (url, opts) => {
+    sentBody = JSON.parse(opts.body);
+    // 故意裹一层 ```json，还塞一家没有菜的店 —— 真实模型就是这么回话的
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content:
+      '```json\n{"shops":[' +
+      '{"name":"巷口面馆","kind":"面食","eta":"25分钟","rating":"4.8","dishes":[' +
+      '{"name":"雪菜肉丝面","desc":"汤头熬了三小时","price":22},{"name":"素鸡","desc":"","price":8}]},' +
+      '{"name":"深夜食堂","kind":"日式","eta":"40分钟","rating":"4.6","dishes":[' +
+      '{"name":"亲子丼","desc":"半熟蛋","price":38}]},' +
+      '{"name":"一家没有菜的店","kind":"","dishes":[]}]}\n```' } }] }));
+  };
+  const dlApp = openFresh('delivery');
+  ok('外卖 App 空态给的是「生成一批商家」', !!findBtn(dlApp, '生成一批商家'));
+  findBtn(dlApp, '生成一批商家').click();
+  await waitFor(() => App.state.delivery.shops.length > 0, 3000);
+  ok('AI 回的 JSON 裹了 ``` 也解析得出来，没菜的店被丢掉',
+    App.state.delivery.shops.length === 2, App.state.delivery.shops.map(s => s.name).join(','));
+  ok('用 askOnce 发的是一条 system + 一条 user，没把角色扮演的东西塞进去',
+    sentBody.messages.length === 2 && sentBody.messages[0].role === 'system' && sentBody.messages[1].role === 'user',
+    JSON.stringify(sentBody.messages.map(m => m.role)));
+  const shopA = App.state.delivery.shops[0], shopB = App.state.delivery.shops[1];
+  ok('菜品也归一好了（价格是数字）', shopA.dishes.length === 2 && typeof shopA.dishes[0].price === 'number', JSON.stringify(shopA.dishes[0]));
+
+  /* ── 购物车：同店累加、换店清空 ── */
+  App.clearCart();
+  App.addToCart(shopA.id, shopA.dishes[0]);
+  App.addToCart(shopA.id, shopA.dishes[0]);
+  App.addToCart(shopA.id, shopA.dishes[1]);
+  ok('同一道菜点两次是数量 2，不是两行', App.state.delivery.cart.length === 2 && App.state.delivery.cart[0].n === 2,
+    JSON.stringify(App.state.delivery.cart.map(x => [x.name, x.n])));
+  ok('总件数、总价算对', App.cartCount() === 3 && App.cartTotal() === shopA.dishes[0].price * 2 + shopA.dishes[1].price,
+    App.cartCount() + ' 件 ¥' + App.cartTotal());
+  App.addToCart(shopB.id, shopB.dishes[0]);
+  ok('换一家店点，上一家的车会被清掉（一次只能点一家）',
+    App.state.delivery.cart.length === 1 && App.state.delivery.cart[0].shopId === shopB.id);
+
+  /* ── 下单 + 订单进度跟着虚拟时间走 ── */
+  const o = App.placeOrder();
+  ok('下单后订单进了列表、购物车清空', !!o && App.state.delivery.orders.length === 1 && App.cartCount() === 0);
+  ok('订单里记的是商家的名字和城实总价', o.shopName === shopB.name && o.total === shopB.dishes[0].price, JSON.stringify([o.shopName, o.total]));
+  ok('订单时间用的是虚拟时间（跟手机上的钟一致）', Math.abs(o.ts - App.virtualNow().getTime()) < 2000);
+  ok('刚下单是「商家接单中」', App.orderStage(o) === 0, App.ORDER_STAGES[App.orderStage(o)]);
+  ok('走过 45 秒变「商家已接单」', App.orderStage(o, o.ts + App.ORDER_STEP_MS + 1000) === 1,
+    App.ORDER_STAGES[App.orderStage(o, o.ts + App.ORDER_STEP_MS + 1000)]);
+  ok('过了再久也停在「已送达」，不会越界', App.orderStage(o, o.ts + 999999999) === App.ORDER_STAGES.length - 1);
+  fetchImpl = null;
+
+  /* ── 图标能拖：监听器只注册一次，顺序落盘 ── */
+  S.SHELL.renderHome();
+  const tmove0 = body._listeners['touchmove'].length;
+  for (let i = 0; i < 5; i++) S.SHELL.renderHome();
+  ok('反复重绘桌面不会在 document 上堆监听器（拖不动就是被这个堆死的）',
+    body._listeners['touchmove'].length === tmove0, tmove0 + ' → ' + body._listeners['touchmove'].length);
+
+  const code = (x, y) => ({ touches: [{ clientX: x, clientY: y }], changedTouches: [{ clientX: x, clientY: y }] });
+  /* 桌面是 4 列网格，垫片自己算不出真实坐标 —— 手工把每个图标铺成 100×90 的格子。
+     注意 renderHome() 一换位就会重建全部图标节点，所以每次都得重新查、重新铺。 */
+  const pageIds = () => App.$$('.page .icon', byId.phone).map(n => n.dataset.appId);
+  const layIcons = () => {
+    const list = App.$$('.page .icon', byId.phone);
+    list.forEach((n, i) => {
+      n.getBoundingClientRect = () => ({ left: i * 100, top: 0, right: i * 100 + 90, bottom: 90, width: 90, height: 90 });
+    });
+    return list;
+  };
+  const icons = layIcons();
+  ok('桌面上有不止一个图标可以拖', icons.length > 2, icons.length + ' 个');
+  const idsBefore = pageIds();
+  App.state.layout = []; App.save();
+
+  dispatch(icons[0], 'touchstart', code(5, 5));
+  await sleep(520);                       // 长按 450ms 才起拖
+  ok('按住图标够久会起拖（生成了跟手的替身）', walk(body).some(n => n._class.has('ghost')));
+  dispatch(byId.phone, 'touchmove', code(105, 5));    // 拖到第二个图标头上
+  const idsAfter = pageIds();
+  ok('拖到谁头上就和谁换位（松手前就已经换好了）',
+    idsAfter[0] === idsBefore[1] && idsAfter[1] === idsBefore[0],
+    idsBefore.slice(0, 2).join(',') + ' → ' + idsAfter.slice(0, 2).join(','));
+  dispatch(byId.phone, 'touchend', code(105, 5));
+  ok('拖完替身被收走了，不会留在屏幕上', !walk(body).some(n => n._class.has('ghost')));
+  ok('换位顺手落盘了（刷新不丢）', (() => {
+    const saved = JSON.parse(store.get('xiaoshouji.v1') || '{}').layout || [];
+    /* 全量顺序里，甲原来在乙前面，换完之后乙必须在甲前面 */
+    return saved.indexOf(idsBefore[1]) >= 0 && saved.indexOf(idsBefore[1]) < saved.indexOf(idsBefore[0]);
+  })(), (App.state.layout || []).slice(0, 4).join(','));
+
+  ok('只是点一下（没按够 450ms）不会误拖', (() => {
+    const before = (App.state.layout || []).slice();
+    dispatch(layIcons()[2], 'touchstart', code(205, 5));
+    dispatch(byId.phone, 'touchmove', code(206, 6));
+    dispatch(byId.phone, 'touchend', code(206, 6));
+    return (App.state.layout || []).join(',') === before.join(',');
+  })());
+
+  while (S.SHELL.stack.length) S.closeTop(true);
+  App.state.delivery = { shops: [], cart: [], orders: [] };
+  App.musicClear();
+  App.state.layout = [];
+  App.save();
+}
 
 /* 24. 存档安全：读存档这条路绝不能把用户的记忆弄丢（本节放最后，会动 store */
 console.log('\n[24] 存档读取不许弄丢数据');

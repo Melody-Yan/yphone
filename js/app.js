@@ -132,8 +132,6 @@ function iconNode(app, { small = false } = {}) {
   ]);
 }
 
-let dragging = null;
-
 /* ══ 桌面插件 ══
    6 种插件，每种就一段内容。点插件进对应的 App（时钟/电量没地方去，就不加跳转）。 */
 const WIDGET_APP = { calendar: 'calendar', notes: 'notes', chat: 'chat', gallery: 'gallery' };
@@ -291,12 +289,12 @@ function renderHome() {
       const node = widgetNode(i, w);
       if (node) page.append(node);
     });
-    slice[i].forEach((id, idx) => {
+    slice[i].forEach(id => {
       const app = window.APPS.find(a => a.id === id);
       if (!app) return;
       const node = iconNode(app);
       node.dataset.appId = id;
-      bindDrag(node, i * 24 + idx);
+      bindDrag(node);
       page.append(node);
     });
   });
@@ -317,74 +315,89 @@ function renderHome() {
   goPage(currentPage);
 }
 
-/* ── 长按拖动排序（同时支持鼠标和触摸）── */
-function bindDrag(node, index) {
-  let holdTimer = null, startX = 0, startY = 0, ghost = null;
+/* ── 长按拖动排序（同时支持鼠标和触摸）──
+   监听器整个模块只注册一次（就在下面），读的一律是这里的 dragging / press。
+   以前 mousemove/mouseup 是在每个图标节点里各挂一份的，而 renderHome() 每次交换
+   位置都会重建全部图标 —— 于是每重绘一次，document 上就多堆一份 handler，
+   一次拖拽下来能有几百个 handler 同时处理同一次 touchmove、每个还都调 renderHome()。
+   「图标拖不动」的真身就是这个：不是没做，是被自己堆死了。 */
+let dragging = null;   // 真的拖起来了
+let press = null;      // 按下去了、还在等长按（这段时间不挡翻页和长按加插件）
 
+function onDragMove(e) {
+  const t = e.touches ? e.touches[0] : e;
+  if (press && !dragging) {
+    // 挪远了就是滑动翻页，不是长按，撤掉计时器
+    if (Math.abs(t.clientX - press.x0) + Math.abs(t.clientY - press.y0) > 12) {
+      clearTimeout(press.timer); press = null;
+    }
+    return;
+  }
+  if (!dragging) return;
+  e.preventDefault();
+  dragging.ghost.style.left = (t.clientX - dragging.gx) + 'px';
+  dragging.ghost.style.top = (t.clientY - dragging.gy) + 'px';
+
+  // 落点：手指下面的那个图标
+  const over = SJ.$$('.page .icon', phone).find(n => {
+    if (n === dragging.node) return false;
+    const b = n.getBoundingClientRect();
+    return t.clientX > b.left && t.clientX < b.right && t.clientY > b.top && t.clientY < b.bottom;
+  });
+  if (!over) return;
+  const id = dragging.node.dataset.appId;
+  const from = dragging.order.indexOf(id);
+  const to = dragging.order.indexOf(over.dataset.appId);
+  if (from < 0 || to < 0 || from === to) return;
+  dragging.order.splice(to, 0, dragging.order.splice(from, 1)[0]);
+  SJ.state.layout = dragging.order;   // renderHome() 读的是 state.layout，不写回这里就白换了
+  renderHome();
+  // renderHome 会把图标全换成新节点，这里把 dragging.node 指向「还是我」的那个，
+  // 否则拖到第二次交换时 .dragging 就挂在一个已经脱离文档的旧节点上了
+  const again = SJ.$$('.page .icon', phone).find(n => n.dataset.appId === id);
+  if (again) { dragging.node = again; again.classList.add('dragging'); }
+}
+
+function onDragEnd() {
+  if (press) { clearTimeout(press.timer); press = null; }
+  if (!dragging) return;
+  SJ.state.layout = dragging.order;
+  SJ.save();
+  if (dragging.ghost) dragging.ghost.remove();
+  dragging = null;
+  renderHome();
+}
+
+function bindDrag(node) {
   const begin = e => {
+    if (dragging || press) return;
     const t = e.touches ? e.touches[0] : e;
-    startX = t.clientX; startY = t.clientY;
-    holdTimer = setTimeout(() => {
-      ghost = node.cloneNode(true);
-      ghost.classList.add('ghost');
-      const r = node.getBoundingClientRect();
-      Object.assign(ghost.style, {
+    const r = node.getBoundingClientRect();
+    const p = { x0: t.clientX, y0: t.clientY, timer: null };
+    p.timer = setTimeout(() => {
+      press = null;
+      const g = node.cloneNode(true);
+      g.classList.add('ghost');
+      Object.assign(g.style, {
         position: 'fixed', left: r.left + 'px', top: r.top + 'px',
         width: r.width + 'px', zIndex: 999, pointerEvents: 'none'
       });
-      document.body.append(ghost);
+      document.body.append(g);
       node.classList.add('dragging');
-      dragging = { node, ghost, order: appOrder() };
+      // 抓住哪儿就从哪儿拖（以前是让图标瞬移到手指正中，手感很跳）
+      dragging = { node, ghost: g, order: appOrder(), gx: t.clientX - r.left, gy: t.clientY - r.top };
       vibrate(14);
     }, 450);
+    press = p;
   };
-
-  const move = e => {
-    const t = e.touches ? e.touches[0] : e;
-    if (holdTimer) {
-      if (Math.abs(t.clientX - startX) + Math.abs(t.clientY - startY) > 12) {
-        clearTimeout(holdTimer); holdTimer = null;   // 是滑动翻页，不是长按
-      }
-      return;
-    }
-    if (!dragging) return;
-    e.preventDefault();
-    dragging.ghost.style.left = (t.clientX - dragging.ghost.offsetWidth / 2) + 'px';
-    dragging.ghost.style.top = (t.clientY - dragging.ghost.offsetHeight / 2) + 'px';
-
-    // 找落点：手指下面的那个图标
-    const over = [...SJ.$$('.page .icon', phone)].find(n => {
-      if (n === node) return false;
-      const b = n.getBoundingClientRect();
-      return t.clientX > b.left && t.clientX < b.right && t.clientY > b.top && t.clientY < b.bottom;
-    });
-    if (over) {
-      const from = dragging.order.indexOf(node.dataset.appId);
-      const to = dragging.order.indexOf(over.dataset.appId);
-      if (from > -1 && to > -1) {
-        dragging.order.splice(to, 0, dragging.order.splice(from, 1)[0]);
-        renderHome();
-      }
-    }
-  };
-
-  const end = () => {
-    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-    if (!dragging) return;
-    SJ.state.layout = dragging.order;
-    SJ.save();
-    dragging.ghost.remove();
-    dragging = null;
-    renderHome();
-  };
-
   node.addEventListener('mousedown', begin);
   node.addEventListener('touchstart', begin, { passive: true });
-  document.addEventListener('mousemove', move);
-  document.addEventListener('touchmove', move, { passive: false });
-  document.addEventListener('mouseup', end);
-  document.addEventListener('touchend', end);
 }
+
+document.addEventListener('mousemove', onDragMove);
+document.addEventListener('touchmove', onDragMove, { passive: false });
+document.addEventListener('mouseup', onDragEnd);
+document.addEventListener('touchend', onDragEnd);
 
 /* ── 桌面横向翻页 ── */
 let currentPage = 0;

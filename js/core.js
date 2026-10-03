@@ -88,7 +88,18 @@ const DEFAULTS = {
   worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
   memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
   events: [],            // 日历：[{id,date,time,title,done}, ...]
-  widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []]  // 桌面插件：每页一组 [{id,type}, ...]
+  widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
+  /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
+  delivery: {
+    shops: [],           // [{id,name,kind,eta,rating,dishes:[{id,name,desc,price}]}, ...]
+    cart: [],            // [{id,shopId,name,price,n}, ...]（一次只能点一家）
+    orders: []           // [{id,shopName,items:[{name,n}],total,ts}, ...]
+  },
+  /* 音乐：歌单靠粘贴链接导入 */
+  music: {
+    tracks: [],          // [{id,name,artist,url}, ...]
+    now: ''              // 当前播放的曲目 id
+  }
 };
 
 /* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
@@ -96,7 +107,8 @@ const DEFAULTS = {
 const SCHEMA = {
   wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
   notes: 'array', characters: 'array', chats: 'object',
-  worldbook: 'array', memories: 'object', events: 'array', widgets: 'array'
+  worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
+  delivery: 'object', music: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -176,6 +188,15 @@ function migrate(saved) {
       .filter(w => w && typeof w === 'object' && knownWg.indexOf(w.type) >= 0)
       .map((w, i) => ({ id: String(w.id || (`wg-${p}-${i}`)), type: w.type }));
   });
+  // 外卖 / 音乐：都是导入存档的信任边界，逐条归一（normalize* 是函数声明，提升过，TDZ 安全）
+  const dl = (out.delivery && typeof out.delivery === 'object' && !Array.isArray(out.delivery)) ? out.delivery : {};
+  out.delivery = {
+    shops: normalizeShops(dl.shops),
+    cart: normalizeCart(dl.cart),
+    orders: normalizeOrders(dl.orders)
+  };
+  const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
+  out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
   return out;
 }
 
@@ -563,6 +584,173 @@ function latestImage() {
 }
 
 /* ══════════════════════════════════════════════════════
+   L1.8 外卖 + 音乐（数据层；界面在 apps.js）
+   ══════════════════════════════════════════════════════ */
+
+/* 归一函数全部用 function 声明：migrate() 在模块顶层就被 load() 调到了，
+   箭头函数常量那时还在 TDZ 里。id 一律用下标生成（不用 uid()，同理）。
+   叫 normalize* 而不是 parse* —— 它们吃的是「AI 返回或导入存档里的一坨东西」。 */
+function normalizeShops(raw) {
+  const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.shops) ? raw.shops : []);
+  return list.filter(s => s && typeof s === 'object').slice(0, 8).map((s, i) => ({
+    id: String(s.id || ('shop-' + i)),
+    name: String(s.name || '无名小店').slice(0, NAME_MAX),
+    kind: String(s.kind || '').slice(0, NAME_MAX),
+    eta: String(s.eta || '').slice(0, 16),
+    rating: String(s.rating || '').slice(0, 8),
+    dishes: (Array.isArray(s.dishes) ? s.dishes : [])
+      .filter(x => x && typeof x === 'object').slice(0, 10).map((x, j) => ({
+        id: 'dish-' + i + '-' + j,
+        name: String(x.name || '一道菜').slice(0, NAME_MAX),
+        desc: String(x.desc || '').slice(0, 60),
+        price: Math.max(0, Math.round(Number(x.price) || 0))
+      }))
+  })).filter(s => s.dishes.length);
+}
+function normalizeCart(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(x => x && typeof x === 'object').slice(0, 40).map((x, i) => ({
+    id: String(x.id || ('ci-' + i)),
+    shopId: String(x.shopId || ''),
+    name: String(x.name || '').slice(0, NAME_MAX),
+    price: Math.max(0, Math.round(Number(x.price) || 0)),
+    n: Math.max(1, Math.min(99, Number(x.n) || 1))
+  }));
+}
+function normalizeOrders(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(o => o && typeof o === 'object').slice(0, 30).map((o, i) => ({
+    id: String(o.id || ('od-' + i)),
+    shopName: String(o.shopName || '').slice(0, NAME_MAX),
+    items: (Array.isArray(o.items) ? o.items : []).slice(0, 40).map(x => ({
+      name: String((x && x.name) || '').slice(0, NAME_MAX),
+      n: Math.max(1, Math.min(99, Number((x && x.n) || 1)))
+    })),
+    total: Math.max(0, Math.round(Number(o.total) || 0)),
+    ts: Number(o.ts) || 0
+  }));
+}
+function normalizeTracks(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(t => t && typeof t === 'object' && /^https?:\/\//i.test(String(t.url || '')))
+    .slice(0, 500)
+    .map((t, i) => ({
+      id: String(t.id || ('tk-' + i)),
+      name: String(t.name || '未命名').slice(0, NAME_MAX),
+      artist: String(t.artist || '').slice(0, NAME_MAX),
+      url: String(t.url)
+    }));
+}
+
+/* ── 外卖 ── */
+/* 订单进度靠虚拟时间推，不存状态：存了就得有个定时器到处改存档，
+   而且关掉 App 再进来进度就断了。这里按「下单到现在过了多久」现算。 */
+const ORDER_STAGES = ['商家接单中', '商家已接单', '骑手已取餐', '配送中', '已送达'];
+const ORDER_STEP_MS = 45 * 1000;   // ponytail: 每 45 秒推进一步；嫌慢就调这个数
+
+function orderStage(o, now) {
+  const t = now == null ? virtualNow().getTime() : now;
+  const i = Math.floor((t - (Number(o && o.ts) || 0)) / ORDER_STEP_MS);
+  return Math.max(0, Math.min(ORDER_STAGES.length - 1, i));
+}
+
+function setShops(list) {
+  state.delivery.shops = normalizeShops(list);
+  state.delivery.cart = [];   // 换了一批店，购物车里的菜就没出处了
+  save();
+  return state.delivery.shops;
+}
+
+function addToCart(shopId, dish) {
+  const d = state.delivery;
+  // 一次只能点一家：加别家的菜就把上一家的清掉（外卖 App 的老规矩）
+  if (d.cart.length && d.cart[0].shopId !== shopId) d.cart = [];
+  const hit = d.cart.find(x => x.id === dish.id);
+  if (hit) hit.n = Math.min(99, hit.n + 1);
+  else d.cart.push({ id: dish.id, shopId, name: dish.name, price: dish.price, n: 1 });
+  save();
+  return d.cart;
+}
+function cartCount() { return state.delivery.cart.reduce((s, x) => s + x.n, 0); }
+function cartTotal() { return state.delivery.cart.reduce((s, x) => s + x.price * x.n, 0); }
+function clearCart() { state.delivery.cart = []; save(); }
+
+function placeOrder() {
+  const d = state.delivery;
+  if (!d.cart.length) return null;
+  const shop = d.shops.find(s => s.id === d.cart[0].shopId);
+  const o = {
+    id: uid(),
+    shopName: shop ? shop.name : '外卖',
+    items: d.cart.map(x => ({ name: x.name, n: x.n })),
+    total: cartTotal(),
+    ts: virtualNow().getTime()   // 用虚拟时间，订单进度才跟这台手机上的钟一致
+  };
+  d.orders.unshift(o);
+  d.orders = d.orders.slice(0, 30);
+  d.cart = [];
+  save();
+  return o;
+}
+
+/* ── 音乐 ── */
+function musicTracks() { return state.music.tracks; }
+function musicAdd(list) {
+  const have = new Set(state.music.tracks.map(t => t.url));
+  let n = 0;
+  (list || []).forEach(t => {
+    if (!t || !t.url || have.has(t.url)) return;   // 同一条链接只进一次
+    have.add(t.url);
+    state.music.tracks.push({ id: uid(), name: t.name, artist: t.artist || '', url: t.url });
+    n++;
+  });
+  if (n) save();
+  return n;
+}
+function musicRemove(id) {
+  const before = state.music.tracks.length;
+  state.music.tracks = state.music.tracks.filter(t => t.id !== id);
+  if (state.music.now === id) state.music.now = '';
+  if (state.music.tracks.length !== before) save();
+  return before - state.music.tracks.length;
+}
+function musicClear() { state.music.tracks = []; state.music.now = ''; save(); }
+function musicNow() { return state.music.tracks.find(t => t.id === state.music.now) || null; }
+function musicSetNow(id) { state.music.now = String(id || ''); save(); return musicNow(); }
+
+/* 歌单解析：纯函数，方便测。认三种常见贴法 ——
+   1) 每行「歌名 - 歌手 | https://…」
+   2) 每行「https://… 歌名」（或只有链接，就拿链接尾段当名字）
+   3) m3u：`#EXTINF:-1,歌手 - 歌名` 的下一行是链接
+   认不出链接的行一律跳过：宁可少几首，也别把整段垃圾塞进列表。 */
+function parsePlaylist(text) {
+  const out = [];
+  let pending = '';
+  String(text || '').split(/\r?\n/).forEach(raw => {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) {
+      if (/^#EXTINF/i.test(line)) pending = line.replace(/^#EXTINF:[^,]*,\s*/i, '').trim();
+      return;
+    }
+    const m = line.match(/https?:\/\/[^\s|｜,，]+/);
+    if (!m) return;
+    const url = m[0];
+    let title = pending || line.replace(m[0], '');
+    pending = '';
+    // 去掉残留的分隔符和横杠
+    title = title.replace(/^[\s|｜,，、\-–—]+|[\s|｜,，、\-–—]+$/g, '').trim();
+    let name = title, artist = '';
+    const dash = title.split(/\s+[-–—]\s+/);
+    if (dash.length > 1) { name = dash[0].trim(); artist = dash.slice(1).join(' - ').trim(); }
+    if (!name) {
+      try { name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '未命名'; }
+      catch (e) { name = '未命名'; }
+    }
+    out.push({ name: name.slice(0, NAME_MAX), artist: artist.slice(0, NAME_MAX), url });
+  });
+  const seen = new Set();
+  return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
+}
+
+/* ══════════════════════════════════════════════════════
    L1 AI：模型列表 + 对话请求
    ══════════════════════════════════════════════════════ */
 const apiRoot = () => String(state.settings.apiBase || '').trim().replace(/\/+$/, '');
@@ -638,6 +826,40 @@ async function testApi() {
    但模型经常不听话，所以这里逐级退化：%% → 空行 → 句子。
    保证任何输出都不会糊成一大坨。
    ══════════════════════════════════════════════════════ */
+/* 通用的一次性问答。跟角色扮演无关的活（比如外卖 App 现生成商家）走这里：
+   只发一段 system + 一段 user，拿回纯文本。刻意不碰 buildSystem 和消息历史 ——
+   那些是「谁在跟谁说话」的东西，塞进一个点外卖的请求里只会互相污染。 */
+async function askOnce(system, user) {
+  const s = state.settings;
+  if (!apiRoot() || !s.apiKey) throw new Error('还没配 AI 接口：去「设置 → AI 接口」填接口地址和 Key');
+  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」拉一下模型列表，选一个再来');
+  const res = await fetch(apiRoot() + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
+    body: JSON.stringify({
+      model: s.apiModel,
+      messages: [
+        { role: 'system', content: String(system || '') },
+        { role: 'user', content: String(user || '') }
+      ]
+    })
+  });
+  if (!res.ok) throw new Error(await apiFail(res));
+  const data = await res.json();
+  return ((data.choices || [])[0] || {}).message?.content || '';
+}
+
+/* 模型经常把 JSON 裹在 ```json 里，或者前后加一句「好的，这是…」。
+   不跟它讲道理：把最外层一对花括号抠出来解析。解析不了返回 null，由调用方兜底。 */
+function parseJSONLoose(text) {
+  let s = String(text || '').trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) s = fence[1].trim();
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a >= 0 && b > a) s = s.slice(a, b + 1);
+  try { return JSON.parse(s); } catch (e) { return null; }
+}
+
 const SPLIT_MARK = '%%';
 const MAX_CHUNKS = 6;
 
@@ -866,5 +1088,10 @@ window.SJ = {
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   /* 桌面插件 */
   WIDGET_TYPES, WIDGET_PAGES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
+  /* 外卖 + 音乐 */
+  ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
+  cartCount, cartTotal, clearCart, placeOrder,
+  parsePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
+  askOnce, parseJSONLoose,
   exportState, importState
 };

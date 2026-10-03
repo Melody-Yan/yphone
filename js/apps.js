@@ -25,7 +25,11 @@ const ICON = {
   music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
   wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14" r="1.2"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 9.6h17M8 3.4v3.2M16 3.4v3.2"/><path d="M7.6 13h2M11 13h2M14.4 13h2M7.6 16.6h2M11 16.6h2"/>',
-  book: '<path d="M12 6.6C10.4 5.1 8 4.3 4.5 4.3v13.2c3.5 0 5.9.8 7.5 2.3 1.6-1.5 4-2.3 7.5-2.3V4.3c-3.5 0-5.9.8-7.5 2.3Z"/><path d="M12 6.6v13.2"/>'
+  book: '<path d="M12 6.6C10.4 5.1 8 4.3 4.5 4.3v13.2c3.5 0 5.9.8 7.5 2.3 1.6-1.5 4-2.3 7.5-2.3V4.3c-3.5 0-5.9.8-7.5 2.3Z"/><path d="M12 6.6v13.2"/>',
+  bowl: '<path d="M3.5 11h17a8.5 8.5 0 0 1-17 0Z"/><path d="M2.5 20.5h19"/><path d="M9 7.8c0-1.6 1.1-2.1 1.1-3.6M14 7.8c0-1.6 1.1-2.1 1.1-3.6"/>',
+  play: '<path d="M8.5 5.6v12.8L19 12Z"/>',
+  pause: '<path d="M9.5 5.5v13M14.5 5.5v13"/>',
+  link: '<path d="M10.2 13.8a4 4 0 0 0 5.9.3l2.6-2.6a4 4 0 1 0-5.7-5.6l-1.2 1.2"/><path d="M13.8 10.2a4 4 0 0 0-5.9-.3l-2.6 2.6a4 4 0 1 0 5.7 5.6l1.2-1.2"/>'
 };
 
 function svg(name, size = 30) {
@@ -98,8 +102,17 @@ function toast(msg) {
   return t;
 }
 
-/* 设置/世界书共用的两种行：开关行、数字行 */
-function toggleRow(title, sub, on, onClick) {
+/* 音乐 App 的播放器：整个模块共用一个 <audio>，切 App 再进来不会同时响两份。
+   自检垫片里没有 Audio，所以这里要能返回 null —— 列表和导入两条路照样跑得通。 */
+let player = null;
+function getPlayer() {
+  if (player) return player;
+  if (typeof Audio === 'undefined') return null;
+  try { player = new Audio(); } catch (e) { player = null; }
+  return player;
+}
+
+/* 设置/世界书共用的两种行：开关行、数字行 */function toggleRow(title, sub, on, onClick) {
   return SJ.el('div', { class: 'row', onclick: onClick }, [
     SJ.el('div', { class: 'row-main' }, [
       SJ.el('div', { class: 'row-title' }, title),
@@ -998,6 +1011,264 @@ const APPS = [
 
       homeView();
     }
+  },
+
+  /* ── 外卖：商家和菜是 AI 现编的，不是写死的一张表 ── */
+  {
+    id: 'delivery',
+    name: '外卖',
+    icon: 'bowl',
+    color: 'linear-gradient(150deg,#f6d9a6,#dfa85c)',
+    render(root) {
+      let busy = false;
+      const dl = () => SJ.state.delivery;
+
+      /* 每次换一批时随口点一个由头。同样的提示词问十次会拿回十批差不多的店，
+         加一句「这次想吃…」结果就散开了 —— 比做一套筛选 UI 便宜得多。 */
+      const CRAVINGS = ['', '辣的', '清淡的', '日式的', '面食', '烧烤', '甜的', '一碗热汤'];
+      const GEN_SYS = '你是一个外卖平台的商家数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
+      function genUser(craving) {
+        return '随机生成 4 家风格完全不同的外卖店铺，JSON 格式：\n' +
+          '{"shops":[{"name":"店名","kind":"品类","eta":"30分钟","rating":"4.7",' +
+          '"dishes":[{"name":"菜名","desc":"一句话描述","price":28}]}]}\n' +
+          '要求：每家 4 道菜；店名要有人间烟火气，别用「XX美食」这种套话；价格是人民币整数；' +
+          '菜名要具体（「黑椒牛柳饭」而不是「牛肉饭」）；4 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶…）。' +
+          (craving ? '这次用户想吃：' + craving + '。' : '');
+      }
+
+      async function regen() {
+        if (busy) return;
+        busy = true;
+        listView();
+        try {
+          const craving = CRAVINGS[Math.floor(Math.random() * CRAVINGS.length)];
+          const text = await SJ.askOnce(GEN_SYS, genUser(craving));
+          const shops = SJ.setShops(SJ.normalizeShops(SJ.parseJSONLoose(text)));
+          if (!shops.length) throw new Error('这次没生成出东西，再点一下右上角 ⟳');
+        } catch (e) {
+          toast((e && e.message) || '生成失败');
+        }
+        busy = false;
+        listView();
+      }
+
+      function cartBar() {
+        const n = SJ.cartCount();
+        if (!n) return null;
+        return SJ.el('div', { class: 'cart-bar', onclick: cartView }, [
+          SJ.el('span', {}, '购物车 ' + n + ' 件'),
+          SJ.el('span', { class: 'cart-total' }, '¥' + SJ.cartTotal())
+        ]);
+      }
+
+      function listView() {
+        root.innerHTML = '';
+        root.append(navBar('外卖', {
+          left: SJ.el('button', { class: 'nav-btn', title: '我的订单', html: svg('note', 17), onclick: ordersView }),
+          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: regen }, '⟳')
+        }));
+        const cb = cartBar(); if (cb) root.append(cb);
+        if (busy) return void root.append(SJ.el('div', { class: 'empty big' }, '正在给你张罗商家…\n（AI 现编，头一次慢几秒）'));
+        const shops = dl().shops;
+        if (!shops.length) {
+          root.append(SJ.el('div', { class: 'empty big' }, '还没有商家'));
+          root.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('button', { class: 'btn', onclick: regen }, '生成一批商家'),
+            SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
+              '商家和菜是 AI 现编的，每点一次都不一样。需要先在「设置 → AI 接口」里配好接口和模型。')
+          ]));
+          return;
+        }
+        const list = SJ.el('div', { class: 'list' });
+        shops.forEach(s => list.append(SJ.el('div', { class: 'row shop', onclick: () => shopView(s.id) }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, s.name),
+            SJ.el('div', { class: 'row-sub' }, [s.kind, s.eta, s.rating && ('★ ' + s.rating)].filter(Boolean).join(' · '))
+          ]),
+          SJ.el('span', { class: 'row-time' }, s.dishes.length + ' 道菜')
+        ])));
+        root.append(list);
+      }
+
+      function shopView(id) {
+        const shop = dl().shops.find(s => s.id === id);
+        if (!shop) return listView();
+        root.innerHTML = '';
+        root.append(navBar(shop.name, { back: listView }));
+        root.append(SJ.el('div', { class: 'hint', style: { padding: '0 20px 10px' } },
+          [shop.kind, shop.eta, shop.rating && ('★ ' + shop.rating)].filter(Boolean).join(' · ')));
+        const cb = cartBar(); if (cb) root.append(cb);
+        const list = SJ.el('div', { class: 'list' });
+        shop.dishes.forEach(x => list.append(SJ.el('div', {
+          class: 'row', onclick: () => { SJ.addToCart(shop.id, x); toast('已加入购物车'); shopView(id); }
+        }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, x.name),
+            x.desc && SJ.el('div', { class: 'row-sub' }, x.desc)
+          ]),
+          SJ.el('span', { class: 'price' }, '¥' + x.price)
+        ])));
+        root.append(list);
+      }
+
+      function cartView() {
+        root.innerHTML = '';
+        root.append(navBar('购物车', { back: listView }));
+        const cart = dl().cart;
+        if (!cart.length) return void root.append(SJ.el('div', { class: 'empty big' }, '购物车是空的'));
+        const list = SJ.el('div', { class: 'list' });
+        cart.forEach(x => list.append(SJ.el('div', { class: 'row' }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, x.name),
+            SJ.el('div', { class: 'row-sub' }, '¥' + x.price + ' × ' + x.n)
+          ]),
+          SJ.el('span', { class: 'row-time' }, '¥' + x.price * x.n)
+        ])));
+        root.append(list);
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('button', { class: 'btn', onclick: checkout }, '去结算 ¥' + SJ.cartTotal()),
+          SJ.el('button', { class: 'btn danger', onclick: () => { SJ.clearCart(); cartView(); } }, '清空购物车')
+        ]));
+      }
+
+      function checkout() {
+        if (!SJ.placeOrder()) return;
+        toast('下单成功，骑手正在赶来');
+        ordersView();
+      }
+
+      /* 订单进度是按「下单到现在过了多久」现算的，所以这里每 5 秒重画一次。
+         存档里不存进度：存了就得有定时器到处改存档，关掉 App 再进来还会断。 */
+      let tick = null;
+      function ordersView() {
+        if (tick) { clearInterval(tick); tick = null; }
+        root.innerHTML = '';
+        root.append(navBar('我的订单', { back: listView }));
+        const orders = dl().orders;
+        if (!orders.length) return void root.append(SJ.el('div', { class: 'empty big' }, '还没点过外卖'));
+        const list = SJ.el('div', { class: 'list' });
+        orders.forEach(o => {
+          const i = SJ.orderStage(o);
+          const done = i >= SJ.ORDER_STAGES.length - 1;
+          list.append(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, o.shopName + ' · ¥' + o.total),
+              SJ.el('div', { class: 'row-sub' + (done ? ' done' : '') }, SJ.ORDER_STAGES[i]),
+              SJ.el('div', { class: 'row-sub' }, o.items.map(x => x.name + '×' + x.n).join('、'))
+            ]),
+            SJ.el('span', { class: 'row-time' }, done ? '已送达' : '进行中')
+          ]));
+        });
+        root.append(list);
+        if (orders.some(o => SJ.orderStage(o) < SJ.ORDER_STAGES.length - 1)) {
+          tick = setInterval(() => { if (root.isConnected !== false) ordersView(); }, 5000);
+        }
+      }
+
+      listView();
+    }
+  },
+
+  /* ── 音乐：歌单靠粘贴链接导入，播放用 <audio> ── */
+  {
+    id: 'music',
+    name: '音乐',
+    icon: 'music',
+    color: 'linear-gradient(150deg,#cfd8e8,#94a6c4)',
+    render(root) {
+      /* 播放器挂在视图外面：从列表切到导入页再切回来，歌不会断 */
+      const a = getPlayer();
+
+      function nowBar() {
+        const t = SJ.musicNow();
+        if (!t) return null;
+        const playing = a && !a.paused && a.src;
+        return SJ.el('div', { class: 'cart-bar', onclick: togglePlay }, [
+          SJ.el('span', {}, (playing ? '⏸ ' : '▶ ') + t.name + (t.artist ? ' · ' + t.artist : '')),
+          SJ.el('span', { class: 'cart-total' }, playing ? '正在播放' : '已暂停')
+        ]);
+      }
+
+      function listView() {
+        root.innerHTML = '';
+        root.append(navBar('音乐', {
+          right: SJ.el('button', { class: 'nav-btn', title: '导入歌单', html: svg('link', 17), onclick: importView })
+        }));
+        const bar = nowBar(); if (bar) root.append(bar);
+        const tracks = SJ.musicTracks();
+        if (!tracks.length) {
+          root.append(SJ.el('div', { class: 'empty big' }, '歌单还是空的'));
+          root.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('button', { class: 'btn', onclick: importView }, '粘贴歌单导入'),
+            SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
+              '每行一首：「歌名 - 歌手 | 音频直链」。这里只存链接，歌本身还在你自己的服务器/网盘上。')
+          ]));
+          return;
+        }
+        const list = SJ.el('div', { class: 'list' });
+        tracks.forEach(t => {
+          const on = SJ.state.music.now === t.id;
+          list.append(SJ.el('div', { class: 'row', onclick: () => playTrack(t) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, (on ? '♪ ' : '') + t.name),
+              SJ.el('div', { class: 'row-sub' }, t.artist || '未知歌手')
+            ]),
+            SJ.el('button', {
+              class: 'row-x', title: '从歌单里删掉', html: '✕',
+              onclick: ev => { ev.stopPropagation(); SJ.musicRemove(t.id); listView(); }
+            })
+          ]));
+        });
+        root.append(list);
+        root.append(SJ.el('div', { class: 'pad' }, SJ.el('button', {
+          class: 'btn danger',
+          onclick: () => window.confirmBox('清空整个歌单？（只是从这个列表里去掉，文件不会被删）', () => { SJ.musicClear(); listView(); })
+        }, '清空歌单')));
+      }
+
+      function playTrack(t) {
+        SJ.musicSetNow(t.id);
+        if (a) {
+          a.src = t.url;
+          const p = a.play();
+          if (p && p.catch) p.catch(() => toast('这首放不出来：链接可能失效，或者对方不允许跨域播放'));
+        } else {
+          toast('这台设备不支持播放');
+        }
+        listView();
+      }
+
+      function togglePlay() {
+        const t = SJ.musicNow();
+        if (!a || !t) return;
+        if (a.paused) { if (!a.src) a.src = t.url; a.play().catch(() => {}); }
+        else a.pause();
+        listView();
+      }
+
+      function importView() {
+        root.innerHTML = '';
+        root.append(navBar('导入歌单', { back: listView, right: SJ.el('button', { class: 'nav-btn', onclick: doImport }, '导入') }));
+        const ta = SJ.el('textarea', {
+          class: 'field area',
+          placeholder: '每行一首，例如：\n\n晴天 - 周杰伦 | https://example.com/qing.mp3\nhttps://example.com/a.mp3 起风了\n\n也认 m3u 里的 #EXTINF 行。\n认不出链接的行会被自动跳过。'
+        });
+        root.append(SJ.el('div', { class: 'pad' }, [
+          ta,
+          SJ.el('button', { class: 'btn', onclick: doImport }, '导入')
+        ]));
+        function doImport() {
+          const list = SJ.parsePlaylist(ta.value);
+          if (!list.length) return toast('没找到能用的链接');
+          const n = SJ.musicAdd(list);
+          toast(n ? '导入了 ' + n + ' 首' : '这些歌都已经在列表里了');
+          if (n) listView();
+        }
+      }
+
+      listView();
+    },
+    onUnmount() { const a = player; if (a) a.pause(); }
   },
 
   {

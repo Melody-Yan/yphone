@@ -51,6 +51,12 @@ const WIDGET_TYPES = [
 ];
 const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
 
+/* 字段长度上限。必须放在 migrate() 前面 —— migrate 在模块初始化时就被 load()
+   调到，那时后面的 const 还在 TDZ 里。踩过一次：存档里一旦有了 events，
+   migrate 里的 e.title.slice(0, NAME_MAX) 就抛 ReferenceError，
+   被 load() 的 catch 吃掉 → 整台手机看起来像被清空（角色、聊天、备忘录全没了）。 */
+const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
   wallpaper: WALLS[0][1], // 默认晨雾
@@ -106,12 +112,18 @@ let state = load();
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
 function load() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(KEY);
+    raw = localStorage.getItem(KEY);
     if (!raw) return clone(DEFAULTS);
     return migrate(JSON.parse(raw));
   } catch (e) {
-    console.warn('[core] 存档损坏，已重置', e);
+    /* 解析或迁移炸了，也绝不能让这台手机被清空：原存档原样留在 localStorage 里，
+       本次只是先用默认值把界面撑起来；同时另存一份 .broken 备份，
+       免得接下来的任何一次 save() 把唯一的一份覆盖掉。
+       以前这里只 console.warn 一下就 reset，一个 TDZ 就能删掉用户全部记忆。 */
+    console.error('[core] 存档读取失败，本次先加载默认值（原存档没动）', e);
+    try { if (raw) localStorage.setItem(KEY + '.broken', raw); } catch (e2) { /* 存不下就算了，至少没覆盖 */ }
     return clone(DEFAULTS);
   }
 }
@@ -253,7 +265,7 @@ function onTime(fn) { timeListeners.add(fn); return () => timeListeners.delete(f
 /* ══════════════════════════════════════════════════════
    L1 角色与会话（通讯录 + 微信都靠这几个函数，别在 App 里各写一份）
    ══════════════════════════════════════════════════════ */
-const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+/* NAME_MAX / TEXT_MAX / CHAT_KEEP 定义在文件靠上的 DEFAULTS 之前，见那里的说明 */
 
 function makeCharacter(patch = {}) {
   return Object.assign({

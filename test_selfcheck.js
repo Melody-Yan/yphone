@@ -1242,6 +1242,43 @@ while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.worldbook.length = 0; wb.save();
 wb.deleteCharacter(wcA.id);
 
+/* 24. 存档安全：读存档这条路绝不能把用户的记忆弄丢（本节放最后，会动 store */
+console.log('\n[24] 存档读取不许弄丢数据');
+{
+  /* 带日程的老存档必须原样读回来。修之前 migrate 里的 e.title.slice(0, NAME_MAX)
+     会在 TDZ 上抛 ReferenceError —— 被 load() 的 catch 吃掉，角色/聊天/备忘录全变空 */
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'a', name: '小美' }],
+    chats: { a: [{ me: false, text: '在吗', ts: 1 }] },
+    notes: [{ id: 'n1', title: '买牛奶', body: '', ts: 2 }],
+    events: [{ id: 'e1', date: '2026-03-01', time: '09:00', title: '开会' }],
+    worldbook: [{ id: 'w1', title: '设定', keys: ['学校'], content: 'x' }],
+    widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []]
+  }));
+  boot();
+  const st = sandbox.SJ.state;
+  ok('带日程的老存档读得回来：角色还在', st.characters.length === 1, st.characters.length + ' 个');
+  ok('对话也在', (st.chats.a || []).length === 1);
+  ok('备忘录也在', st.notes.length === 1, st.notes.length + ' 条');
+  ok('日程也在', st.events.length === 1 && st.events[0].title === '开会');
+  ok('世界书也在', st.worldbook.length === 1);
+  ok('自己加过的桌面插件没被打回默认', st.widgets[0].length === 1 && st.widgets[0][0].type === 'clock');
+
+  /* 真喂一份坏存档：只能退化成默认值，原有那串必须被备份留证，绝不能凭空消失 */
+  const good = store.get('xiaoshouji.v1');
+  store.delete('xiaoshouji.v1.broken');
+  store.set('xiaoshouji.v1', '{ 这不是 JSON');
+  boot();
+  ok('坏存档不会让整台手机白屏', !!sandbox.SJ.state && Array.isArray(sandbox.SJ.state.notes));
+  ok('坏存档会被备份到 .broken 留证', store.get('xiaoshouji.v1.broken') === '{ 这不是 JSON');
+  store.delete('xiaoshouji.v1.broken');
+
+  /* 原档还在：再喂回去必须读得出来（证明 load 的 catch 没有顺手覆盖 localStorage） */
+  store.set('xiaoshouji.v1', good);
+  boot();
+  ok('把原档放回去，数据一条不少', sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.events.length === 1);
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

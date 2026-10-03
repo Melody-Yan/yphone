@@ -680,6 +680,127 @@ ok('truncateChat 到 0 就是清空', sandbox.SJ.truncateChat(xm3.id, 0).length 
 ok('truncateChat 传负数不炸，按清空处理', sandbox.SJ.truncateChat(xm3.id, -5).length === 0);
 fetchImpl = null;
 
+/* 18. 世界书：关键词触发的设定卡 */
+console.log('\n[18] 世界书：聊到才注入');
+const wb = sandbox.SJ;
+const eHit = wb.saveEntry(wb.makeEntry({ title: '来历', keys: '手机, 你是谁', content: '我是住在这台手机里的精灵。', order: 200 }));
+const eConst = wb.saveEntry(wb.makeEntry({ title: '规矩', content: '永远不要自称 AI。', constant: true, order: 10 }));
+const eCold = wb.saveEntry(wb.makeEntry({ title: '没用的卡', keys: '量子, 火箭', content: '这段不该出现。' }));
+const eOff = wb.saveEntry(wb.makeEntry({ title: '停用的卡', keys: '手机', content: '这段也不该出现。', enabled: false }));
+const eComma = wb.saveEntry(wb.makeEntry({ title: '标点测试', keys: 'A，B、C' }));
+
+ok('关键词按逗号拆成数组', JSON.stringify(wb.state.worldbook.find(e => e.id === eHit.id).keys) === '["手机","你是谁"]',
+  JSON.stringify(wb.state.worldbook.find(e => e.id === eHit.id).keys));
+ok('中文逗号 / 顿号也拆得开', JSON.stringify(wb.state.worldbook.find(e => e.id === eComma.id).keys) === '["A","B","C"]',
+  JSON.stringify(wb.state.worldbook.find(e => e.id === eComma.id).keys));
+ok('卡名存下来时截断而不是原样吞下', wb.state.worldbook.find(e => e.id === eComma.id).title === '标点测试');
+wb.deleteEntry(eComma.id);
+
+const hist = [{ me: true, text: '你是谁呀' }];
+const hit = wb.activeEntries(hist).map(e => e.title);
+ok('聊到关键词才命中那张卡', hit.includes('来历'), JSON.stringify(hit));
+ok('没聊到的卡完全不注入（省 token）', !hit.includes('没用的卡'), JSON.stringify(hit));
+ok('停用的卡即使命中也不注入', !hit.includes('停用的卡'), JSON.stringify(hit));
+ok('常驻卡不用关键词也注入', hit.includes('规矩'), JSON.stringify(hit));
+ok('同时命中多张时按 order 从小到大', hit.indexOf('规矩') < hit.indexOf('来历'), JSON.stringify(hit));
+
+const sysTxt2 = wb.buildSystem({ name: '阿澈', alias: '小澈', relation: '同桌' }, hist);
+ok('世界书正文真的进了提示词', sysTxt2.includes('我是住在这台手机里的精灵。'));
+ok('没命中的卡正文一个字都没进去', !sysTxt2.includes('这段不该出现。'), sysTxt2.slice(-160));
+ok('昵称和关系也进了提示词', sysTxt2.includes('小澈') && sysTxt2.includes('同桌'), sysTxt2.slice(0, 200));
+
+wb.state.settings.wbOn = false;
+ok('关掉世界书总开关后一张卡都不注入', wb.activeEntries(hist).length === 0, JSON.stringify(wb.activeEntries(hist).map(e => e.title)));
+wb.state.settings.wbOn = true;
+
+const histDeep = [{ me: true, text: '手机' }, { me: false, text: '嗯' }, { me: true, text: '嗯' }, { me: false, text: '嗯' }, { me: true, text: '嗯' }];
+wb.state.settings.scanDepth = 2;
+ok('关键词滚出扫描深度后就不再触发', !wb.activeEntries(histDeep).map(e => e.title).includes('来历'),
+  JSON.stringify(wb.activeEntries(histDeep).map(e => e.title)));
+wb.state.settings.scanDepth = 5;
+ok('把扫描深度调大就又能触发', wb.activeEntries(histDeep).map(e => e.title).includes('来历'));
+wb.state.settings.scanDepth = 4;
+[eHit, eConst, eCold, eOff].forEach(e => wb.deleteEntry(e.id));
+ok('删完卡之后世界书是空的', wb.state.worldbook.length === 0, String(wb.state.worldbook.length));
+
+/* 18b. 记忆卡片 */
+const mc = wb.makeCharacter({ name: '记忆测试' });
+wb.saveCharacter(mc);
+ok('新角色一开始没有记忆', wb.memories(mc.id).length === 0);
+ok('写一条记忆进去', !!wb.addMemory(mc.id, '她住在手机里，认识我很久了。') && wb.memories(mc.id).length === 1);
+ok('一模一样的记忆不会记第二遍', wb.addMemory(mc.id, '她住在手机里，认识我很久了。') === null && wb.memories(mc.id).length === 1);
+ok('换一条就存得进去', !!wb.addMemory(mc.id, '她讨厌下雨天。') && wb.memories(mc.id).length === 2);
+ok('空白记忆不占位', wb.addMemory(mc.id, '   ') === null && wb.memories(mc.id).length === 2);
+const mid = wb.memories(mc.id)[0].id;
+wb.deleteMemory(mc.id, mid);
+ok('单条记忆能删', wb.memories(mc.id).length === 1, String(wb.memories(mc.id).length));
+ok('记忆真的落盘了（刷新不丢）', /讨厌下雨天/.test(store.get('xiaoshouji.v1') || ''));
+wb.clearMemories(mc.id);
+ok('清空记忆', wb.memories(mc.id).length === 0);
+wb.addMemory(mc.id, '临时一条');
+wb.deleteCharacter(mc.id);
+ok('删掉角色时记忆一并清掉，不留孤儿数据',
+  !wb.state.characters.some(c => c.id === mc.id) && wb.state.memories[mc.id] === undefined,
+  JSON.stringify(wb.state.memories[mc.id]));
+
+/* 18c. 日历地基 */
+const tk = wb.dayKey();
+ok('dayKey 是 YYYY-MM-DD', /^\d{4}-\d{2}-\d{2}$/.test(tk), tk);
+ok('没有任何日程时 todayEvents 是空的', wb.todayEvents().length === 0);
+wb.state.events.push({ id: 'ev1', date: tk, time: '20:00', title: '和老妈视频', done: false });
+ok('今天的日程能读出来', wb.todayEvents().length === 1 && wb.todayEvents()[0].title === '和老妈视频');
+ok('别的日期不会串台', wb.eventsOn('1999-01-01').length === 0);
+wb.state.events.length = 0;
+
+/* 18d. 原文窗口：只发最近 historyKeep 条，更早的留给记忆卡片 */
+wb.state.settings.apiBase = 'https://api.example.com/v1';
+wb.state.settings.apiKey = 'k';
+wb.state.settings.apiModel = 'm';
+wb.state.settings.historyKeep = 4;
+const hc = wb.makeCharacter({ name: '裁剪测试' });
+wb.saveCharacter(hc);
+for (let i = 0; i < 10; i++) wb.pushMessage(hc.id, i % 2 === 1, '第' + i + '条');
+let sentBody = null;
+fetchImpl = (url, opts) => { sentBody = JSON.parse(opts.body); return Promise.resolve(mockRes(true, { choices: [{ message: { content: '嗯' } }] })); };
+await wb.askCharacter(hc, wb.messages(hc.id));
+ok('只把最近 historyKeep 条原文发给模型（否则聊久了 token 会爆）',
+  sentBody.messages.length === 5, sentBody.messages.length + ' 条');
+ok('第一条永远是系统提示词', sentBody.messages[0].role === 'system');
+ok('发出去的是最近的那几条，不是最早的那几条', sentBody.messages[1].content === '第6条', sentBody.messages[1].content);
+ok('我和 TA 的发言角色没搞反', sentBody.messages[1].role === 'assistant' && sentBody.messages[2].role === 'user',
+  sentBody.messages[1].role + '/' + sentBody.messages[2].role);
+wb.state.settings.historyKeep = 40;
+wb.state.settings.apiBase = ''; wb.state.settings.apiKey = ''; wb.state.settings.apiModel = '';
+fetchImpl = null;
+
+/* 19. 聊天页左上角的齿轮 → 聊天设置 */
+console.log('\n[19] 聊天设置入口');
+const uiC = wb.makeCharacter({ name: '设置测试' });
+wb.saveCharacter(uiC);
+wb.pushMessage(uiC.id, true, '在吗');
+const cv4 = openFresh('chat', uiC.id);
+const gear = walk(cv4).find(n => n._class.has('nav-btn') && n.attrs && n.attrs.title === '聊天设置');
+ok('聊天页左上角有「聊天设置」齿轮', !!gear);
+ok('齿轮挨着返回键（在标题左边）', !!gear && walk(cv4).indexOf(gear) < walk(cv4).findIndex(n => n._class.has('nav-title')));
+gear.click();
+ok('点齿轮进去的是聊天设置，不是退回上一层', walk(cv4).some(n => n.textContent === '聊天设置'));
+ok('能改昵称', !!findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）'));
+ok('能改关系', !!findIn(cv4, 'TA 认为你们是什么关系'));
+ok('有手动总结按钮', !!findBtn(cv4, '手动总结这段对话'));
+ok('有自动总结开关', walk(cv4).some(n => n.textContent === '自动总结'));
+ok('有清空记忆', !!findBtn(cv4, '清空记忆'));
+const aliasIn = findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）');
+aliasIn.value = '小笨蛋';
+dispatch(aliasIn, 'change', {});
+ok('改了昵称就存进角色卡', wb.state.characters.find(c => c.id === uiC.id).alias === '小笨蛋',
+  wb.state.characters.find(c => c.id === uiC.id).alias);
+ok('昵称也进了提示词',
+  wb.buildSystem(wb.state.characters.find(c => c.id === uiC.id), []).includes('小笨蛋'));
+ok('聊天设置页的「返回」回到对话而不是列表', !!findBtn(cv4, '返回'));
+findBtn(cv4, '返回').click();
+ok('确实回到了对话页（看得见输入框）', !!findIn(cv4, '说点什么…'));
+S.closeTop(true);
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

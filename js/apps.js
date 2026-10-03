@@ -35,13 +35,14 @@ function svg(name, size = 30) {
 /* ── 共用小组件 ── */
 /* 不传 back 的一律退回上一层视图（App 主页面 = 退回桌面）。
    以前这里默认渲染一个空占位，导致每个 App 点进去都出不来 —— 别再改回去。 */
-function navBar(title, { back = null, right = null } = {}) {
+function navBar(title, { back = null, left = null, right = null } = {}) {
   const onBack = back || (() => { if (window.SHELL) window.SHELL.closeTop(); });
   return SJ.el('div', { class: 'nav' }, [
     SJ.el('button', { class: 'nav-btn back', onclick: onBack }, [
       SJ.el('span', { class: 'chev', html: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>' }),
       SJ.el('span', {}, '返回')
     ]),
+    left,
     SJ.el('span', { class: 'nav-title' }, title),
     right || SJ.el('span', { class: 'nav-btn ghost' })
   ]);
@@ -264,12 +265,97 @@ const APPS = [
         root.append(box);
       }
 
+      /* ── 聊天设置（聊天页左上角齿轮）：昵称 / 关系 / 记忆卡片 / 总结 ── */
+      function chatSettings(id) {
+        const c = SJ.state.characters.find(x => x.id === id);
+        if (!c) return listView();
+        root.innerHTML = '';
+        root.append(navBar('聊天设置', { back: () => chatView(id) }));
+
+        const alias = SJ.el('input', { class: 'field', placeholder: 'TA 该怎么叫你（留空＝用「设置」里的默认）', value: c.alias || '' });
+        const relation = SJ.el('input', { class: 'field', placeholder: 'TA 认为你们是什么关系', value: c.relation || '' });
+        const saveWho = () => { c.alias = alias.value; c.relation = relation.value; SJ.saveCharacter(c); };
+        alias.addEventListener('change', saveWho);
+        relation.addEventListener('change', saveWho);
+
+        const count = SJ.el('div', { class: 'group-title' }, '');
+        const memBox = SJ.el('div', {});
+        function renderMem() {
+          const mem = SJ.memories(id);
+          count.textContent = `记忆（${mem.length} 条）`;
+          memBox.innerHTML = '';
+          if (!mem.length) {
+            memBox.append(SJ.el('div', { class: 'hint' }, '还没有记忆。聊一阵子，或者点下面「手动总结」来一次。'));
+            return;
+          }
+          mem.slice().reverse().forEach(m => memBox.append(SJ.el('div', { class: 'mem' }, [
+            SJ.el('div', { class: 'mem-text' }, m.text),
+            SJ.el('button', { class: 'mem-del', onclick: () => { SJ.deleteMemory(id, m.id); renderMem(); } }, '×')
+          ])));
+        }
+        renderMem();
+
+        const tip = SJ.el('div', { class: 'hint' }, '');
+        const sumBtn = SJ.el('button', { class: 'btn ghost' }, '手动总结这段对话');
+        sumBtn.addEventListener('click', async () => {
+          sumBtn.disabled = true; sumBtn.textContent = '总结中…';
+          tip.style.color = ''; tip.textContent = '模型正在把这段对话浓缩成记忆…';
+          try {
+            const n = await SJ.memorizeNow(c);
+            tip.textContent = n ? `记住了 ${n} 件事` : '没有新的内容可记（重复的会自动跳过）';
+            renderMem();
+          } catch (e) {
+            tip.style.color = 'var(--danger)';
+            tip.textContent = '总结失败：' + e.message;
+          }
+          sumBtn.disabled = false; sumBtn.textContent = '手动总结这段对话';
+        });
+
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('div', { class: 'who' }, [avatarNode(c), SJ.el('div', { class: 'who-name' }, c.name)]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '昵称'), alias]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关系'), relation]),
+          count,
+          memBox,
+          sumBtn,
+          tip,
+          SJ.el('div', { class: 'row', onclick: () => {
+            SJ.state.settings.autoMemory = SJ.state.settings.autoMemory === false;
+            SJ.save(); chatSettings(id);
+          } }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '自动总结'),
+              SJ.el('div', { class: 'row-sub' }, `每攒 ${SJ.state.settings.autoEvery} 条新消息自动记一次`)
+            ]),
+            SJ.el('div', { class: 'row-time' }, SJ.state.settings.autoMemory === false ? '已关闭 ›' : '已开启 ›')
+          ]),
+          SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '总结间隔'),
+              SJ.el('div', { class: 'row-sub' }, '攒够这么多条新消息才总结一次')
+            ]),
+            SJ.el('input', {
+              class: 'field tiny', type: 'number', min: '6', max: '200',
+              value: String(SJ.state.settings.autoEvery),
+              onchange: e => {
+                const n = Math.max(6, Math.min(200, Number(e.target.value) || 20));
+                e.target.value = String(n);
+                SJ.state.settings.autoEvery = n; SJ.save();
+              }
+            })
+          ]),
+          SJ.el('button', { class: 'btn danger', onclick: () => confirmBox('清空和 TA 的全部记忆卡片？聊天记录不受影响。', () => { SJ.clearMemories(id); chatSettings(id); }) }, '清空记忆')
+        ]));
+      }
+
       function chatView(id) {
         const c = SJ.state.characters.find(x => x.id === id);
         if (!c) return listView();
         root.innerHTML = '';
         root.append(navBar(c.name, {
           back: listView,
+          // 左上角齿轮：昵称 / 关系 / 记忆卡片 / 总结，都归它管
+          left: SJ.el('button', { class: 'nav-btn', title: '聊天设置', html: svg('gear', 17), onclick: () => chatSettings(id) }),
           right: SJ.el('button', {
             class: 'nav-btn',
             onclick: () => confirmBox(`清空和「${c.name}」的聊天记录？`, () => { SJ.clearChat(id); chatView(id); })
@@ -384,6 +470,8 @@ const APPS = [
             list.scrollTop = list.scrollHeight;
           }
           busy = false; syncSend();
+          /* 攒够条数就悄悄把这段浓缩成记忆，下次她还能记得（失败不打扰用户） */
+          SJ.autoMemorize(c).then(n => { if (n) toast(`她记住了 ${n} 件事`); }).catch(() => {});
         }
 
         /* 重新生成：砍掉她最后那条回复，拿同样的历史再问一遍 */
@@ -663,7 +751,7 @@ const APPS = [
     color: 'linear-gradient(150deg,#f0cdc2,#d9a99c)',
     render(root, close) {
       root.append(navBar('相册'));
-      root.append(SJ.el('div', { class: 'empty big' }, '相册还是空的\n（等你把「小手机」的核心玩法想清楚，我再接上）'));
+      root.append(SJ.el('div', { class: 'empty big' }, '相册还是空的\n（等你把相册想清楚要存什么，我再接上）'));
     }
   },
 
@@ -762,6 +850,16 @@ const APPS = [
           modelTip
         ]));
 
+        /* 世界书 */
+        box.append(SJ.el('div', { class: 'group-title' }, '世界书'));
+        box.append(SJ.el('div', { class: 'row', onclick: () => wbView() }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '世界书'),
+            SJ.el('div', { class: 'row-sub' }, '关键词触发的设定卡：聊到才注入，不聊就不占 token')
+          ]),
+          SJ.el('div', { class: 'row-time' }, `${SJ.state.worldbook.length} 条 · ${SJ.state.settings.wbOn === false ? '已关闭' : '已开启'} ›`)
+        ]));
+
         /* 存档 */
         box.append(SJ.el('div', { class: 'group-title' }, '存档'));
         const impTip = SJ.el('div', { class: 'hint' }, '存档里有角色、聊天记录、备忘录和全部设置。');
@@ -808,7 +906,7 @@ const APPS = [
         const url = URL.createObjectURL(blob);
         const d = new Date();
         const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-        const a = SJ.el('a', { href: url, download: `小手机存档-${stamp}.json` });
+        const a = SJ.el('a', { href: url, download: `yphone-存档-${stamp}.json` });
         document.body.append(a);
         a.click();
         a.remove();
@@ -831,6 +929,127 @@ const APPS = [
         SJ.save(); main();
       }
       function toggle24() { SJ.state.settings.clock24 = !SJ.state.settings.clock24; SJ.save(); main(); }
+
+      /* ── 世界书：关键词触发的设定卡 ── */
+      function toggleRow(title, sub, on, onClick) {
+        return SJ.el('div', { class: 'row', onclick: onClick }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, title),
+            sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+          ]),
+          SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
+        ]);
+      }
+
+      function wbView() {
+        root.innerHTML = '';
+        root.append(navBar('世界书', {
+          back: main,
+          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => entryView(null) }, '＋')
+        }));
+        const box = SJ.el('div', { class: 'list' });
+
+        box.append(SJ.el('div', { class: 'pad' }, [
+          toggleRow('世界书总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
+            SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
+            SJ.save(); wbView();
+          }),
+          SJ.el('div', { class: 'hint' }, '写一张卡：填几个关键词，聊天里出现这些词时，卡的正文就会喂给模型。关键词留空的话，只有打开「常驻」才生效。')
+        ]));
+
+        if (!SJ.state.worldbook.length) {
+          box.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
+        }
+        SJ.state.worldbook.slice()
+          .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+          .forEach(e => {
+            box.append(SJ.el('div', { class: 'row', onclick: () => entryView(e.id) }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, e.title
+                  + (e.constant ? ' · 常驻' : '')
+                  + (e.enabled === false ? ' · 已停用' : '')),
+                SJ.el('div', { class: 'row-sub' }, (e.keys || []).length ? (e.keys || []).join(' / ') : '（没有关键词，靠常驻生效）')
+              ]),
+              SJ.el('div', { class: 'row-time' }, String(e.order) + ' ›')
+            ]));
+          });
+
+        /* 上下文预算：这两个数决定每次发给模型多少东西，直接影响花费 */
+        box.append(SJ.el('div', { class: 'group-title' }, '上下文'));
+        box.append(numRow('原文窗口', '最多带最近几条原话发给模型', 'historyKeep', 4, 200));
+        box.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
+        root.append(box);
+      }
+
+      function numRow(title, sub, key, min, max) {
+        return SJ.el('div', { class: 'row' }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, title),
+            SJ.el('div', { class: 'row-sub' }, sub)
+          ]),
+          SJ.el('input', {
+            class: 'field tiny', type: 'number', min: String(min), max: String(max),
+            value: String(SJ.state.settings[key]),
+            onchange: ev => {
+              const n = Math.max(min, Math.min(max, Number(ev.target.value) || min));
+              ev.target.value = String(n);
+              SJ.state.settings[key] = n; SJ.save();
+            }
+          })
+        ]);
+      }
+
+      function entryView(id) {
+        const isNew = !id;
+        const e = SJ.state.worldbook.find(x => x.id === id) || SJ.makeEntry();
+        root.innerHTML = '';
+        root.append(navBar(isNew ? '新设定卡' : '编辑设定卡', {
+          back: wbView,
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => saveIt() }, '保存')
+        }));
+
+        const title = SJ.el('input', { class: 'field', placeholder: '卡的名字（只给你自己看）', value: e.title });
+        const keys = SJ.el('input', { class: 'field', placeholder: '关键词，逗号隔开：手机, 来历, 你怎么在这', value: (e.keys || []).join(', ') });
+        const content = SJ.el('textarea', { class: 'field area', placeholder: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。' }, e.content);
+        const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
+
+        const constBtn = SJ.el('button', { class: 'btn ghost' });
+        const onBtn = SJ.el('button', { class: 'btn ghost' });
+        function paint() {
+          constBtn.textContent = e.constant ? '常驻：开（不聊到也注入）' : '常驻：关（聊到关键词才注入）';
+          onBtn.textContent = e.enabled === false ? '已停用 —— 点一下启用' : '已启用 —— 点一下停用';
+        }
+        constBtn.addEventListener('click', () => { e.constant = !e.constant; paint(); });
+        onBtn.addEventListener('click', () => { e.enabled = !e.enabled; paint(); });
+        paint();
+
+        function saveIt() {
+          e.title = title.value; e.keys = keys.value; e.content = content.value; e.order = order.value;
+          if (isNew && !e.content.trim() && !String(e.keys).trim()) return wbView();   // 空的当没建
+          SJ.saveEntry(e);
+          wbView();
+        }
+
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), title]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词'), keys]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '正文'), content]),
+          constBtn,
+          onBtn,
+          SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '顺序'),
+              SJ.el('div', { class: 'row-sub' }, '多张卡同时命中时，数字小的先注入')
+            ]),
+            order
+          ]),
+          SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
+          isNew ? null : SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('删掉这张设定卡？', () => { SJ.deleteEntry(e.id); wbView(); })
+          }, '删除这张卡')
+        ]));
+      }
 
       main();
     }

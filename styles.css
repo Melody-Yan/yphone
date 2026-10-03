@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════
-   小手机 · 样式
+   yphone · 样式
    莫兰迪浅色系：低饱和、灰调、柔光。
    手机本体是 #phone，桌面端居中成一块屏，手机屏上自动铺满。
    所有颜色都走 :root 变量 —— 换色只改这一块。
@@ -551,3 +551,23 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   animation: toastIn .18s ease-out;
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+/* ══ 聊天设置页（左上加的齿轮进这里） ══ */
+.who { display: flex; align-items: center; gap: 12px; padding: 2px 0 4px; }
+.who-name { font-size: 17px; font-weight: 600; }
+
+/* 记忆卡片。正文必须能换行 —— .row-sub 是单行省略号，套上去等于只看得见前半句 */
+.mem {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #fff; border: 1px solid var(--line);
+  border-radius: 14px; padding: 11px 12px;
+}
+.mem-text {
+  flex: 1; min-width: 0; font-size: 14px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.mem-del {
+  flex: none; border: 0; background: none; cursor: pointer;
+  color: var(--fg-dim); font: inherit; font-size: 19px; line-height: 1; padding: 0 2px;
+}
+.mem-del:active { color: var(--danger); }

@@ -54,17 +54,27 @@ const DEFAULTS = {
     apiBase: '',
     apiKey: '',
     apiModel: '',
-    modelList: []        // 从 /models 拉回来的候选，省得手填模型名
+    modelList: [],       // 从 /models 拉回来的候选，省得手填模型名
+    /* 记忆与世界书 */
+    wbOn: true,          // 世界书总开关
+    scanDepth: 4,        // 关键词只在最近几条消息里找
+    historyKeep: 40,     // 原文最多带最近几条（更早的靠记忆卡片顶上）
+    autoMemory: true,    // 攒够就自动总结
+    autoEvery: 20        // 攒够多少条新消息自动总结一次
   },
-  characters: [],        // 通讯录：[{id,name,avatar,color,desc,persona,greeting,ts}, ...]
-  chats: {}              // 会话：{ 角色id: [{me,text,ts}, ...] }
+  characters: [],        // 通讯录：[{id,name,avatar,color,desc,persona,greeting,alias,relation,memUpTo,ts}, ...]
+  chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
+  worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
+  memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
+  events: []             // 日历：[{id,date,time,title,done}, ...]
 };
 
 /* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
    否则一个坏 JSON 就能让整台手机白屏（比如把 characters 写成字符串）。 */
 const SCHEMA = {
   wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
-  notes: 'array', characters: 'array', chats: 'object'
+  notes: 'array', characters: 'array', chats: 'object',
+  worldbook: 'array', memories: 'object', events: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -209,7 +219,9 @@ const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
 function makeCharacter(patch = {}) {
   return Object.assign({
     id: uid(), name: '新角色', avatar: '🙂', color: '#9cb9c2',
-    desc: '', persona: '', greeting: '', ts: Date.now()
+    desc: '', persona: '', greeting: '',
+    alias: '', relation: '', memUpTo: 0,   // 昵称 / 关系 / 已经总结到第几条消息
+    ts: Date.now()
   }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
 }
 
@@ -218,6 +230,9 @@ function saveCharacter(c) {
   c.desc = String(c.desc || '').slice(0, 200);
   c.persona = String(c.persona || '').slice(0, TEXT_MAX);
   c.greeting = String(c.greeting || '').slice(0, TEXT_MAX);
+  c.alias = String(c.alias || '').slice(0, NAME_MAX);    // 他平时怎么叫你
+  c.relation = String(c.relation || '').slice(0, 60);    // 他认为你们是什么关系
+  c.memUpTo = Math.max(0, Number(c.memUpTo) || 0);       // 记忆总结到第几条了
   const i = state.characters.findIndex(x => x.id === c.id);
   if (i < 0) state.characters.push(c); else state.characters[i] = c;
   save();
@@ -227,6 +242,7 @@ function saveCharacter(c) {
 function deleteCharacter(id) {
   state.characters = state.characters.filter(c => c.id !== id);
   delete state.chats[id];
+  delete state.memories[id];
   save();
 }
 
@@ -266,6 +282,99 @@ function chatList() {
       return (b.last ? b.last.ts : b.c.ts) - (a.last ? a.last.ts : a.c.ts);
     });
 }
+
+/* ══════════════════════════════════════════════════════
+   L1.5 世界书 + 记忆卡片 + 日历
+   三者都是「额外塞给模型的上下文」，唯一的出口是 buildSystem()，
+   别在 App 里各自拼提示词。
+   ══════════════════════════════════════════════════════ */
+
+/* ── 世界书：关键词触发的设定卡 ──
+   命中就把正文塞进系统提示词，没问到就完全不占 token。
+   constant 的卡永远注入（放「无论聊什么都不能忘」的硬设定）。 */
+const KEY_MAX = 40;    // 单张卡最多几个关键词
+const MEM_KEEP = 300;  // 单个角色最多留多少条记忆卡片
+
+function makeEntry(patch = {}) {
+  return Object.assign({
+    id: uid(), title: '新设定', keys: [], content: '',
+    order: 100, constant: false, enabled: true
+  }, patch);
+}
+
+function saveEntry(e) {
+  e.title = String(e.title || '').trim().slice(0, NAME_MAX) || '未命名';
+  // 关键词允许写成一整串（逗号分隔），存的时候统一成数组
+  e.keys = (Array.isArray(e.keys) ? e.keys : String(e.keys || '').split(/[,，、]/))
+    .map(k => String(k).trim()).filter(Boolean).slice(0, KEY_MAX);
+  e.content = String(e.content || '').slice(0, TEXT_MAX);
+  const n = Number(e.order);
+  e.order = isFinite(n) ? n : 100;
+  e.constant = !!e.constant;
+  e.enabled = e.enabled !== false;
+  const i = state.worldbook.findIndex(x => x.id === e.id);
+  if (i < 0) state.worldbook.push(e); else state.worldbook[i] = e;
+  save();
+  return e;
+}
+
+function deleteEntry(id) {
+  state.worldbook = state.worldbook.filter(e => e.id !== id);
+  save();
+}
+
+/* 命中的卡，按 order 从小到大。history 永远传「全部消息」—— 裁剪只发生在
+   真正发给模型的那一段（见 askCharacter），否则刚滚出窗口的关键词就永远触发不了。 */
+function activeEntries(history) {
+  if (state.settings.wbOn === false) return [];
+  const depth = Math.max(1, Number(state.settings.scanDepth) || 4);
+  const text = (history || []).slice(-depth)
+    .map(m => String((m && m.text) || '')).join('\n').toLowerCase();
+  return state.worldbook
+    .filter(e => e.enabled !== false
+      && (e.constant || (e.keys || []).some(k => k && text.includes(String(k).toLowerCase()))))
+    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+}
+
+/* ── 记忆卡片：聊过的内容蒸馏成短句，比原文省 token，也活得更久 ── */
+function memories(id) {
+  if (!Array.isArray(state.memories[id])) state.memories[id] = [];
+  return state.memories[id];
+}
+
+function addMemory(id, text) {
+  const t = String(text || '').trim();
+  if (!id || !t) return null;
+  const list = memories(id);
+  const head = t.slice(0, 120);
+  if (list.some(m => String(m.text || '').slice(0, 120) === head)) return null;  // 同一件事不重复记
+  const m = { id: uid(), text: t.slice(0, TEXT_MAX), ts: Date.now() };
+  list.push(m);
+  state.memories[id] = list.slice(-MEM_KEEP);
+  save();
+  return m;
+}
+
+function deleteMemory(id, mid) {
+  state.memories[id] = memories(id).filter(m => m.id !== mid);
+  save();
+}
+
+function clearMemories(id) {
+  delete state.memories[id];
+  save();
+}
+
+/* ── 日历 ── 日期一律走虚拟时间，不然剧情推进后「今天」会对不上 */
+function dayKey(d = virtualNow()) {
+  const x = d instanceof Date ? d : new Date(d);
+  return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+}
+function eventsOn(date) {
+  return state.events.filter(e => e && e.date === date)
+    .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+}
+function todayEvents() { return eventsOn(dayKey()); }
 
 /* ══════════════════════════════════════════════════════
    L1 AI：模型列表 + 对话请求
@@ -390,45 +499,150 @@ const ROLE_RULES = [
   '- 不要像客服那样问「还有什么可以帮你」「请问您需要」。'
 ].join('\n');
 
-function buildSystem(char) {
+function buildSystem(char, history) {
   const c = char || {};
   const now = virtualNow();
-  const lines = [
-    ROLE_RULES, '',
-    '---', '',
-    '# 你要演的人',
-    '名字：' + (c.name || '（没填）')
-  ];
+  const s = state.settings;
+  const lines = [ROLE_RULES, '', '---', ''];
+
+  /* 世界书排在人设前面：先把世界立成既成事实，再讲他是谁 */
+  const wb = activeEntries(history);
+  if (wb.length) {
+    lines.push('# 世界设定（以下是已经成立的事实，直接当真，别否认、别当新鲜事说出来）');
+    wb.forEach(e => lines.push(e.content));
+    lines.push('');
+  }
+
+  lines.push('# 你要演的人', '名字：' + (c.name || '（没填）'));
+  const alias = String(c.alias || '').trim() || String(s.userName || '').trim();
+  if (alias && alias !== '我') lines.push(`对方叫「${alias}」，你平时就这么称呼他。`);
+  if (c.relation) lines.push('你们的关系：' + c.relation);
   if (c.desc) lines.push('一句话简介：' + c.desc);
   if (c.persona) lines.push('人设 / 性格 / 说话方式：\n' + c.persona);
   lines.push('');
   lines.push(`你就是${c.name || '这个人'}本人，不是 AI、不是程序、不是助手。对方怎么问都别跳出这个身份。`);
   lines.push(`现在是你那边的 ${fmtDate(now)} ${fmtTime(now, state.settings.clock24)}。`);
+
+  /* 今天有安排就先说，免得对方问「你在干嘛」时才想起来 */
+  const ev = todayEvents();
+  if (ev.length) {
+    lines.push('', '# 你今天自己的安排');
+    ev.forEach(e => lines.push('- ' + (e.time ? e.time + ' ' : '') + (e.title || '') + (e.done ? '（已完成）' : '')));
+  }
+
+  /* 记忆卡片压轴：位置越靠后，模型越当回事 */
+  if (c.id) {
+    const mem = memories(c.id);
+    if (mem.length) {
+      lines.push('', '# 你记得的事（以前聊过的，是你的记忆，不是刚发生的事）');
+      mem.forEach(m => lines.push('- ' + m.text));
+    }
+  }
   return lines.join('\n');
 }
 
 /* 让角色回一句话。没配 API 就走本地演示，保证离线也能玩。 */
 async function askCharacter(char, history) {
   const s = state.settings;
+  const all = history || [];
   if (!apiRoot() || !s.apiKey) {
-    const last = history.filter(m => m.me).pop();
+    const last = all.filter(m => m.me).pop();
     return `（本地演示）我收到了：「${last ? last.text : ''}」。到「设置 → AI 接口」填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`;
   }
   if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」点一下「拉取模型列表」，选一个能聊天的模型再来');
+  /* 只带最近 keep 条原文，更早的内容靠记忆卡片顶上。
+     世界书扫描仍然吃全部历史 —— 不然刚滚出窗口的关键词就触发不了了。 */
+  const keep = Math.max(2, Number(s.historyKeep) || 40);
+  const recent = all.slice(-keep);
   const res = await fetch(apiRoot() + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
     body: JSON.stringify({
       model: s.apiModel,
       messages: [
-        { role: 'system', content: buildSystem(char) },
-        ...history.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
+        { role: 'system', content: buildSystem(char, all) },
+        ...recent.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
       ]
     })
   });
   if (!res.ok) throw new Error(await apiFail(res));
   const data = await res.json();
   return ((data.choices || [])[0] || {}).message?.content || '（模型没有返回内容）';
+}
+
+/* ══════════════════════════════════════════════════════
+   记忆蒸馏：把一段对话压成几条事实短句。
+   跟角色对话共用同一个接口，但走独立的提示词 —— 干这活的时候它不是角色。
+   ══════════════════════════════════════════════════════ */
+const SUMMARY_SYS = [
+  '你在帮一个角色扮演应用整理记忆。读下面的聊天记录，提炼出值得长期记住的事实。',
+  '',
+  '# 要记什么',
+  '- 发生过的事：去了哪、干了什么、见了谁。',
+  '- 说定的安排：约好的时间、答应过的事。',
+  '- 对方透露的信息：喜好、习惯、家人朋友、在意的点。',
+  '- 情绪转折：为什么闹别扭、为什么和好。',
+  '',
+  '# 要求',
+  '- 3~6 条，每条一行，一句话说完。',
+  '- 用第三人称陈述句。不要复述原话，不要加评论，不要写「他们聊了天」这种废话。',
+  '- 行首不加数字、短横线、星号或任何符号。',
+  '- 只输出这些行，别的什么都不要写。'
+].join('\n');
+
+/* 返回拆好的短句数组；失败抛异常，由调用方决定怎么提示 */
+async function summarize(char, msgs) {
+  const s = state.settings;
+  const list = (msgs || []).filter(m => m && m.text && !m.img);
+  if (list.length < 2) throw new Error('这段对话太短了，没什么好总结的');
+  if (!apiRoot() || !s.apiKey) throw new Error('先去「设置 → AI 接口」填接口地址和 Key');
+  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」拉一下模型列表');
+  const who = (char && char.name) || '对方';
+  const text = list.map(m => (m.me ? '我：' : who + '：') + m.text).join('\n').slice(-TEXT_MAX * 2);
+  const res = await fetch(apiRoot() + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
+    body: JSON.stringify({
+      model: s.apiModel,
+      messages: [{ role: 'system', content: SUMMARY_SYS }, { role: 'user', content: text }]
+    })
+  });
+  if (!res.ok) throw new Error(await apiFail(res));
+  const data = await res.json();
+  const raw = String(((((data.choices || [])[0] || {}).message || {}).content) || '');
+  return raw.split('\n')
+    .map(x => x.replace(/^\s*(?:[-*•·]|\d+[.、)])\s*/, '').trim())  // 模型爱加序号，剥掉
+    .filter(Boolean).slice(0, 8);
+}
+
+/* 手动总结：把还没总结过的对话蒸馏成记忆卡片。返回真正新增的条数。 */
+async function memorizeNow(char) {
+  const list = messages(char.id);
+  const done = Math.max(0, Number(char.memUpTo) || 0);
+  // 没有新内容就退回去再总结一遍最近这段（重复的会被 addMemory 挡掉）
+  const from = (list.length - done >= 2) ? done : Math.max(0, list.length - 40);
+  const lines = await summarize(char, list.slice(from));
+  let n = 0;
+  lines.forEach(t => { if (addMemory(char.id, t)) n++; });
+  char.memUpTo = list.length;
+  save();
+  return n;
+}
+
+/* 自动总结：攒够 autoEvery 条新消息就悄悄蒸馏一次。返回新增条数，0 = 还没到点。 */
+async function autoMemorize(char) {
+  const s = state.settings;
+  if (s.autoMemory === false) return 0;
+  const every = Math.max(6, Number(s.autoEvery) || 20);
+  const list = messages(char.id);
+  const done = Math.max(0, Number(char.memUpTo) || 0);
+  if (list.length - done < every) return 0;
+  const lines = await summarize(char, list.slice(done));
+  let n = 0;
+  lines.forEach(t => { if (addMemory(char.id, t)) n++; });
+  char.memUpTo = list.length;
+  save();
+  return n;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -459,5 +673,10 @@ window.SJ = {
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem,
+  /* 世界书 / 记忆 / 日历 */
+  makeEntry, saveEntry, deleteEntry, activeEntries,
+  memories, addMemory, deleteMemory, clearMemories,
+  summarize, memorizeNow, autoMemorize,
+  dayKey, eventsOn, todayEvents,
   exportState, importState
 };

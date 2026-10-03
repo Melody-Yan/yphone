@@ -445,6 +445,12 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   box-shadow: var(--shadow-s);
 }
 .pk:active { background: rgba(255, 255, 255, .85); }
+.pad-forgot {
+  margin-top: -4px; padding: 6px 14px; border: 0; background: none;
+  color: inherit; opacity: .5; font: inherit; font-size: 13px;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.pad-forgot:active { opacity: .85; }
 
 /* ══ 弹窗 ══ */
 .mask {

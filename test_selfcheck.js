@@ -99,17 +99,33 @@ function dispatch(node, type, ev) {
   return handled;
 }
 
-/* ── 搭骨架 ── */
-const ids = ['stage', 'phone', 'statusbar', 'sb-clock', 'sb-notch', 'sb-right', 'sb-batt', 'sb-batt-fill',
-  'home', 'pages', 'dots', 'dock', 'stack', 'lock', 'lock-time', 'lock-date', 'lock-widgets', 'lock-hint',
-  'lock-quick', 'lock-pad', 'homebar'];
+/* ── 搭骨架 ──
+   嵌套必须和 index.html 一模一样。以前是把所有 id 平铺挂在 body 上，
+   只把 home/stack/lock/homebar 补进 phone —— 于是 #lock-pad 变成了 #lock 的
+   *兄弟*节点，密码盘上按键的点击根本冒泡不到 #lock，正好放过了
+   「每按一位都被自己的 unlock() 清掉」这个真机 bug。别改回平铺。 */
 const body = makeEl('body');
 const byId = {};
-ids.forEach(id => { const n = makeEl('div'); n.attrs.id = id; byId[id] = n; body.append(n); });
+const mk = id => { const n = makeEl('div'); n.attrs.id = id; byId[id] = n; return n; };
+{
+  const statusbar = mk('statusbar'), sright = mk('sb-right');
+  sright.append(mk('sb-batt'), mk('sb-batt-fill'));
+  statusbar.append(mk('sb-clock'), mk('sb-notch'), sright);
+
+  const home = mk('home');
+  home.append(mk('pages'), mk('dots'), mk('dock'));
+
+  const lock = mk('lock'), lpad = mk('lock-pad');
+  lock.append(mk('lock-time'), mk('lock-date'), mk('lock-widgets'), mk('lock-hint'), mk('lock-quick'), lpad);
+  lpad.hidden = true;
+
+  const stage = mk('stage'), phone = mk('phone');
+  phone.append(statusbar, home, mk('stack'), lock, mk('homebar'));
+  stage.append(phone);
+  body.append(stage);
+}
 const freshPages = () => { byId.pages.children.length = 0; return ['p0', 'p1', 'p2'].map(() => { const p = makeEl('div'); p.className = 'page'; byId.pages.append(p); return p; }); };
 let pages = freshPages();
-byId['phone'].append(byId.home, byId.stack, byId.lock, byId.homebar);
-byId.stage.append(byId.phone);
 /* 让 body 同时扮 document */
 body.body = body;
 body.createElement = makeEl;
@@ -261,10 +277,43 @@ boot();
 ok('锁屏可见', byId.lock.style.display === 'flex', byId.lock.style.display);
 sandbox.SHELL.unlock();
 ok('点开锁屏后弹出密码盘', byId['lock-pad'].hidden === false);
-const pk = walk(byId['lock-pad']).filter(n => n._class.has('pk'));
-ok('密码盘有 12 个键', pk.length === 12, pk.length + ' 个');
-['1', '2', '3', '4'].forEach(k => { const b = pk.find(n => n.textContent === k); b && b.click(); });
+/* 每次点都必须重新从 #lock-pad 里取「当前活着的」那个按键。
+   老写法抓一次快照、再连点 4 个可能已被重建掉的旧节点 —— 旧闭包里的 buf
+   会跨节点一路累积到 1234，于是垫片里"输入成功"、真机上一个数字都按不进去。
+   手机上的真实路径就是这里，所以这 4 条断言必须点活节点。 */
+const liveKey = k => walk(byId['lock-pad']).find(n => n._class.has('pk') && n.textContent === k);
+const dotCount = () => {
+  const d = walk(byId['lock-pad']).find(n => n._class.has('pad-dots'));
+  return d ? d.textContent.split('●').length - 1 : -1;
+};
+ok('密码盘有 12 个键', walk(byId['lock-pad']).filter(n => n._class.has('pk')).length === 12);
+liveKey('1').click();
+ok('按一下 1 就在盘上留下一格（没被冒泡上来的 unlock 清掉）', dotCount() === 1, dotCount() + ' 格');
+liveKey('2').click();
+ok('再按 2 是两格', dotCount() === 2, dotCount() + ' 格');
+liveKey('3').click();
+ok('再按 3 是三格', dotCount() === 3, dotCount() + ' 格');
+liveKey('4').click();
 ok('输入 1234 后解锁', byId.lock.style.display === 'none', byId.lock.style.display);
+
+/* 忘记密码：玩具锁的唯一出口。绝不能顺手把数据清掉 */
+sandbox.SHELL.lock();
+sandbox.SHELL.unlock();
+const forgotBtn = walk(byId['lock-pad']).find(n => n._class.has('pad-forgot'));
+ok('密码盘底下有「忘记密码？」', !!forgotBtn);
+if (forgotBtn) forgotBtn.click();
+ok('点它会先弹确认框', !!walk(byId.phone).find(n => n._class.has('confirm')));
+const keepNotes = sandbox.SJ.state.notes.length;
+{
+  const box = walk(byId.phone).find(n => n._class.has('confirm'));
+  const b = box && walk(box).find(n => n.textContent === '确定' && /btn/.test(n.className));
+  if (b) b.click();
+}
+ok('确认后锁屏关掉、人也放出来了', sandbox.SJ.state.lock === false && byId.lock.style.display === 'none');
+ok('关锁屏不动存档（备忘录还在）', sandbox.SJ.state.notes.length === keepNotes);
+sandbox.SJ.state.lock = true;
+sandbox.SJ.state.password = '1234';
+sandbox.SJ.save();
 
 /* 6. 真实 App 交互 */
 console.log('\n[6] App 真的能用');

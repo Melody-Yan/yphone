@@ -516,6 +516,21 @@ function unlock() {
     }
   }, k)));
   pad.append(dots, grid);
+  // 忘了密码的唯一出口。这是玩具锁，不是保险箱：能做的是把锁关掉；
+  // 绝不做真手机那种"输错就清空数据"—— 存档全在 localStorage，清了就真没了。
+  pad.append(SJ.el('button', {
+    class: 'pad-forgot',
+    onclick: () => {
+      window.confirmBox('忘掉密码、把锁屏关掉？（聊天记录和备忘录都不会动）', () => {
+        SJ.state.lock = false;
+        SJ.save();
+        locked = false;
+        renderLock();
+        playUnlock();
+        openPending();
+      });
+    }
+  }, '忘记密码？'));
 }
 
 function bindLockGesture() {
@@ -534,7 +549,9 @@ function bindLockGesture() {
     y0 = null;
     if (dy > 70) unlock();
   });
-  lockEl.addEventListener('click', () => unlock());
+  // 密码盘打开时点哪儿都不能再走一次 unlock()：它会 pad.innerHTML='' 重建键盘、
+  // 把刚按下的那一位抹掉，于是每个数字键都"点不动"。按键自己有处理器，放它们自己跑。
+  lockEl.addEventListener('click', () => { if (SJ.$('#lock-pad').hidden) unlock(); });
 }
 
 /* ══ 工具 ══ */

@@ -442,10 +442,30 @@ const APPS = [
     icon: 'wechat',
     color: 'linear-gradient(150deg,#c7dcc4,#a2c09e)',
     render(root, close, openWith) {
+      /* 底部三个页签，和真微信一样。只在三个「主页面」上挂，
+         点进具体某个人的聊天页就收起来（真微信也是这么干的）。 */
+      const TABS = [
+        { id: 'msg', icon: 'chat', label: '消息', go: () => listView() },
+        { id: 'mom', icon: 'photo', label: '朋友圈', go: () => momentsView() },
+        { id: 'me', icon: 'people', label: '主页', go: () => meView() }
+      ];
+      function tabBar(active) {
+        return SJ.el('div', { class: 'wtab' }, TABS.map(t => SJ.el('button', {
+          class: 'wt' + (t.id === active ? ' on' : ''),
+          onclick: () => t.go()
+        }, [
+          SJ.el('span', { class: 'wt-i', html: svg(t.icon, 22) }),
+          SJ.el('span', { class: 'wt-l' }, t.label)
+        ])));
+      }
+
       function listView() {
         root.innerHTML = '';
         root.append(navBar('微信', {
-          right: SJ.el('button', { class: 'nav-btn', onclick: () => momentsView() }, '朋友圈')
+          right: SJ.el('button', {
+            class: 'nav-btn',
+            onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
+          }, '＋')
         }));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
@@ -462,7 +482,39 @@ const APPS = [
             last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null
           ]));
         });
-        root.append(box);
+        root.append(box, tabBar('msg'));
+      }
+
+      /* ── 主页：我的头像 / 昵称 + 三个常去的入口 ── */
+      function meView() {
+        root.innerHTML = '';
+        root.append(navBar('主页'));
+        const box = SJ.el('div', { class: 'list' });
+        box.append(SJ.el('div', { class: 'me-card', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
+          myAvatarNode(),
+          SJ.el('div', { class: 'me-info' }, [
+            SJ.el('div', { class: 'me-name' }, SJ.state.settings.userName || '我'),
+            SJ.el('div', { class: 'me-sub' }, '头像和名字都能改，点这里')
+          ])
+        ]));
+        [
+          ['🎨', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],
+          ['👥', '通讯录', `${SJ.state.characters.length} 个角色`, 'contacts'],
+          ['⚙️', '设置', 'AI 接口 / 生图 / 存档', 'settings']
+        ].forEach(([ic, title, sub, app]) => {
+          box.append(SJ.el('div', {
+            class: 'row',
+            onclick: () => { if (window.SHELL) window.SHELL.openApp(app); }
+          }, [
+            SJ.el('div', { class: 'row-ico' }, ic),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, title),
+              SJ.el('div', { class: 'row-sub' }, sub)
+            ]),
+            SJ.el('div', { class: 'row-time' }, '›')
+          ]));
+        });
+        root.append(box, tabBar('me'));
       }
 
       /* ── 朋友圈：角色自己发的生活动态，内容由 AI 按最近聊了什么生成 ── */
@@ -523,7 +575,6 @@ const APPS = [
       function momentsView() {
         root.innerHTML = '';
         root.append(navBar('朋友圈', {
-          back: listView,
           right: SJ.el('button', { class: 'nav-btn', onclick: () => momentNew() }, '写')
         }));
         const box = SJ.el('div', { class: 'list moments' });
@@ -589,7 +640,7 @@ const APPS = [
           ]));
           box.append(card);
         });
-        root.append(box);
+        root.append(box, tabBar('mom'));
       }
 
       /* ── 聊天设置（聊天页左上角齿轮）：昵称 / 关系 / 记忆卡片 / 总结 ── */

@@ -1546,9 +1546,15 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   App.state.moments = [];
   const mEntry = App.addMoment(cA.id, '剪了头发，短了三厘米');
   const wx = openFresh('chat');
-  const moBtn = walk(wx).find(n => n.attrs && /朋友圈/.test(n.textContent || '') && n.tagName === 'BUTTON');
-  ok('微信首页导航栏有「朋友圈」', !!moBtn);
-  moBtn.click();
+  const tabOf = (node, label) => walk(node).find(n => n._class.has('wt') && String(n.textContent).indexOf(label) >= 0);
+  ok('微信底部有三个页签：消息 / 朋友圈 / 主页',
+    walk(wx).filter(n => n._class.has('wt')).length === 3 &&
+    ['消息', '朋友圈', '主页'].every(l => !!tabOf(wx, l)));
+  ok('一进来停在「消息」，页签是选中态，下面是会话列表',
+    tabOf(wx, '消息')._class.has('on') && walk(wx).filter(n => n._class.has('row')).length >= 1);
+  tabOf(wx, '朋友圈').click();
+  ok('点「朋友圈」页签就切过去了，选中态也跟着走',
+    tabOf(wx, '朋友圈')._class.has('on') && !tabOf(wx, '消息')._class.has('on'));
   ok('朋友圈能看到那条动态和作者名', walk(wx).some(n => n._class.has('mo-text') && /剪了头发/.test(n.textContent)) &&
     walk(wx).some(n => n._class.has('mo-name') && n.textContent === cA.name));
   ok('没配图时给的是「让 AI 配张图」按钮', !!walk(wx).find(n => n._class.has('mo-make')));
@@ -1559,6 +1565,21 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   ok('点了就真的去生图并贴到卡片上', !!walk(wx).find(n => n._class.has('mo-pic')) &&
     /^data:image/.test(App.momentList().find(m => m.id === mEntry.id).img || ''));
   ok('卡片下面有赞 / 评论 / 删掉三个动作', walk(wx).filter(n => n._class.has('mo-act')).length >= 3);
+
+  /* ── 主页页签 ── */
+  tabOf(wx, '主页').click();
+  ok('点「主页」→ 我自己的卡片（头像 + 名字）',
+    !!walk(wx).find(n => n._class.has('me-card')) &&
+    !!walk(wx).find(n => n._class.has('me-name') && n.textContent === (App.state.settings.userName || '我')) &&
+    tabOf(wx, '主页')._class.has('on'));
+  ok('主页上有外观 / 通讯录 / 设置三个入口',
+    ['外观与头像', '通讯录', '设置'].every(t =>
+      walk(wx).some(n => n._class.has('row-title') && n.textContent === t)));
+
+  /* 单聊页要把页签收起来：真微信也是进了聊天就没了 */
+  tabOf(wx, '消息').click();
+  walk(wx).find(n => n._class.has('row')).click();
+  ok('点进某个人的聊天页 → 底部页签收起', walk(wx).filter(n => n._class.has('wt')).length === 0);
   S.closeTop(true);
 
   /* ── 外卖变精致了：卡片 / 菜品行 / 步进器 / 订单时间轴 ── */

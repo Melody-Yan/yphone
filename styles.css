@@ -940,3 +940,42 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .mo-act.danger:active { background: rgba(196, 117, 107, .14); color: var(--danger); }
 .list.moments { padding-bottom: 20px; }
 
+
+/* ── 微信底部页签：消息 / 朋友圈 / 主页（进单聊页就收起来） ── */
+.wtab {
+  flex: 0 0 auto;
+  display: flex;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, .84);
+  backdrop-filter: blur(14px);
+}
+.wt {
+  flex: 1;
+  border: 0; background: none; cursor: pointer;
+  padding: 8px 0 9px;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  color: var(--fg-dim);
+  transition: color .15s ease, transform .15s ease;
+}
+.wt-i { display: flex; opacity: .55; }
+.wt-l { font-size: 10.5px; letter-spacing: .2px; }
+.wt.on { color: var(--accent-ink); }
+.wt.on .wt-i { opacity: 1; transform: translateY(-1px); }
+.wt:active { transform: scale(.94); }
+
+/* 主页顶上我自己那张卡片 */
+.me-card {
+  display: flex; align-items: center; gap: 13px;
+  margin: 4px 14px 14px; padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .5));
+  box-shadow: var(--shadow-s);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.me-card:active { transform: scale(.985); }
+.me-card .avatar { width: 54px; height: 54px; border-radius: 18px; font-size: 26px; }
+.me-info { min-width: 0; }
+.me-name { font-size: 17px; font-weight: 600; }
+.me-sub { font-size: 12.5px; color: var(--fg-dim); margin-top: 3px; }
+.row-ico { font-size: 19px; width: 26px; text-align: center; flex: 0 0 auto; }

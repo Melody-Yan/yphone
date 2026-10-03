@@ -174,7 +174,7 @@ console.log('\n小手机 · 自检');
 console.log('\n[1] 启动与渲染');
 try { boot(); ok('三个 js 文件载入并执行 boot() 无异常', true); }
 catch (e) { ok('三个 js 文件载入并执行 boot() 无异常', false, e.message); }
-ok('window.APPS 已注册 8 个 App', sandbox.APPS.length === 8, '实际 ' + sandbox.APPS.length);
+ok('window.APPS 已注册 9 个 App', sandbox.APPS.length === 9, '实际 ' + sandbox.APPS.length);
 ok('window.SHELL 调试出口就位', !!(sandbox.SHELL && sandbox.SHELL.openApp && sandbox.SHELL.stack));
 ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
 ok('首页有桌面挂件（大时钟）', pages[0].children.some(c => c._class.has('widget')));
@@ -1010,7 +1010,7 @@ ok('默认第一页有一个时钟插件（老存档也一样，桌面不会变�
 ok('时钟插件上写着虚拟时间', wgOn(0)[0].textContent.includes(wk.fmtTime(wk.virtualNow())),
   wgOn(0)[0].textContent);
 ok('其它页默认没有插件', wgOn(1).length === 0 && wgOn(2).length === 0);
-ok('桌面图标还是 8 个（插件没吃掉 App）', iconsOn() === 8, iconsOn() + ' 个');
+ok('桌面图标数 = App 总数（插件没吃掉 App）', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
 
 /* 长按桌面空白处弹面板 */
 dispatch(pages[1], 'mousedown', {});
@@ -1033,7 +1033,7 @@ wk.addWidget(0, 'notes'); wk.addWidget(0, 'chat');
 S.SHELL.renderHome();
 ok('第一页 3 个插件 → 图标位缩到 1 行（4 个）', iconOn(0) === 4, iconOn(0) + ' 个');
 ok('装不下的图标挤到了第二页', iconOn(1) >= 1, iconOn(1) + ' 个');
-ok('图标总数没丢（还是 8 个）', iconsOn() === 8, iconsOn() + ' 个');
+ok('图标总数没丢（还是 App 总数）', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
 
 /* 点日历插件直接进日历 App */
 resetWg();
@@ -1070,12 +1070,14 @@ await waitFor(() => sheetLabels().includes('清空这一页插件'));
 clickSheet('清空这一页插件');
 ok('「清空这一页插件」把本页清空', wgOn(0).length === 0 && wk.state.widgets[0].length === 0);
 
-/* 电量插件跟状态栏用同一个值 */
+/* 电量插件：进度条要和它自己写的百分比一致。
+   别跟状态栏那条比 —— 两者的 batteryLevel() 不是同一毫秒调的，会差 1 个点。 */
 wk.addWidget(1, 'battery'); S.SHELL.renderHome();
 const battFill = walk(wgOn(1)[0]).find(n => n._class.has('wg-batt-fill'));
-ok('电量插件画了进度条，且跟状态栏是同一个值',
-  !!battFill && battFill.style.width === byId['sb-batt-fill'].style.width,
-  (battFill && battFill.style.width) + ' vs ' + byId['sb-batt-fill'].style.width);
+const battTxt = (/(\d+)%/.exec(wgOn(1)[0].textContent) || [])[0];
+ok('电量插件的进度条和它写的百分比一致',
+  !!battFill && !!battTxt && battFill.style.width === battTxt,
+  (battFill && battFill.style.width) + ' vs ' + battTxt);
 ok('电量插件写着百分比', /\d+%/.test(wgOn(1)[0].textContent), wgOn(1)[0].textContent);
 
 /* 相册插件没有照片时给提示，有图就画出来 */
@@ -1093,6 +1095,103 @@ ok('认不出的插件类型在存档里被丢掉',
   reloaded.widgets[0].length === 0, JSON.stringify(reloaded.widgets));
 
 resetWg();
+
+/* 23. 世界书 App：通用 / 个人两本 + 优先级 */
+console.log('\n[23] 世界书 App');
+const WB_PH = {
+  title: '卡的名字（只给你自己看）',
+  keys: '关键词，逗号隔开：手机, 来历, 你怎么在这',
+  body: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。'
+};
+const groupTitles = node => walk(node).filter(n => n._class.has('group-title')).map(n => n.textContent);
+const rowTitles = node => walk(node).filter(n => n._class.has('row-title')).map(n => n.textContent);
+const rowWith = (node, text) => walk(node).find(n => n._class.has('row') && n.textContent.includes(text));
+const wbApp = () => openFresh('worldbook');
+
+wb.state.worldbook.length = 0; wb.save();
+const wcA = wb.makeCharacter({ name: '世界书甲' }); wb.saveCharacter(wcA);
+const wcB = wb.makeCharacter({ name: '世界书乙' }); wb.saveCharacter(wcB);
+
+ok('注册表里有「世界书」这个 App', !!sandbox.APPS.find(a => a.id === 'worldbook'));
+let vbv = wbApp();
+ok('世界书 App 能打开', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '世界书'));
+ok('空的时候给一句提示', walk(vbv).some(n => n._class.has('empty')), '');
+
+/* 新建时先选归属 */
+findBtn(vbv, '＋').click();
+await waitFor(() => sheetLabels().includes('通用世界书'));
+ok('新建时先问这张卡属于谁', sheetLabels().includes('通用世界书'), JSON.stringify(sheetLabels()));
+ok('归属面板里列出了每个角色', sheetLabels().includes('世界书甲') && sheetLabels().includes('世界书乙'), JSON.stringify(sheetLabels()));
+
+clickSheet('通用世界书');
+findIn(vbv, WB_PH.title).value = '世界背景';
+findIn(vbv, WB_PH.keys).value = '手机, 天气';
+findIn(vbv, WB_PH.body).value = '这台手机里住着一个人。';
+findBtn(vbv, '保存').click();
+ok('通用卡落在「通用世界书」组里',
+  groupTitles(vbv).some(t => t.startsWith('通用世界书')) && rowTitles(vbv).includes('世界背景'),
+  JSON.stringify([groupTitles(vbv), rowTitles(vbv)]));
+
+/* 新建一张个人卡 */
+findBtn(vbv, '＋').click();
+await waitFor(() => sheetLabels().includes('世界书甲'));
+clickSheet('世界书甲');
+findIn(vbv, WB_PH.title).value = '只有甲知道';
+findIn(vbv, WB_PH.keys).value = '秘密';
+findIn(vbv, WB_PH.body).value = '甲的一个秘密。';
+findBtn(vbv, '保存').click();
+ok('个人卡挂在角色自己那一组下面',
+  groupTitles(vbv).some(t => t.startsWith('世界书甲')) && rowTitles(vbv).includes('只有甲知道'),
+  JSON.stringify(groupTitles(vbv)));
+
+/* 触发过滤：通用人人有份，个人只认自己的角色 */
+const hSecret = [{ me: true, text: '关于那个秘密' }];
+const hPhone = [{ me: true, text: '这台手机' }];
+const wbNames = (h, c) => wb.activeEntries(h, c).map(e => e.title);
+ok('通用卡在任何人那儿都能命中', wbNames(hPhone, wcB).includes('世界背景'), JSON.stringify(wbNames(hPhone, wcB)));
+ok('个人卡只在自己角色的聊天里命中', wbNames(hSecret, wcA).includes('只有甲知道'), JSON.stringify(wbNames(hSecret, wcA)));
+ok('个人卡跑到别的角色那儿就不命中', !wbNames(hSecret, wcB).includes('只有甲知道'), JSON.stringify(wbNames(hSecret, wcB)));
+ok('不传角色时个人卡一律不注入（避免串台）', !wb.activeEntries(hSecret).map(e => e.title).includes('只有甲知道'));
+ok('个人卡的正文真进了甲的提示词', wb.buildSystem(wcA, hSecret).includes('甲的一个秘密。'));
+ok('乙的提示词里没有甲的个人卡', !wb.buildSystem(wcB, hSecret).includes('甲的一个秘密。'));
+
+/* 优先级：列表按大的排前面 */
+wb.saveEntry(wb.makeEntry({ title: '低优先级', order: 10 }));
+wb.saveEntry(wb.makeEntry({ title: '高优先级', order: 900 }));
+vbv = wbApp();
+const priTitles = rowTitles(vbv);
+ok('列表把优先级高的排前面', priTitles.indexOf('高优先级') < priTitles.indexOf('低优先级'), JSON.stringify(priTitles));
+ok('每行都写着优先级数字', walk(vbv).some(n => n._class.has('row-time') && n.textContent === '优先级 900 ›'));
+
+/* 在编辑器里改归属 */
+rowWith(vbv, '高优先级').click();
+rowWith(vbv, '归属').click();
+await waitFor(() => sheetLabels().includes('世界书乙'));
+clickSheet('世界书乙');
+findBtn(vbv, '保存').click();
+const moved = wb.state.worldbook.find(e => e.title === '高优先级');
+ok('在编辑器里能把卡改挂到另一个角色名下', moved.scope === 'char' && moved.charId === wcB.id,
+  JSON.stringify([moved.scope, moved.charId]));
+
+/* 角色删了，个人卡不能跟着人间蒸发 */
+wb.deleteCharacter(wcB.id);
+vbv = wbApp();
+ok('角色被删后他的个人卡还看得见，归到「已删除的角色」',
+  groupTitles(vbv).some(t => t.startsWith('已删除的角色')), JSON.stringify(groupTitles(vbv)));
+rowWith(vbv, '高优先级').click();
+ok('点进去还能把归属改回通用',
+  walk(vbv).some(n => n._class.has('row-title') && n.textContent === '归属'));
+
+/* 设置页那一行直接打开这个世界书 App */
+const wbSetView = openFresh('settings');
+rowWith(wbSetView, '世界书').click();
+ok('设置里的「世界书」直接打开世界书 App',
+  S.SHELL.stack.length === 2 && walk(S.SHELL.stack[1].node).some(n => n._class.has('nav-title') && n.textContent === '世界书'),
+  S.SHELL.stack.map(s => s.id).join(','));
+
+while (S.SHELL.stack.length) S.closeTop(true);
+wb.state.worldbook.length = 0; wb.save();
+wb.deleteCharacter(wcA.id);
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);

@@ -337,7 +337,8 @@ const MEM_KEEP = 300;  // 单个角色最多留多少条记忆卡片
 function makeEntry(patch = {}) {
   return Object.assign({
     id: uid(), title: '新设定', keys: [], content: '',
-    order: 100, constant: false, enabled: true
+    order: 100, constant: false, enabled: true,
+    scope: 'global', charId: ''      // global = 通用世界书；char = 个人世界书（只在他自己的聊天里生效）
   }, patch);
 }
 
@@ -351,6 +352,8 @@ function saveEntry(e) {
   e.order = isFinite(n) ? n : 100;
   e.constant = !!e.constant;
   e.enabled = e.enabled !== false;
+  e.scope = e.scope === 'char' ? 'char' : 'global';
+  e.charId = e.scope === 'char' ? String(e.charId || '') : '';
   const i = state.worldbook.findIndex(x => x.id === e.id);
   if (i < 0) state.worldbook.push(e); else state.worldbook[i] = e;
   save();
@@ -362,16 +365,47 @@ function deleteEntry(id) {
   save();
 }
 
-/* 命中的卡，按 order 从小到大。history 永远传「全部消息」—— 裁剪只发生在
-   真正发给模型的那一段（见 askCharacter），否则刚滚出窗口的关键词就永远触发不了。 */
-function activeEntries(history) {
+/* 世界书 App 用的分组：先「通用」，再每个有个人卡的角色。
+   被删掉的角色留下的卡也单独成组，不然它们会悄悄消失、用户找不到。 */
+function wbGroups() {
+  const byChar = {};
+  const globals = [];
+  state.worldbook.forEach(e => {
+    if (e.scope === 'char' && e.charId) (byChar[e.charId] = byChar[e.charId] || []).push(e);
+    else globals.push(e);
+  });
+  const groups = [{ key: 'global', charId: '', label: '通用世界书', sub: '所有角色的聊天里都可能触发', list: globals }];
+  Object.keys(byChar).forEach(cid => {
+    const c = (state.characters || []).find(x => x.id === cid);
+    groups.push({
+      key: cid, charId: cid,
+      label: c ? c.name : '已删除的角色',
+      sub: c ? '只在他/她的聊天里触发' : '角色已经删了，这些卡不会再触发',
+      list: byChar[cid]
+    });
+  });
+  return groups;
+}
+
+/* 优先级高的排前面（列表只是给人看的；注入顺序另说，见 activeEntries） */
+function wbSorted(list) {
+  return (list || []).slice().sort((a, b) => (Number(b.order) || 0) - (Number(a.order) || 0));
+}
+/* 命中的卡，按 order 从小到大（= 优先级从低到高）。history 永远传「全部消息」——
+   裁剪只发生在真正发给模型的那一段（见 askCharacter），否则刚滚出窗口的关键词就永远触发不了。
+   char 用于过滤「个人世界书」：scope==='char' 的卡只在这个角色的聊天里参与。 */
+function activeEntries(history, char) {
   if (state.settings.wbOn === false) return [];
   const depth = Math.max(1, Number(state.settings.scanDepth) || 4);
   const text = (history || []).slice(-depth)
     .map(m => String((m && m.text) || '')).join('\n').toLowerCase();
+  const cid = String((char && char.id) || '');
   return state.worldbook
-    .filter(e => e.enabled !== false
-      && (e.constant || (e.keys || []).some(k => k && text.includes(String(k).toLowerCase()))))
+    .filter(e => {
+      if (e.enabled === false) return false;
+      if (e.scope === 'char' && String(e.charId || '') !== cid) return false;
+      return e.constant || (e.keys || []).some(k => k && text.includes(String(k).toLowerCase()));
+    })
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
 }
 
@@ -646,7 +680,7 @@ function buildSystem(char, history) {
   const lines = [ROLE_RULES, '', '---', ''];
 
   /* 世界书排在人设前面：先把世界立成既成事实，再讲他是谁 */
-  const wb = activeEntries(history);
+  const wb = activeEntries(history, c);
   if (wb.length) {
     lines.push('# 世界设定（以下是已经成立的事实，直接当真，别否认、别当新鲜事说出来）');
     wb.forEach(e => lines.push(e.content));
@@ -814,7 +848,7 @@ window.SJ = {
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem,
   /* 世界书 / 记忆 / 日历 */
-  makeEntry, saveEntry, deleteEntry, activeEntries,
+  makeEntry, saveEntry, deleteEntry, activeEntries, wbGroups, wbSorted,
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,

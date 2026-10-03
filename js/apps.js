@@ -24,7 +24,8 @@ const ICON = {
   photo: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 4.5-4.5 3.5 3.5 3-2.5L20 17"/>',
   music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
   wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14" r="1.2"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 9.6h17M8 3.4v3.2M16 3.4v3.2"/><path d="M7.6 13h2M11 13h2M14.4 13h2M7.6 16.6h2M11 16.6h2"/>'
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 9.6h17M8 3.4v3.2M16 3.4v3.2"/><path d="M7.6 13h2M11 13h2M14.4 13h2M7.6 16.6h2M11 16.6h2"/>',
+  book: '<path d="M12 6.6C10.4 5.1 8 4.3 4.5 4.3v13.2c3.5 0 5.9.8 7.5 2.3 1.6-1.5 4-2.3 7.5-2.3V4.3c-3.5 0-5.9.8-7.5 2.3Z"/><path d="M12 6.6v13.2"/>'
 };
 
 function svg(name, size = 30) {
@@ -95,6 +96,35 @@ function toast(msg) {
   document.getElementById('phone').append(t);
   setTimeout(() => t.remove(), 1700);
   return t;
+}
+
+/* 设置/世界书共用的两种行：开关行、数字行 */
+function toggleRow(title, sub, on, onClick) {
+  return SJ.el('div', { class: 'row', onclick: onClick }, [
+    SJ.el('div', { class: 'row-main' }, [
+      SJ.el('div', { class: 'row-title' }, title),
+      sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+    ].filter(Boolean)),
+    SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
+  ]);
+}
+
+function numRow(title, sub, key, min, max) {
+  return SJ.el('div', { class: 'row' }, [
+    SJ.el('div', { class: 'row-main' }, [
+      SJ.el('div', { class: 'row-title' }, title),
+      SJ.el('div', { class: 'row-sub' }, sub)
+    ]),
+    SJ.el('input', {
+      class: 'field tiny', type: 'number', min: String(min), max: String(max),
+      value: String(SJ.state.settings[key]),
+      onchange: ev => {
+        const n = Math.max(min, Math.min(max, Number(ev.target.value) || min));
+        ev.target.value = String(n);
+        SJ.state.settings[key] = n; SJ.save();
+      }
+    })
+  ]);
 }
 
 /* 压到最长边 360px 的 JPEG 再存。
@@ -825,6 +855,151 @@ const APPS = [
     }
   },
 
+  /* ── 世界书：关键词触发的设定卡。分「通用」（谁都能触发）与「个人」（只属于某个角色） ── */
+  {
+    id: 'worldbook',
+    name: '世界书',
+    icon: 'book',
+    color: 'linear-gradient(150deg,#ccd7e8,#9db0cd)',
+    render(root, close) {
+      const pickHead = SJ.el('div', { class: 'hint', style: { padding: '2px 6px 12px' } }, '这张卡属于谁？');
+
+      function homeView() {
+        root.innerHTML = '';
+        root.append(navBar('世界书', {
+          right: SJ.el('button', { class: 'nav-btn', onclick: newPick }, '＋')
+        }));
+        const box = SJ.el('div', { class: 'list' });
+
+        box.append(SJ.el('div', { class: 'pad' }, [
+          toggleRow('总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
+            SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
+            SJ.save(); homeView();
+          }),
+          SJ.el('div', { class: 'hint' }, '聊到关键词，卡的正文才喂给模型 —— 不聊就不占 token。优先级越大越靠后注入，模型越当回事。')
+        ]));
+
+        if (!SJ.state.worldbook.length) {
+          box.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
+        }
+
+        SJ.wbGroups().forEach(g => {
+          if (!g.list.length && g.key !== 'global') return;
+          box.append(SJ.el('div', { class: 'group-title' }, g.label + ' · ' + g.list.length));
+          if (!g.list.length) {
+            box.append(SJ.el('div', { class: 'empty' }, g.sub));
+            return;
+          }
+          SJ.wbSorted(g.list).forEach(e => box.append(SJ.el('div', { class: 'row', onclick: () => entryView(e.id) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, e.title
+                + (e.constant ? ' · 常驻' : '')
+                + (e.enabled === false ? ' · 已停用' : '')),
+              SJ.el('div', { class: 'row-sub' }, (e.keys || []).length ? (e.keys || []).join(' / ') : '（没有关键词，靠常驻生效）')
+            ]),
+            SJ.el('div', { class: 'row-time' }, '优先级 ' + (Number(e.order) || 0) + ' ›')
+          ])));
+        });
+
+        /* 上下文预算：这两个数决定每次发给模型多少东西，直接影响花费 */
+        box.append(SJ.el('div', { class: 'group-title' }, '上下文'));
+        box.append(numRow('原文窗口', '最多带最近几条原话发给模型', 'historyKeep', 4, 200));
+        box.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
+        root.append(box);
+      }
+
+      /* 新建先选归属，免得建完才发现挂错了人 */
+      function newPick() {
+        const items = [{ icon: '🌍', label: '通用世界书', hint: '所有角色都认这条设定', run: () => entryView(null, 'global', '') }];
+        (SJ.state.characters || []).forEach(c => items.push({
+          icon: '🙂', label: c.name, hint: '只在他/她的聊天里生效',
+          run: () => entryView(null, 'char', c.id)
+        }));
+        if (items.length === 1) {
+          items.push({ icon: '🙂', label: '个人世界书', hint: '先去通讯录建个角色，才能挂在他名下', run: () => toast('还没有角色') });
+        }
+        sheet(items, pickHead);
+      }
+
+      function entryView(id, scope, charId) {
+        const isNew = !id;
+        const e = SJ.state.worldbook.find(x => x.id === id) || SJ.makeEntry({ scope, charId });
+        root.innerHTML = '';
+        root.append(navBar(isNew ? '新设定卡' : '编辑设定卡', {
+          back: homeView,
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => saveIt() }, '保存')
+        }));
+
+        const title = SJ.el('input', { class: 'field', placeholder: '卡的名字（只给你自己看）', value: e.title });
+        const keys = SJ.el('input', { class: 'field', placeholder: '关键词，逗号隔开：手机, 来历, 你怎么在这', value: (e.keys || []).join(', ') });
+        const content = SJ.el('textarea', { class: 'field area', placeholder: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。' }, e.content);
+        const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
+
+        const owner = SJ.el('div', { class: 'row-time' });
+        function ownerText() {
+          if (e.scope !== 'char' || !e.charId) return '通用';
+          const c = (SJ.state.characters || []).find(x => x.id === e.charId);
+          return c ? c.name : '已删除的角色';
+        }
+        function ownerItems() {
+          const items = [{ icon: '🌍', label: '通用', hint: '所有角色都认这条设定', run: () => { e.scope = 'global'; e.charId = ''; owner.textContent = ownerText(); } }];
+          (SJ.state.characters || []).forEach(c => items.push({
+            icon: '🙂', label: c.name, hint: '只在他/她的聊天里生效',
+            run: () => { e.scope = 'char'; e.charId = c.id; owner.textContent = ownerText(); }
+          }));
+          return items;
+        }
+
+        const constBtn = SJ.el('button', { class: 'btn ghost' });
+        const onBtn = SJ.el('button', { class: 'btn ghost' });
+        function paint() {
+          constBtn.textContent = e.constant ? '常驻：开（不聊到也注入）' : '常驻：关（聊到关键词才注入）';
+          onBtn.textContent = e.enabled === false ? '已停用 —— 点一下启用' : '已启用 —— 点一下停用';
+        }
+        constBtn.addEventListener('click', () => { e.constant = !e.constant; paint(); });
+        onBtn.addEventListener('click', () => { e.enabled = !e.enabled; paint(); });
+        paint();
+        owner.textContent = ownerText();
+
+        function saveIt() {
+          e.title = title.value; e.keys = keys.value; e.content = content.value; e.order = order.value;
+          if (isNew && !e.content.trim() && !String(e.keys).trim()) return homeView();   // 空的当没建
+          SJ.saveEntry(e);
+          homeView();
+        }
+
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), title]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词'), keys]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '正文'), content]),
+          constBtn,
+          onBtn,
+          SJ.el('div', { class: 'row', onclick: () => sheet(ownerItems(), pickHead) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '归属'),
+              SJ.el('div', { class: 'row-sub' }, '通用 = 谁都能触发；个人 = 只在这个角色的聊天里生效')
+            ]),
+            owner
+          ]),
+          SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '优先级'),
+              SJ.el('div', { class: 'row-sub' }, '数字越大越靠后注入，模型越当回事。默认 100')
+            ]),
+            order
+          ]),
+          SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
+          isNew ? null : SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('删掉这张设定卡？', () => { SJ.deleteEntry(e.id); homeView(); })
+          }, '删除这张卡')
+        ]));
+      }
+
+      homeView();
+    }
+  },
+
   {
     id: 'calc',
     name: '计算器',
@@ -930,7 +1105,12 @@ const APPS = [
         /* 通用 */
         box.append(SJ.el('div', { class: 'group-title' }, '通用'));
         box.append(SJ.el('div', { class: 'row', onclick: () => toggleLock() }, [
-          SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, '锁屏')]),
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '锁屏'),
+            SJ.el('div', { class: 'row-sub' }, SJ.state.lock
+              ? '打开小手机先输 4 位密码，密码是 ' + (SJ.state.password || '1234')
+              : '现在没开。点一下立刻锁上，之后每次打开都要输密码')
+          ]),
           SJ.el('div', { class: 'row-time' }, SJ.state.lock ? '已开启 ›' : '已关闭 ›')
         ]));
         box.append(toggleRow('锁屏显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
@@ -1001,10 +1181,10 @@ const APPS = [
 
         /* 世界书 */
         box.append(SJ.el('div', { class: 'group-title' }, '世界书'));
-        box.append(SJ.el('div', { class: 'row', onclick: () => wbView() }, [
+        box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('worldbook'); } }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '世界书'),
-            SJ.el('div', { class: 'row-sub' }, '关键词触发的设定卡：聊到才注入，不聊就不占 token')
+            SJ.el('div', { class: 'row-sub' }, '关键词触发的设定卡，分「通用」和「个人」两本')
           ]),
           SJ.el('div', { class: 'row-time' }, `${SJ.state.worldbook.length} 条 · ${SJ.state.settings.wbOn === false ? '已关闭' : '已开启'} ›`)
         ]));
@@ -1079,127 +1259,6 @@ const APPS = [
         if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
       }
       function toggle24() { SJ.state.settings.clock24 = !SJ.state.settings.clock24; SJ.save(); main(); }
-
-      /* ── 世界书：关键词触发的设定卡 ── */
-      function toggleRow(title, sub, on, onClick) {
-        return SJ.el('div', { class: 'row', onclick: onClick }, [
-          SJ.el('div', { class: 'row-main' }, [
-            SJ.el('div', { class: 'row-title' }, title),
-            sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
-          ]),
-          SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
-        ]);
-      }
-
-      function wbView() {
-        root.innerHTML = '';
-        root.append(navBar('世界书', {
-          back: main,
-          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => entryView(null) }, '＋')
-        }));
-        const box = SJ.el('div', { class: 'list' });
-
-        box.append(SJ.el('div', { class: 'pad' }, [
-          toggleRow('世界书总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
-            SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
-            SJ.save(); wbView();
-          }),
-          SJ.el('div', { class: 'hint' }, '写一张卡：填几个关键词，聊天里出现这些词时，卡的正文就会喂给模型。关键词留空的话，只有打开「常驻」才生效。')
-        ]));
-
-        if (!SJ.state.worldbook.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
-        }
-        SJ.state.worldbook.slice()
-          .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
-          .forEach(e => {
-            box.append(SJ.el('div', { class: 'row', onclick: () => entryView(e.id) }, [
-              SJ.el('div', { class: 'row-main' }, [
-                SJ.el('div', { class: 'row-title' }, e.title
-                  + (e.constant ? ' · 常驻' : '')
-                  + (e.enabled === false ? ' · 已停用' : '')),
-                SJ.el('div', { class: 'row-sub' }, (e.keys || []).length ? (e.keys || []).join(' / ') : '（没有关键词，靠常驻生效）')
-              ]),
-              SJ.el('div', { class: 'row-time' }, String(e.order) + ' ›')
-            ]));
-          });
-
-        /* 上下文预算：这两个数决定每次发给模型多少东西，直接影响花费 */
-        box.append(SJ.el('div', { class: 'group-title' }, '上下文'));
-        box.append(numRow('原文窗口', '最多带最近几条原话发给模型', 'historyKeep', 4, 200));
-        box.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
-        root.append(box);
-      }
-
-      function numRow(title, sub, key, min, max) {
-        return SJ.el('div', { class: 'row' }, [
-          SJ.el('div', { class: 'row-main' }, [
-            SJ.el('div', { class: 'row-title' }, title),
-            SJ.el('div', { class: 'row-sub' }, sub)
-          ]),
-          SJ.el('input', {
-            class: 'field tiny', type: 'number', min: String(min), max: String(max),
-            value: String(SJ.state.settings[key]),
-            onchange: ev => {
-              const n = Math.max(min, Math.min(max, Number(ev.target.value) || min));
-              ev.target.value = String(n);
-              SJ.state.settings[key] = n; SJ.save();
-            }
-          })
-        ]);
-      }
-
-      function entryView(id) {
-        const isNew = !id;
-        const e = SJ.state.worldbook.find(x => x.id === id) || SJ.makeEntry();
-        root.innerHTML = '';
-        root.append(navBar(isNew ? '新设定卡' : '编辑设定卡', {
-          back: wbView,
-          right: SJ.el('button', { class: 'nav-btn', onclick: () => saveIt() }, '保存')
-        }));
-
-        const title = SJ.el('input', { class: 'field', placeholder: '卡的名字（只给你自己看）', value: e.title });
-        const keys = SJ.el('input', { class: 'field', placeholder: '关键词，逗号隔开：手机, 来历, 你怎么在这', value: (e.keys || []).join(', ') });
-        const content = SJ.el('textarea', { class: 'field area', placeholder: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。' }, e.content);
-        const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
-
-        const constBtn = SJ.el('button', { class: 'btn ghost' });
-        const onBtn = SJ.el('button', { class: 'btn ghost' });
-        function paint() {
-          constBtn.textContent = e.constant ? '常驻：开（不聊到也注入）' : '常驻：关（聊到关键词才注入）';
-          onBtn.textContent = e.enabled === false ? '已停用 —— 点一下启用' : '已启用 —— 点一下停用';
-        }
-        constBtn.addEventListener('click', () => { e.constant = !e.constant; paint(); });
-        onBtn.addEventListener('click', () => { e.enabled = !e.enabled; paint(); });
-        paint();
-
-        function saveIt() {
-          e.title = title.value; e.keys = keys.value; e.content = content.value; e.order = order.value;
-          if (isNew && !e.content.trim() && !String(e.keys).trim()) return wbView();   // 空的当没建
-          SJ.saveEntry(e);
-          wbView();
-        }
-
-        root.append(SJ.el('div', { class: 'pad' }, [
-          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), title]),
-          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词'), keys]),
-          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '正文'), content]),
-          constBtn,
-          onBtn,
-          SJ.el('div', { class: 'row' }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '顺序'),
-              SJ.el('div', { class: 'row-sub' }, '多张卡同时命中时，数字小的先注入')
-            ]),
-            order
-          ]),
-          SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
-          isNew ? null : SJ.el('button', {
-            class: 'btn danger',
-            onclick: () => confirmBox('删掉这张设定卡？', () => { SJ.deleteEntry(e.id); wbView(); })
-          }, '删除这张卡')
-        ]));
-      }
 
       main();
     }

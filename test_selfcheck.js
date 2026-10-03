@@ -1,0 +1,686 @@
+/* ══════════════════════════════════════════════════════
+   自检：不开浏览器，用一份极简 DOM 垫片真跑 core/apps/app。
+   用法：node test_selfcheck.js
+   ══════════════════════════════════════════════════════ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const DIR = __dirname;
+let failed = 0, passed = 0;
+let fetchImpl = null;   // 测试里按需塞一份假的 fetch，验证拉模型/发消息这两条网络路径
+
+/* ── 极简 DOM ── */
+function makeEl(tag) {
+  const n = {
+    tagName: String(tag).toUpperCase(),
+    nodeType: tag === '#text' ? 3 : 1,
+    children: [], parentNode: null,
+    attrs: {}, _class: new Set(), style: {}, dataset: {},
+    _text: '', _html: '', hidden: false, value: '',
+    _listeners: Object.create(null),
+    get className() { return [...this._class].join(' '); },
+    set className(v) { this._class = new Set(String(v).split(/\s+/).filter(Boolean)); },
+    get classList() {
+      const s = this._class;
+      return {
+        add: (...c) => c.forEach(x => s.add(x)),
+        remove: (...c) => c.forEach(x => s.delete(x)),
+        contains: c => s.has(c),
+        toggle: (c, f) => { const on = f === undefined ? !s.has(c) : !!f; on ? s.add(c) : s.delete(c); return on; }
+      };
+    },
+    get firstChild() { return this.children[0] || null; },
+    get textContent() {
+      if (this.children.length) return this.children.map(c => c.textContent).join('');
+      return this._html ? this._html.replace(/<[^>]*>/g, '') : this._text;
+    },
+    set textContent(v) { this._text = v == null ? '' : String(v); this._html = ''; this.children.length = 0; },
+    get innerHTML() { return this._html || this.children.map(c => c.outerHTML || '').join(''); },
+    set innerHTML(v) { this._html = String(v); this.children.length = 0; },
+    get outerHTML() { return `<${this.tagName.toLowerCase()}>`; },
+    append(...k) { k.forEach(c => { if (c == null) return; if (c.parentNode) c.remove(); c.parentNode = this; this.children.push(c); }); },
+    appendChild(c) { this.append(c); return c; },
+    insertBefore(c, ref) {
+      c.parentNode = this;
+      const i = ref ? this.children.indexOf(ref) : -1;
+      if (i < 0) this.children.push(c); else this.children.splice(i, 0, c);
+      return c;
+    },
+    remove() { const p = this.parentNode; if (p) p.children = p.children.filter(x => x !== this); this.parentNode = null; },
+    setAttribute(k, v) { this.attrs[k] = v; if (k === 'class') this.className = v; },
+    getAttribute(k) { return this.attrs[k]; },
+    addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
+    removeEventListener(t, fn) { (this._listeners[t] || []).forEach((f, i, a) => f === fn && a.splice(i, 1)); },
+    click() { return dispatch(this, 'click', {}); },
+    cloneNode() { const c = makeEl(this.tagName); c._class = new Set(this._class); c.attrs = Object.assign({}, this.attrs); c.dataset = Object.assign({}, this.dataset); c._text = this._text; return c; },
+    getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }; },
+    focus() {}, blur() {},
+    /* 选择器：只支持 #id 与后代 class/element 的简单组合 */
+    querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
+    querySelectorAll(sel) {
+      const out = [];
+      const parts = sel.trim().split(/\s+/);
+      let cur = [this];
+      for (const p of parts) {
+        const next = [];
+        for (const c of cur) for (const ch of walk(c)) if (match(ch, p)) next.push(ch);
+        cur = next;
+      }
+      return [...new Set(cur)].filter(n => n !== this).concat(out);
+    }
+  };
+  return n;
+}
+function walk(n) { const out = []; const dig = x => x.children.forEach(c => { out.push(c); dig(c); }); dig(n); return out; }
+function match(n, sel) {
+  return sel.split(',').some(one => {
+    one = one.trim();
+    if (one.startsWith('#')) return n.attrs.id === one.slice(1);
+    if (one.startsWith('.')) return n._class.has(one.slice(1));
+    return n.tagName === one.toUpperCase();
+  });
+}
+function dispatch(node, type, ev) {
+  let n = node, handled = 0;
+  if (ev.target === undefined) ev.target = node;        // 浏览器会给的事件字段，垫片自己补
+  while (n) {
+    ev.currentTarget = n;
+    (n._listeners[type] || []).forEach(fn => { fn(ev); handled++; });
+    n = n.parentNode;
+  }
+  return handled;
+}
+
+/* ── 搭骨架 ── */
+const ids = ['stage', 'phone', 'statusbar', 'sb-clock', 'sb-notch', 'sb-right', 'sb-batt', 'sb-batt-fill',
+  'home', 'pages', 'dots', 'dock', 'stack', 'lock', 'lock-time', 'lock-date', 'lock-hint', 'lock-pad', 'homebar'];
+const body = makeEl('body');
+const byId = {};
+ids.forEach(id => { const n = makeEl('div'); n.attrs.id = id; byId[id] = n; body.append(n); });
+const freshPages = () => { byId.pages.children.length = 0; return ['p0', 'p1', 'p2'].map(() => { const p = makeEl('div'); p.className = 'page'; byId.pages.append(p); return p; }); };
+let pages = freshPages();
+byId['phone'].append(byId.home, byId.stack, byId.lock, byId.homebar);
+byId.stage.append(byId.phone);
+/* 让 body 同时扮 document */
+body.body = body;
+body.createElement = makeEl;
+body.getElementById = id => byId[id] || null;
+body.createTextNode = txt => { const n = makeEl('#text'); n.nodeType = 3; n._text = String(txt); return n; };
+
+const store = new Map();
+const allNodes = () => [body, ...walk(body)];
+
+/* document 直接用 body 这个元素本身即可：源码只用它的
+   querySelector/getElementById/createElement/body/addEventListener，
+   而 makeEl 造的节点全都有。绝不能在这里重写 querySelector ——
+   那等于让 body.querySelector 调用自己，直接无限递归。 */
+function makeSandbox() {
+  const s = {
+    console, Math, Date, JSON, Object, Array, String, Number, RegExp, Function,
+    setTimeout, clearTimeout, setInterval, clearInterval,
+    requestAnimationFrame: fn => { fn(0); return 0; },
+    navigator: { vibrate: () => {} },
+    fetch: (url, opts) => fetchImpl ? fetchImpl(url, opts) : Promise.reject(new Error('测试没配 fetch')),
+    localStorage: {
+      getItem: k => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: k => store.delete(k)
+    },
+    document: body
+  };
+  s.window = s; s.globalThis = s;
+  return s;
+}
+let sandbox = null;
+let _bootN = 0;
+
+const SRC = ['js/core.js', 'js/apps.js', 'js/app.js'];
+function boot() {
+  allNodes().forEach(n => { n._listeners = Object.create(null); });
+  byId.stack.children.length = 0;
+  byId.dock.children.length = 0;
+  byId['home']._class.delete('pushed');
+  pages = freshPages();
+  sandbox = makeSandbox();
+  const ctx = vm.createContext(sandbox);
+  for (const f of SRC) {
+    vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), ctx, { filename: f });
+  }
+}
+
+/* ── 断言 ── */
+function ok(name, cond, extra) {
+  if (cond) { passed++; console.log('  ✓ ' + name); }
+  else { failed++; console.log('  ✗ ' + name + (extra ? '  → ' + extra : '')); }
+}
+const iconsOn = () => pages.reduce((s, p) => s + p.children.filter(c => c._class.has('icon')).length, 0)
+  + byId.dock.children.length;
+const findBtn = (root, text) => walk(root).find(n => n.textContent.trim() === text && n.tagName === 'BUTTON');
+
+console.log('\n小手机 · 自检');
+
+(async function main() {
+
+/* 1. 启动 */
+console.log('\n[1] 启动与渲染');
+try { boot(); ok('三个 js 文件载入并执行 boot() 无异常', true); }
+catch (e) { ok('三个 js 文件载入并执行 boot() 无异常', false, e.message); }
+ok('window.APPS 已注册 7 个 App', sandbox.APPS.length === 7, '实际 ' + sandbox.APPS.length);
+ok('window.SHELL 调试出口就位', !!(sandbox.SHELL && sandbox.SHELL.openApp && sandbox.SHELL.stack));
+ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
+ok('首页有桌面挂件（大时钟）', pages[0].children.some(c => c._class.has('widget')));
+ok('状态栏时钟已填值', /^\d{1,2}:\d{2}/.test(byId['sb-clock'].textContent), byId['sb-clock'].textContent);
+ok('电量伪值已写入', /\d+%/.test(byId['sb-batt'].textContent), byId['sb-batt'].textContent);
+
+/* 2. 视图栈 */
+console.log('\n[2] 视图栈（transform 滑动，非 display:none）');
+const S = { get openApp() { return sandbox.SHELL.openApp; }, get closeTop() { return sandbox.SHELL.closeTop; }, get APPS() { return sandbox.APPS; }, get SHELL() { return sandbox.SHELL; } };
+S.openApp('chat');
+const top = sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1];
+ok('openApp 后栈深度 = 1', sandbox.SHELL.stack.length === 1);
+ok('深链节点挂在 #stack 下', byId.stack.children.includes(top.node));
+ok('新视图带 .in（已滑入）', top.node._class.has('in'));
+ok('桌面被推远（.pushed）', byId.home._class.has('pushed'));
+ok('App 内容是渲染出来的（有聊天气泡/输入条）', walk(top.node).length > 5, walk(top.node).length + ' 个节点');
+sandbox.SHELL.closeTop(true);
+ok('closeTop 后栈清空', sandbox.SHELL.stack.length === 0);
+ok('节点已从 DOM 移除', !byId.stack.children.length);
+ok('桌面恢复（无 .pushed）', !byId.home._class.has('pushed'));
+let stackOk = true;
+for (const a of S.APPS) { try { S.openApp(a.id); S.closeTop(true); } catch (e) { stackOk = false; console.log('      ' + a.id + ': ' + e.message); } }
+ok('7 个 App 全部能开能关且不抛异常', stackOk);
+
+/* 每个 App 都必须有能点回桌面的返回键（用户报过：点进去出不来） */
+let noBack = [];
+for (const a of S.APPS) {
+  S.openApp(a.id);
+  const v = S.SHELL.stack[0].node;
+  const backBtn = walk(v).find(n => n._class && n._class.has('back'));
+  if (!backBtn) { noBack.push(a.id + '(没有返回键)'); S.closeTop(true); continue; }
+  backBtn.click();
+  if (S.SHELL.stack.length !== 0) noBack.push(a.id + '(点了返回没退)');
+}
+ok('每个 App 都有返回键且点了真能退回桌面', noBack.length === 0, noBack.join(', '));
+
+/* 3. 持久化（验收标准：刷新后还在） */
+console.log('\n[3] 持久化 · 验收标准');
+const W_TEST = sandbox.SJ.WALLS[2][1];          // 鼠尾草
+sandbox.SJ.state.wallpaper = W_TEST;
+sandbox.SJ.state.layout = ['calc', 'notes', 'chat', 'clock', 'settings', 'gallery'];
+sandbox.SJ.save();
+ok('已写入 localStorage', !!store.get('xiaoshouji.v1'));
+boot();                    // ← 模拟刷新
+ok('刷新后壁纸仍是所选那张', sandbox.SJ.state.wallpaper === W_TEST, sandbox.SJ.state.wallpaper);
+ok('刷新后桌面已应用该壁纸', byId.home.style.background === W_TEST, byId.home.style.background);
+ok('浅色壁纸不加 dark-wall（桌面用深字）', !byId.phone._class.has('dark-wall'));
+sandbox.SJ.state.wallpaper = sandbox.SJ.WALLS[6][1];   // 石墨（深色）
+sandbox.SJ.applyWallpaper();
+ok('深色壁纸自动加 dark-wall（桌面翻白字）', byId.phone._class.has('dark-wall'));
+sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();
+
+/* 设置页点壁纸缩略图要真的换壁纸（曾经这里调 SJ.applyWallpaper 是 undefined 直接抛） */
+S.openApp('settings');
+const sv = S.SHELL.stack[0].node;
+const wallTiles = walk(sv).filter(n => n._class.has('wall'));
+ok('设置页渲染出 7 张壁纸缩略图', wallTiles.length === sandbox.SJ.WALLS.length, wallTiles.length + ' 张');
+try {
+  wallTiles[4].click();
+  ok('点第 5 张缩略图能换壁纸且不抛异常', sandbox.SJ.state.wallpaper === sandbox.SJ.WALLS[4][1],
+    String(sandbox.SJ.state.wallpaper).slice(0, 30));
+  ok('换完桌面背景同步了', byId.home.style.background === sandbox.SJ.WALLS[4][1]);
+  ok('选中框只留一个', walk(sv).filter(n => n._class.has('wall') && n._class.has('on')).length === 1);
+} catch (e) { ok('点第 5 张缩略图能换壁纸且不抛异常', false, e.message); }
+S.closeTop(true);
+sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();ok('刷新后布局顺序保持', JSON.stringify(sandbox.SJ.state.layout.slice(0, 3)) === '["calc","notes","chat"]');
+ok('刷新后 dock 前三位 = 自定义顺序', byId.dock.children.map(c => c._class.has('icon')).length === 3);
+ok('刷新后图标仍全部在桌面', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
+
+/* 4. 虚拟时间引擎 */
+console.log('\n[4] 虚拟时间引擎（全机唯一时间源）');
+const t0 = sandbox.SJ.virtualNow().getTime();
+sandbox.SJ.advanceTime(36 * 3600 * 1000);
+const t1 = sandbox.SJ.virtualNow().getTime();
+ok('advanceTime(36h) 让虚拟时间前进 36 小时', Math.abs((t1 - t0) - 36 * 3600e3) < 1500, ((t1 - t0) / 3600e3).toFixed(3) + 'h');
+
+/* 5. 锁屏 */
+console.log('\n[5] 锁屏与密码');
+sandbox.SJ.state.lock = true;
+sandbox.SJ.state.password = '1234';
+sandbox.SJ.save();
+boot();
+ok('锁屏可见', byId.lock.style.display === 'flex', byId.lock.style.display);
+sandbox.SHELL.unlock();
+ok('点开锁屏后弹出密码盘', byId['lock-pad'].hidden === false);
+const pk = walk(byId['lock-pad']).filter(n => n._class.has('pk'));
+ok('密码盘有 12 个键', pk.length === 12, pk.length + ' 个');
+['1', '2', '3', '4'].forEach(k => { const b = pk.find(n => n.textContent === k); b && b.click(); });
+ok('输入 1234 后解锁', byId.lock.style.display === 'none', byId.lock.style.display);
+
+/* 6. 真实 App 交互 */
+console.log('\n[6] App 真的能用');
+S.openApp('notes');
+const v = S.SHELL.stack[0].node;
+const addBtn = findBtn(v, '＋');
+if (addBtn) {
+  const n0 = (sandbox.SJ.state.notes || []).length;
+  addBtn.click();                                     // ＋ → 新建页
+  const title = findBtn(v, '保存') && walk(v).find(n => n.tagName === 'INPUT');
+  if (title) title.value = '自检笔记';
+  findBtn(v, '保存').click();
+  const n1 = (sandbox.SJ.state.notes || []).length;
+  ok('笔记页能新建一条（+1）', n1 === n0 + 1, n0 + ' → ' + n1);
+  ok('新笔记落盘（localStorage 里有）', /自检笔记/.test(store.get('xiaoshouji.v1') || ''));
+} else { ok('笔记页能找到新建按钮「＋」', false); }
+S.closeTop(true);
+
+S.openApp('calc');
+const cv = S.SHELL.stack[0].node;
+const keys = walk(cv).filter(n => n._class.has('ck'));
+ok('计算器有 19 个键', keys.length === 19, keys.length + ' 个');
+const press = t => { const b = keys.find(n => n.textContent === t); b && b.click(); };
+press('7'); press('×'); press('8'); press('=');
+const out = walk(cv).find(n => n._class.has('calc-out'));
+ok('7 × 8 = 56', out.textContent === '56', out.textContent);
+S.closeTop(true);
+
+/* 7. 边界：除零不炸、不给任意代码执行的机会 */
+S.openApp('calc');
+const cv2 = S.SHELL.stack[0].node;
+const k2 = walk(cv2).filter(n => n._class.has('ck'));
+const press2 = t => { const b = k2.find(n => n.textContent === t); b && b.click(); };
+press2('7'); press2('÷'); press2('0'); press2('=');
+const out2 = walk(cv2).find(n => n._class.has('calc-out'));
+ok('除零得到「错误」而不是 Infinity', out2.textContent === '错误', out2.textContent);
+S.closeTop(true);
+
+/* 8. 时钟：秒针真的在走；关掉 App 不留后台定时器 */
+console.log('\n[8] 时钟与清理');
+S.openApp('clock');
+const clk = S.SHELL.stack[0].node;
+const readClock = () => walk(clk).find(n => n._class.has('big-clock')).textContent;
+const c1 = readClock();
+await new Promise(r => setTimeout(r, 1100));
+const c2 = readClock();
+ok('时钟每秒自己走（不等剧情推进）', c1 !== c2, c1 + ' → ' + c2);
+S.closeTop(true);
+await new Promise(r => setTimeout(r, 1100));
+ok('关掉时钟后秒针不再跳', readClock() === c2, readClock() + ' vs ' + c2);
+
+/* 9. 秒表：真的在计时 */
+S.openApp('clock');
+const clk2 = S.SHELL.stack[0].node;
+const segBtn = walk(clk2).filter(n => n.textContent === '秒表')[0];
+segBtn.click();
+const swKeys = walk(clk2);
+const startBtn = walk(clk2).find(n => n.tagName === 'BUTTON' && n.textContent === '开始');
+ok('秒表页有「开始」按钮', !!startBtn);
+if (startBtn) {
+  startBtn.click();
+  await new Promise(r => setTimeout(r, 350));
+  const num = walk(clk2).find(n => n._class.has('big-clock')).textContent;
+  ok('开始后读数 > 0.2s', parseFloat(num) > 0.2, num + 's');
+}
+S.closeTop(true);
+
+/* ══════════════════════════════════════════════════════
+   新功能：通讯录 / 微信多会话 / 模型列表 / 存档
+   ══════════════════════════════════════════════════════ */
+/* 每个用例都从干净的一层栈开始，免得再踩 stack[0] 其实是上一个 App 的坑 */
+const openFresh = (id, arg) => {
+  while (S.SHELL.stack.length) S.closeTop(true);
+  S.openApp(id, arg);
+  return S.SHELL.stack[S.SHELL.stack.length - 1].node;
+};
+const findIn = (root, ph) => walk(root).find(n => n.attrs && n.attrs.placeholder === ph);
+
+/* 10. 通讯录：造角色并落盘 */
+console.log('\n[10] 通讯录：造角色');
+let ncv = openFresh('contacts');
+ok('通讯录能打开，右上角有 ＋', !!findBtn(ncv, '＋'));
+findBtn(ncv, '＋').click();
+let ev = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+const P_NAME = '名字', P_DESC = '一句话简介（可留空）',
+      P_PERSONA = '人设 / 性格 / 说话方式 —— 这段会当系统提示词发给模型',
+      P_GREET = '开场白：他第一句会说什么？（可留空）';
+ok('编辑页有名字/头像/简介/人设/开场白',
+  !!(findIn(ev, P_NAME) && findIn(ev, P_DESC) && findIn(ev, P_PERSONA) && findIn(ev, P_GREET)));
+ok('有 16 个 emoji 头像可选', walk(ev).filter(n => n._class.has('emoji')).length === 16);
+ok('有 8 个配色可选', walk(ev).filter(n => n._class.has('swatch')).length === 8);
+/* 用户报过「创建新角色之后没有保存的选项」：表单比屏幕高，底部按钮被裁掉。
+   现在导航栏右上角也有一个保存，不滚也能看见 */
+const evNav = walk(ev).find(n => n._class.has('nav'));
+ok('编辑页导航栏里就有「保存」', walk(evNav).some(n => n.tagName === 'BUTTON' && n.textContent === '保存'));
+ok('编辑页一共两个保存入口（导航栏 + 表单底部）',
+  walk(ev).filter(n => n.tagName === 'BUTTON' && n.textContent === '保存').length === 2);
+findIn(ev, P_NAME).value = '小美';
+findIn(ev, P_DESC).value = '隔壁班同学';
+findIn(ev, P_PERSONA).value = '你是小美，说话简短，尾巴爱带波浪号。';
+findIn(ev, P_GREET).value = '你来啦～';
+walk(ev).filter(n => n._class.has('emoji'))[3].click();   // 挑个头像，验证点击真写进 state
+findBtn(evNav, '保存').click();                           // 用导航栏那个，确认它也真的存
+ok('保存后回到列表页', !!findBtn(S.SHELL.stack[S.SHELL.stack.length - 1].node, '＋'));
+ok('角色已存进 state 并带上了所选头像',
+  sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.characters[0].name === '小美'
+  && !!sandbox.SJ.state.characters[0].avatar,
+  JSON.stringify(sandbox.SJ.state.characters));
+const xmId = sandbox.SJ.state.characters[0].id;
+ok('列表里能看到这个角色', walk(S.SHELL.stack[0].node).some(n => n.textContent === '小美'));
+ok('空表单不会造出空角色', (() => {
+  findBtn(S.SHELL.stack[0].node, '＋').click();
+  const e2 = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+  findBtn(e2, '保存').click();
+  return sandbox.SJ.state.characters.length === 1;
+})());
+
+/* 11. 微信：多会话，各聊各的 */
+console.log('\n[11] 微信：多会话');
+const acId = sandbox.SJ.saveCharacter(sandbox.SJ.makeCharacter({ name: '阿澈', avatar: '🦊' })).id;
+let wv = openFresh('chat');
+ok('微信首页列出全部角色（能选人，不是单一人对话）',
+  walk(wv).filter(n => n._class.has('avatar')).length === 2,
+  walk(wv).filter(n => n._class.has('avatar')).length + ' 个');
+walk(wv).find(n => n._class.has('row') && n.textContent.includes('小美')).click();
+const chv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+ok('点进小美的对话，标题是她的名字',
+  walk(chv).some(n => n._class.has('nav-title') && n.textContent === '小美'));
+ok('开场白自动成为第一条消息', sandbox.SJ.messages(xmId).length === 1 && sandbox.SJ.messages(xmId)[0].text === '你来啦～',
+  JSON.stringify(sandbox.SJ.messages(xmId)));
+const chatInput = findIn(chv, '说点什么…');
+const sendBtn = walk(chv).find(n => n._class.has('chat-send'));
+chatInput.value = '在吗';
+dispatch(chatInput, 'input', {});
+ok('输入框里有字时，右边的键是「发送」', sendBtn.textContent === '发送', sendBtn.textContent);
+findBtn(chv, '发送').click();
+await new Promise(r => setTimeout(r, 30));
+const hxm = sandbox.SJ.messages(xmId);
+ok('我发的话记在小美名下', hxm.some(m => m.me && m.text === '在吗'));
+ok('只发不收：按了发送小美也不出声', hxm.length === 2, JSON.stringify(hxm.map(m => m.text)));
+ok('发完清空输入框，右边的键变成「回复」', sendBtn.textContent === '回复', sendBtn.textContent);
+// 连发第二条
+chatInput.value = '在忙吗';
+dispatch(chatInput, 'input', {});
+findBtn(chv, '发送').click();
+await new Promise(r => setTimeout(r, 30));
+ok('连发两条都记在自己名下', sandbox.SJ.messages(xmId).filter(m => m.me).length === 2);
+ok('攒了两条没回，右边的键变成「回复 2」', sendBtn.textContent === '回复 2', sendBtn.textContent);
+// 点了它才去要回复
+sendBtn.click();
+// 回复是一个字一个字蹦出来的，等它蹦完（键从「…」变回去）
+for (let i = 0; i < 50 && sendBtn.textContent === '…'; i++) await new Promise(r => setTimeout(r, 80));
+ok('点了「回复」小美才开口（没配 API 时走本地演示）',
+  sandbox.SJ.messages(xmId).some(m => !m.me && m.text.includes('本地演示')),
+  JSON.stringify(sandbox.SJ.messages(xmId).map(m => m.text)));
+ok('回完之后没有欠着的了，键又变回灰掉的「发送」',
+  sendBtn.textContent === '发送' && sendBtn._class.has('off'), sendBtn.textContent + ' ' + sendBtn.className);
+ok('这段对话没有串到阿澈名下', sandbox.SJ.messages(acId).length === 0, JSON.stringify(sandbox.SJ.messages(acId)));
+findBtn(chv, '返回').click();
+ok('对话页的返回回到会话列表（不是退回桌面）',
+  S.SHELL.stack.length === 1 && walk(S.SHELL.stack[0].node).filter(n => n._class.has('avatar')).length === 2);
+ok('会话列表按最后消息带出预览',
+  walk(S.SHELL.stack[0].node).some(n => n._class.has('row-sub') && n.textContent.includes('本地演示')));
+
+/* 12. 模型列表 + 测试连接 + 真的把「人设」发给模型 */
+console.log('\n[12] AI 接口：拉模型 / 测试连接 / 人设注入');
+let askedUrl = '';
+const mockRes = (ok, body, status = 200) => ({
+  ok, status,
+  json: () => Promise.resolve(body),
+  text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body))
+});
+const xm = sandbox.SJ.state.characters.find(c => c.id === xmId);
+sandbox.SJ.state.settings.apiBase = 'https://api.example.com/v1';
+sandbox.SJ.state.settings.apiKey = 'sk-test';
+sandbox.SJ.state.settings.apiModel = '';
+
+fetchImpl = url => { askedUrl = url; return Promise.resolve(mockRes(true, { data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] })); };
+const picked = await sandbox.SJ.fetchModels();
+ok('从接口拉到 2 个模型', sandbox.SJ.state.settings.modelList.length === 2, JSON.stringify(sandbox.SJ.state.settings.modelList));
+ok('请求打的是 {base}/models', askedUrl === 'https://api.example.com/v1/models', askedUrl);
+ok('自动选了一个能聊天的模型', picked === 'deepseek-chat', String(picked));
+
+// 聚合接口常把 embedding 排在第一个，无脑取 list[0] 发过去就是 503「无可用渠道」
+sandbox.SJ.state.settings.apiModel = '';
+fetchImpl = () => Promise.resolve(mockRes(true, { data: [{ id: 'text-embedding-3-small' }, { id: 'gpt-4o-mini' }] }));
+const picked2 = await sandbox.SJ.fetchModels();
+ok('列表第一个是 embedding 时不会选中它', picked2 === 'gpt-4o-mini', String(picked2));
+await sandbox.SJ.fetchModels();
+ok('已经选好的模型不会被拉列表冲掉', sandbox.SJ.state.settings.apiModel === 'gpt-4o-mini', String(sandbox.SJ.state.settings.apiModel));
+
+// 测试连接：成功要报模型名和耗时
+fetchImpl = url => { askedUrl = url; return Promise.resolve(mockRes(true, { choices: [{ message: { content: '连接正常' } }] })); };
+const tOk = await sandbox.SJ.testApi();
+ok('测试连接能通，并报出模型名 / 耗时 / 回话',
+  tOk.ok === true && tOk.model === 'gpt-4o-mini' && typeof tOk.ms === 'number' && tOk.reply === '连接正常',
+  JSON.stringify(tOk));
+ok('测试打的是 {base}/chat/completions', askedUrl === 'https://api.example.com/v1/chat/completions', askedUrl);
+
+// 503 的排查线索在正文里，不能只报状态码
+fetchImpl = () => Promise.resolve(mockRes(false, { error: { message: '当前分组上游负载已饱和' } }, 503));
+const t503 = await sandbox.SJ.testApi();
+ok('503 会把服务端的原话带出来（这就是排查线索）',
+  t503.ok === false && t503.error.includes('503') && t503.error.includes('当前分组上游负载已饱和'), t503.error);
+fetchImpl = () => { throw new TypeError('Failed to fetch'); };
+const tNet = await sandbox.SJ.testApi();
+ok('连不上时给的是「连不上」而不是裸异常', tNet.ok === false && tNet.error.includes('连不上'), tNet.error);
+
+// 没选模型：宁可说清楚，也别瞎发 deepseek-chat 出去
+sandbox.SJ.state.settings.apiModel = '';
+fetchImpl = () => Promise.resolve(mockRes(true, {}));
+const tNoModel = await sandbox.SJ.testApi();
+ok('没选模型时「测试连接」直接说白，不瞎发请求',
+  tNoModel.ok === false && tNoModel.error.includes('拉取模型列表'), tNoModel.error);
+let aerr = '';
+try { await sandbox.SJ.askCharacter(xm, [{ me: true, text: '在吗' }]); } catch (e) { aerr = e.message; }
+ok('没选模型时 askCharacter 也拒绝瞎猜模型名', aerr.includes('拉取模型列表'), aerr || '（居然发出去了）');
+
+let sent = null;
+fetchImpl = (url, opts) => {
+  sent = JSON.parse(opts.body);
+  return Promise.resolve(mockRes(true, { choices: [{ message: { content: '好呀～' } }] }));
+};
+sandbox.SJ.state.settings.apiModel = 'gpt-4o-mini';
+const ans = await sandbox.SJ.askCharacter(xm, [{ me: true, text: '在吗' }]);
+ok('askCharacter 取回模型正文', ans === '好呀～', ans);
+ok('人设作为 system 消息发出去', sent.messages[0].role === 'system' && sent.messages[0].content.includes('小美'),
+  JSON.stringify(sent.messages[0]));
+ok('请求体带 model、最后一条是 user', sent.model === 'gpt-4o-mini' && sent.messages[sent.messages.length - 1].content === '在吗');
+fetchImpl = null;
+
+/* 13. 存档导出 / 导入（导入是信任边界） */
+console.log('\n[13] 存档导出 / 导入');
+const dump = sandbox.SJ.exportState();
+ok('导出的是合法 JSON，含角色和会话', (() => {
+  try { const o = JSON.parse(dump); return o.characters.length === 2 && !!o.chats && !!o.settings; }
+  catch (e) { return false; }
+})());
+sandbox.SJ.resetAll();
+ok('清空后角色归零', sandbox.SJ.state.characters.length === 0);
+const r1 = sandbox.SJ.importState(dump);
+ok('导入存档成功', r1.ok === true, r1.error);
+boot();   // 模拟刷新：导进来的必须已经落盘
+ok('刷新后角色和聊天都还在',
+  sandbox.SJ.state.characters.length === 2 && sandbox.SJ.messages(xmId).length >= 2,
+  sandbox.SJ.state.characters.length + ' 角色 / ' + sandbox.SJ.messages(xmId).length + ' 条');
+const r2 = sandbox.SJ.importState('这不是 JSON');
+ok('非 JSON 文件被拒绝', r2.ok === false && r2.error.includes('JSON'), r2.error);
+ok('拒绝后现有数据完好无损', sandbox.SJ.state.characters.length === 2);
+const r3 = sandbox.SJ.importState(JSON.stringify({ characters: '我不是数组', chats: 5, wallpaper: 42, notes: null }));
+ok('类型不对的存档被归一成安全值而不是把手机搞坏',
+  r3.ok === true && Array.isArray(sandbox.SJ.state.characters) && sandbox.SJ.state.characters.length === 0
+  && !Array.isArray(sandbox.SJ.state.chats) && typeof sandbox.SJ.state.chats === 'object'
+  && sandbox.SJ.state.wallpaper === sandbox.SJ.DEFAULTS.wallpaper,
+  JSON.stringify({ c: sandbox.SJ.state.characters, w: sandbox.SJ.state.wallpaper, ch: sandbox.SJ.state.chats }));
+const r4 = sandbox.SJ.importState(JSON.stringify([1, 2, 3]));
+ok('数组形状的 JSON 也被拒绝', r4.ok === false, r4.error);
+
+/* 14. 老存档迁移：旧版那条全局 chatHistory 不能丢 */
+console.log('\n[14] 老存档自动迁移');
+store.set('xiaoshouji.v1', JSON.stringify({
+  chatHistory: [{ me: true, text: '老对话' }, { me: false, text: '老回复' }], wallpaper: '', notes: []
+}));
+boot();
+ok('旧版 chatHistory 被搬进一个默认角色',
+  sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.characters[0].name === '小助手',
+  JSON.stringify(sandbox.SJ.state.characters));
+const legacyId = sandbox.SJ.state.characters[0].id;
+ok('旧对话一条不少地挂在该角色名下',
+  sandbox.SJ.messages(legacyId).length === 2 && sandbox.SJ.messages(legacyId)[0].text === '老对话',
+  JSON.stringify(sandbox.SJ.messages(legacyId)));
+boot();
+ok('再刷新一次也不会搬出第二个小助手（id 稳定）',
+  sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.characters[0].id === legacyId,
+  JSON.stringify(sandbox.SJ.state.characters.map(c => c.id)));
+
+/* 15. 设置页：得有看得见的「保存设置」，且输入不能白填 */
+console.log('\n[15] 设置：保存入口');
+const setv = openFresh('settings');
+ok('设置页有「保存设置」按钮', !!findBtn(setv, '保存设置'));
+ok('设置页有「拉取模型列表」按钮', !!findBtn(setv, '拉取模型列表'));
+ok('设置页有「测试连接」按钮', !!findBtn(setv, '测试连接'));
+ok('设置页已经没有「手动填模型名」那一项了',
+  !walk(setv).some(n => n.textContent === '手动填模型名'));
+const inBase = findIn(setv, 'https://api.deepseek.com/v1');
+ok('设置页能读到接口地址输入框', !!inBase);
+inBase.value = 'https://api.example.com/v1';
+dispatch(inBase, 'input', {});                 // 只打字、不失焦
+ok('接口地址不等失焦就已经写进 state',
+  sandbox.SJ.state.settings.apiBase === 'https://api.example.com/v1',
+  String(sandbox.SJ.state.settings.apiBase));
+ok('也确实落盘了（刷新不丢）', /api\.example\.com/.test(store.get('xiaoshouji.v1') || ''));
+findBtn(setv, '保存设置').click();
+ok('点「保存设置」给「已保存 ✓」的确认',
+  walk(setv).some(n => n.textContent === '已保存 ✓'));
+S.closeTop(true);
+
+/* 16. 分条输出 + 内置提示词 */
+console.log('\n[16] 分条输出 / 真人感提示词');
+const sp = sandbox.SJ.splitReply;
+ok('模型用 %% 分隔时按条拆开', JSON.stringify(sp('嗯。%%在的%%刚下课')) === '["嗯。","在的","刚下课"]', JSON.stringify(sp('嗯。%%在的%%刚下课')));
+ok('%% 前后有空格/换行也认得', sp('一\n%%\n二').length === 2, JSON.stringify(sp('一\n%%\n二')));
+ok('模型忘了写 %% 时按空行拆', JSON.stringify(sp('第一段\n\n第二段')) === '["第一段","第二段"]', JSON.stringify(sp('第一段\n\n第二段')));
+const longOne = sp('今天下午的课真的好无聊啊，老师在讲台上一直念PPT。我坐在最后一排偷偷玩手机，差点被发现了。下周居然还要考试，我一点都没复习呢。你那边在干嘛呀？');
+ok('整段长文按句子拆成多条（不会糊一大坨）', longOne.length > 1 && longOne.length <= 3, JSON.stringify(longOne));
+ok('拆完拼回去还是原话（没吃掉字）', longOne.join('') === '今天下午的课真的好无聊啊，老师在讲台上一直念PPT。我坐在最后一排偷偷玩手机，差点被发现了。下周居然还要考试，我一点都没复习呢。你那边在干嘛呀？', longOne.join(''));
+ok('短回复不硬拆', JSON.stringify(sp('好')) === '["好"]', JSON.stringify(sp('好')));
+ok('空回复得到空数组', sp('').length === 0 && sp(null).length === 0);
+ok('不会拆出超过 6 条', sp('a%%b%%c%%d%%e%%f%%g%%h').length === 6, String(sp('a%%b%%c%%d%%e%%f%%g%%h').length));
+
+const sysTxt = sandbox.SJ.buildSystem({ name: '小美', desc: '隔壁班的同学', persona: '话很多，爱用「诶」开头' });
+ok('提示词里报了角色名', sysTxt.includes('小美'));
+ok('提示词里带了人设原文', sysTxt.includes('爱用「诶」开头'), sysTxt.slice(0, 80));
+ok('提示词里带了简介', sysTxt.includes('隔壁班的同学'));
+ok('提示词教模型用 %% 分条', sysTxt.includes('%%'));
+ok('提示词禁止 Markdown / 书面语 / 客服腔',
+  sysTxt.includes('Markdown') && sysTxt.includes('首先') && sysTxt.includes('还有什么可以帮你'));
+ok('提示词带了虚拟时间（同一天里对话有「现在」的概念）',
+  sysTxt.includes(sandbox.SJ.fmtDate(sandbox.SJ.virtualNow())), sysTxt.split('\n').pop());
+
+// 拆条要真的落到界面上：存档里一条带 %% 的回复 = 屏幕上一串气泡
+// （第 14 组把存档换成了老存档，这里的角色得重新造）
+const xm2 = sandbox.SJ.makeCharacter({ name: '阿澈2' });
+sandbox.SJ.saveCharacter(xm2);
+sandbox.SJ.state.settings.apiBase = '';
+sandbox.SJ.state.settings.apiKey = '';
+sandbox.SJ.clearChat(xm2.id);
+sandbox.SJ.pushMessage(xm2.id, false, '诶%%在的%%刚下课');
+const cvSplit = openFresh('chat', xm2.id);
+const taB = walk(cvSplit).filter(n => n._class.has('bubble') && n._class.has('ta'));
+ok('存档里一条带 %% 的回复渲染成 3 个气泡', taB.length === 3, taB.length + ' 个：' + JSON.stringify(taB.map(b => b.textContent)));
+ok('气泡内容就是拆出来的三条', taB.map(b => b.textContent).join('|') === '诶|在的|刚下课', taB.map(b => b.textContent).join('|'));
+S.closeTop(true);
+
+/* 17. 聊天页左边的「＋」：重 roll / 撤回 / 图片 / 转账 */
+console.log('\n[17] 聊天：重 roll / 撤回 / 图片 / 转账');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const waitFor = async (fn, ms = 4000) => {
+  for (let t = 0; t < ms && !fn(); t += 60) await sleep(60);
+  return fn();
+};
+/* 功能面板挂在 #phone 上（不是 App 视图里），得从 phone 找 */
+const sheetLabels = () => walk(byId.phone).filter(x => x._class.has('si-label')).map(x => x.textContent);
+const clickSheet = label => {
+  const it = walk(byId.phone).find(x => x._class.has('sheet-item')
+    && walk(x).some(y => y._class.has('si-label') && y.textContent === label));
+  if (it) it.click();
+  return !!it;
+};
+const toasts = () => walk(byId.phone).filter(x => x._class.has('toast')).map(x => x.textContent).join('|');
+
+const xm3 = sandbox.SJ.saveCharacter(sandbox.SJ.makeCharacter({ name: '阿澈3', greeting: '' }));
+sandbox.SJ.state.settings.apiBase = 'https://api.example.com/v1';
+sandbox.SJ.state.settings.apiKey = 'sk-test';
+sandbox.SJ.state.settings.apiModel = 'gpt-4o-mini';
+let nth = 0;   // 每问一次换一个答案，好验证「真的换了一条」而不是原地不动
+fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: `回第${++nth}次` } }] }));
+
+const cv3 = openFresh('chat', xm3.id);
+const in3 = findIn(cv3, '说点什么…');
+const send3 = walk(cv3).find(x => x._class.has('chat-send'));
+const plus3 = walk(cv3).find(x => x._class.has('chat-plus'));
+ok('聊天条左边有一个「＋」功能键', !!plus3);
+plus3.click();
+const labels = sheetLabels();
+ok('「＋」打开的是功能面板', labels.length >= 4, JSON.stringify(labels));
+ok('面板里有重新生成 / 发图片 / 转账 / 撤回上一条',
+  ['重新生成', '发图片', '转账', '撤回上一条'].every(t => labels.includes(t)), JSON.stringify(labels));
+clickSheet('重新生成');
+ok('一条都没聊过时「重新生成」只给提示，不瞎发请求',
+  toasts().includes('先发一条'), toasts() || '（没有提示）');
+
+in3.value = '在吗'; dispatch(in3, 'input', {});
+findBtn(cv3, '发送').click();
+send3.click();
+ok('要来了第一条回复', await waitFor(() => sandbox.SJ.messages(xm3.id).length === 2),
+  JSON.stringify(sandbox.SJ.messages(xm3.id).map(m => m.text)));
+ok('第一条回复是「回第1次」', sandbox.SJ.messages(xm3.id)[1].text === '回第1次');
+await waitFor(() => send3.textContent !== '…');    // 等字蹦完，这期间她不接受重来
+
+plus3.click();
+clickSheet('重新生成');
+ok('重 roll 之后历史还是两条（替换，不是追加）',
+  await waitFor(() => sandbox.SJ.messages(xm3.id).length === 2 && sandbox.SJ.messages(xm3.id)[1].text === '回第2次'),
+  JSON.stringify(sandbox.SJ.messages(xm3.id).map(m => m.text)));
+ok('旧的那条回复确实被换掉了', !sandbox.SJ.messages(xm3.id).some(m => m.text === '回第1次'));
+await waitFor(() => send3.textContent !== '…');
+
+plus3.click();
+clickSheet('撤回上一条');
+ok('最后一条是对方说的，撤回被挡住并给了提示', toasts().includes('不是你发的'), toasts() || '（没有提示）');
+ok('被挡住时对话一点没动', sandbox.SJ.messages(xm3.id).length === 2);
+
+in3.value = '那我再说一句'; dispatch(in3, 'input', {});
+findBtn(cv3, '发送').click();
+ok('又发出去一条，现在是三条', sandbox.SJ.messages(xm3.id).length === 3);
+plus3.click();
+clickSheet('撤回上一条');
+ok('撤回把自己最后发的那条拿掉了',
+  sandbox.SJ.messages(xm3.id).length === 2 && !sandbox.SJ.messages(xm3.id).some(m => m.text === '那我再说一句'),
+  JSON.stringify(sandbox.SJ.messages(xm3.id).map(m => m.text)));
+
+plus3.click();
+clickSheet('转账');
+ok('转账面板给出好几个金额可选', sheetLabels().length >= 3, JSON.stringify(sheetLabels()));
+clickSheet('13.14');
+const tr = sandbox.SJ.messages(xm3.id).slice(-1)[0];
+ok('转账作为一条消息存下来', tr.kind === 'transfer' && tr.amount === 13.14, JSON.stringify(tr));
+ok('给模型看到的是一句人话，不是一串 JSON', tr.text === '[转账 ¥13.14]', tr.text);
+ok('屏幕上渲染成转账卡片', walk(cv3).some(x => x._class.has('transfer')));
+
+plus3.click();
+clickSheet('发图片');
+ok('发图片面板里有贴纸可选', walk(byId.phone).filter(x => x._class.has('sticker')).length >= 6);
+walk(byId.phone).find(x => x._class.has('sticker')).click();
+const pic = sandbox.SJ.messages(xm3.id).slice(-1)[0];
+ok('贴纸作为图片消息存下来', pic.kind === 'img' && !!pic.img, JSON.stringify(pic));
+ok('屏幕上渲染成图片气泡', walk(cv3).some(x => x._class.has('bubble') && x._class.has('media')));
+
+ok('truncateChat 到 0 就是清空', sandbox.SJ.truncateChat(xm3.id, 0).length === 0);
+ok('truncateChat 传负数不炸，按清空处理', sandbox.SJ.truncateChat(xm3.id, -5).length === 0);
+fetchImpl = null;
+
+console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
+process.exit(failed ? 1 : 0);
+
+})().catch(e => { console.error('自检本身崩了:', e); process.exit(2); });

@@ -1,0 +1,31 @@
+{
+  "name": "小手机",
+  "short_name": "小手机",
+  "description": "浏览器里的虚拟手机：桌面、锁屏、应用与状态栏",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf8f5",
+  "theme_color": "#faf8f5",
+  "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%237d9c94'/%3E%3Crect x='168' y='98' width='176' height='316' rx='32' fill='none' stroke='%23faf8f5' stroke-width='22'/%3E%3Crect x='222' y='128' width='68' height='7' rx='4' fill='%23faf8f5'/%3E%3Ccircle cx='256' cy='372' r='15' fill='%23faf8f5'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

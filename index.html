@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#faf8f5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="小手机">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>小手机</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- 桌面端把手机居中，屏幕小的时候直接铺满 -->
+<div id="stage">
+  <div id="phone">
+
+    <!-- ══ L2 虚拟系统层：状态栏 ══ -->
+    <div id="statusbar">
+      <span id="sb-clock">--:--</span>
+      <span id="sb-notch"></span>
+      <span id="sb-right">
+        <span id="sb-batt">100%</span>
+        <span class="sb-batt-icon"><i id="sb-batt-fill"></i></span>
+      </span>
+    </div>
+
+    <!-- ══ 桌面 ══ -->
+    <div id="home">
+      <div id="pages">
+        <div class="page" data-page="0"></div>
+        <div class="page" data-page="1"></div>
+        <div class="page" data-page="2"></div>
+      </div>
+      <div id="dots"></div>
+      <div id="dock"></div>
+    </div>
+
+    <!-- ══ L3 App 视图栈：app 全从这里挂载 ══ -->
+    <div id="stack"></div>
+
+    <!-- ══ 锁屏 ══ -->
+    <div id="lock">
+      <div id="lock-time">--:--</div>
+      <div id="lock-date"></div>
+      <div id="lock-hint">上滑解锁</div>
+      <div id="lock-pad" hidden></div>
+    </div>
+
+    <!-- ══ 底部小白条 ══ -->
+    <div id="homebar"></div>
+
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/apps.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

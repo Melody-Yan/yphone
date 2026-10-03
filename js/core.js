@@ -1,0 +1,463 @@
+/* ══════════════════════════════════════════════════════
+   L0 持久层 + 通用工具
+   设计原则：所有状态改动都走 save()，刷新后必须一模一样。
+   ══════════════════════════════════════════════════════ */
+
+const KEY = 'xiaoshouji.v1';
+
+/* 壁纸：全莫兰迪，多层渐变叠柔光色块（比单条 linear-gradient 更像照片，且零文件、离线可用）。
+   第三项 = 是否深色（深色要翻成白字，见 styles.css 的 .dark-wall）。
+   单一来源：设置页拿它渲染，app.js 拿它判断桌面文字颜色，别再各写一份。 */
+const WALLS = [
+  ['晨雾',
+    'radial-gradient(115% 85% at 16% 6%, #fdfbf7 0%, rgba(253,251,247,0) 58%),' +
+    'radial-gradient(95% 75% at 88% 94%, #cdd8d1 0%, rgba(205,216,209,0) 56%),' +
+    'linear-gradient(170deg, #f2eee7, #e1e4de)', false],
+  ['灰蓝',
+    'radial-gradient(110% 80% at 20% 10%, #f4f8fa 0%, rgba(244,248,250,0) 60%),' +
+    'radial-gradient(100% 80% at 82% 90%, #b6c7d0 0%, rgba(182,199,208,0) 58%),' +
+    'linear-gradient(168deg, #e9eef1, #ccd7dd)', false],
+  ['鼠尾草',
+    'radial-gradient(110% 80% at 78% 8%, #f6f8f1 0%, rgba(246,248,241,0) 58%),' +
+    'radial-gradient(100% 80% at 14% 92%, #b3c2ab 0%, rgba(179,194,171,0) 56%),' +
+    'linear-gradient(168deg, #eef1e9, #c9d3c2)', false],
+  ['陶土',
+    'radial-gradient(110% 80% at 22% 8%, #fdf5f0 0%, rgba(253,245,240,0) 58%),' +
+    'radial-gradient(100% 85% at 84% 92%, #d3a595 0%, rgba(211,165,149,0) 60%),' +
+    'linear-gradient(168deg, #f6ebe4, #e2c8bb)', false],
+  ['藕荷',
+    'radial-gradient(110% 80% at 76% 10%, #faf5fb 0%, rgba(250,245,251,0) 58%),' +
+    'radial-gradient(100% 82% at 16% 90%, #bdaec4 0%, rgba(189,174,196,0) 58%),' +
+    'linear-gradient(168deg, #f1eaf2, #d3c5d7)', false],
+  ['燕麦',
+    'radial-gradient(110% 80% at 20% 8%, #fdf9f0 0%, rgba(253,249,240,0) 58%),' +
+    'radial-gradient(100% 82% at 86% 92%, #d6c39f 0%, rgba(214,195,159,0) 58%),' +
+    'linear-gradient(168deg, #f7f1e6, #e6dac4)', false],
+  ['石墨',
+    'radial-gradient(110% 80% at 22% 8%, #7d8288 0%, rgba(125,130,136,0) 58%),' +
+    'radial-gradient(100% 82% at 84% 92%, #2f3236 0%, rgba(47,50,54,0) 58%),' +
+    'linear-gradient(168deg, #5f6469, #35383c)', true]
+];
+const isDarkWall = css => { const w = WALLS.find(w => w[1] === css); return w ? w[2] : false; };
+
+/* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
+const DEFAULTS = {
+  wallpaper: WALLS[0][1], // 默认晨雾
+  lock: false,
+  password: '',
+  layout: [],            // 桌面图标顺序：[appId, ...]，空数组=用注册表默认顺序
+  notes: [],             // 备忘录：[{id,title,body,ts}, ...]
+  settings: {
+    theme: 'light',      // light | dark（莫兰迪浅色是默认）
+    clock24: true,
+    userName: '我',
+    apiBase: '',
+    apiKey: '',
+    apiModel: '',
+    modelList: []        // 从 /models 拉回来的候选，省得手填模型名
+  },
+  characters: [],        // 通讯录：[{id,name,avatar,color,desc,persona,greeting,ts}, ...]
+  chats: {}              // 会话：{ 角色id: [{me,text,ts}, ...] }
+};
+
+/* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
+   否则一个坏 JSON 就能让整台手机白屏（比如把 characters 写成字符串）。 */
+const SCHEMA = {
+  wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
+  notes: 'array', characters: 'array', chats: 'object'
+};
+function coerce(v, want) {
+  if (want === 'array') return Array.isArray(v) ? v : [];
+  if (want === 'object') return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  if (want === 'string') return typeof v === 'string' ? v : '';
+  if (want === 'boolean') return !!v;
+  return v;
+}
+
+let state = load();
+
+/* 深拷贝默认值：不用 structuredClone，旧浏览器/WebView 里没有 */
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return clone(DEFAULTS);
+    return migrate(JSON.parse(raw));
+  } catch (e) {
+    console.warn('[core] 存档损坏，已重置', e);
+    return clone(DEFAULTS);
+  }
+}
+
+/* 向前兼容 + 类型归一：老存档缺字段用默认值补齐，类型不对的丢掉。
+   load() 和导入存档都走这里，所以导入永远不可能塞进结构不对的东西。 */
+function migrate(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return clone(DEFAULTS);
+  const out = clone(DEFAULTS);
+  for (const k of Object.keys(out)) {
+    if (saved[k] === undefined) continue;
+    if (k === 'settings') {
+      if (saved.settings && typeof saved.settings === 'object') Object.assign(out.settings, saved.settings);
+    } else {
+      out[k] = SCHEMA[k] ? coerce(saved[k], SCHEMA[k]) : saved[k];
+    }
+  }
+  if (!Array.isArray(out.settings.modelList)) out.settings.modelList = [];
+  if (!out.wallpaper) out.wallpaper = DEFAULTS.wallpaper;   // 壁纸被写成空/非字符串时兜回默认，别留一张白屏
+
+  // 老版本只有一条全局 chatHistory：搬进一个默认角色，别让存量对话凭空消失。
+  // id 写死不用 uid()：migrate 每次加载都会跑，uid() 会让这个角色每次刷新换一个身份。
+  if (Array.isArray(saved.chatHistory) && saved.chatHistory.length && !out.characters.length) {
+    const c = { id: 'legacy-assistant', name: '小助手', avatar: '🙂', color: '#9cb9c2', desc: '从旧版搬过来的对话',
+                persona: '', greeting: '', ts: Date.now() };
+    out.characters = [c];
+    out.chats = {};
+    out.chats[c.id] = saved.chatHistory.map(m => ({ me: !!m.me, text: String(m.text || ''), ts: Date.now() }));
+  }
+  return out;
+}
+
+function save() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error('[core] 保存失败（可能是容量满了）', e);
+  }
+}
+
+function resetAll() {
+  localStorage.removeItem(KEY);
+  state = clone(DEFAULTS);
+  save();
+}
+
+/* ── 工具 ── */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+/* 用 function 声明而不是 const 箭头：migrate() 在脚本顶层就被 load() 调到了，
+   那时 const 还在 TDZ 里，会直接 ReferenceError。 */
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+/* 创建元素：el('div', {class:'x', onclick:fn}, [子元素或字符串]) */
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
+    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+    else if (k === 'html') node.innerHTML = v;
+    else if (v !== false && v != null) node.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of [].concat(children)) {
+    if (c == null || c === false) continue;
+    // 不用 c instanceof Node：部分 WebView 没有全局 Node 构造器
+    node.append(c && c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return node;
+}
+
+/* 两段式时钟：高 1 分钟一刷，秒级 UI 另用 tick */
+function fmtTime(d = virtualNow(), clock24 = state.settings.clock24) {
+  let h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+  if (!clock24) {
+    const ap = h < 12 ? '上午' : '下午';
+    h = h % 12 || 12;
+    return `${ap} ${h}:${m}`;
+  }
+  return `${String(h).padStart(2, '0')}:${m}`;
+}
+
+function fmtDate(d = virtualNow()) {
+  const w = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][d.getDay()];
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${w}`;
+}
+
+function fmtAgo(ts) {
+  const s = (Date.now() - ts) / 1000;
+  if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+/* ══════════════════════════════════════════════════════
+   L2 虚拟时间引擎
+   全机唯一时间来源。任何 App 都不许直接 new Date()，
+   否则剧情时间、跨天推算会各写各的，迟早烂掉。
+   ══════════════════════════════════════════════════════ */
+let timeOffset = 0;   // 毫秒，可被剧情手动推进
+const timeListeners = new Set();
+
+function virtualNow() { return new Date(Date.now() + timeOffset); }
+
+/* 推进虚拟时间（剧情需要「过了三天」时调用） */
+function advanceTime(ms) {
+  timeOffset += ms;
+  timeListeners.forEach(fn => fn(virtualNow()));
+  save();
+}
+
+function onTime(fn) { timeListeners.add(fn); return () => timeListeners.delete(fn); }
+
+/* ══════════════════════════════════════════════════════
+   L1 角色与会话（通讯录 + 微信都靠这几个函数，别在 App 里各写一份）
+   ══════════════════════════════════════════════════════ */
+const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+
+function makeCharacter(patch = {}) {
+  return Object.assign({
+    id: uid(), name: '新角色', avatar: '🙂', color: '#9cb9c2',
+    desc: '', persona: '', greeting: '', ts: Date.now()
+  }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
+}
+
+function saveCharacter(c) {
+  c.name = String(c.name || '').trim().slice(0, NAME_MAX) || '无名';
+  c.desc = String(c.desc || '').slice(0, 200);
+  c.persona = String(c.persona || '').slice(0, TEXT_MAX);
+  c.greeting = String(c.greeting || '').slice(0, TEXT_MAX);
+  const i = state.characters.findIndex(x => x.id === c.id);
+  if (i < 0) state.characters.push(c); else state.characters[i] = c;
+  save();
+  return c;
+}
+
+function deleteCharacter(id) {
+  state.characters = state.characters.filter(c => c.id !== id);
+  delete state.chats[id];
+  save();
+}
+
+/* 会话消息。找不到角色也返回数组，调用方不用到处判空。 */
+function messages(id) {
+  if (!state.chats[id]) state.chats[id] = [];
+  return state.chats[id];
+}
+function pushMessage(id, me, text, extra) {
+  const list = messages(id);
+  // extra 用来带 kind/img/amount（图片、转账那几种气泡）
+  list.push(Object.assign({ me: !!me, text: String(text), ts: Date.now() }, extra || {}));
+  state.chats[id] = list.slice(-CHAT_KEEP);
+  save();
+  return state.chats[id];
+}
+function lastMessage(id) {
+  const list = state.chats[id];
+  return list && list.length ? list[list.length - 1] : null;
+}
+/* 砍到前 n 条。重 roll 就是「砍掉最后那条 AI 回复，再问一遍」 */
+function truncateChat(id, n) {
+  const list = messages(id);
+  state.chats[id] = list.slice(0, Math.max(0, n));
+  save();
+  return state.chats[id];
+}
+function clearChat(id) { delete state.chats[id]; save(); }
+
+/* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
+   没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面 */
+function chatList() {
+  return state.characters
+    .map(c => ({ c, last: lastMessage(c.id), n: (state.chats[c.id] || []).length }))
+    .sort((a, b) => {
+      if (!!a.last !== !!b.last) return a.last ? -1 : 1;
+      return (b.last ? b.last.ts : b.c.ts) - (a.last ? a.last.ts : a.c.ts);
+    });
+}
+
+/* ══════════════════════════════════════════════════════
+   L1 AI：模型列表 + 对话请求
+   ══════════════════════════════════════════════════════ */
+const apiRoot = () => String(state.settings.apiBase || '').trim().replace(/\/+$/, '');
+
+/* 把接口返回的错误正文抠出来。只报「HTTP 503」等于什么都没说 ——
+   中转/聚合接口的 503 正文里通常写着「无可用渠道」「当前分组负载已饱和」，
+   那才是排查线索。解析不出来就退回状态码。 */
+async function apiFail(res) {
+  let detail = '';
+  try {
+    const txt = (await res.text() || '').slice(0, 300);
+    try {
+      const j = JSON.parse(txt);
+      detail = (j.error && (j.error.message || j.error)) || j.message || '';
+      if (typeof detail !== 'string') detail = JSON.stringify(detail);
+    } catch (e) { detail = txt; }
+  } catch (e) { /* 正文读不出来就算了 */ }
+  return 'HTTP ' + res.status + (res.status === 503 ? '（服务端暂时不可用：多半是接口那边没有这个模型 / 渠道不可用）' : '')
+    + (detail ? ' · ' + String(detail).replace(/\s+/g, ' ').slice(0, 200) : '');
+}
+
+/* 拉模型列表：省得手动填模型名。失败就抛，让调用方显示原因。 */
+async function fetchModels() {
+  const base = apiRoot();
+  if (!base) throw new Error('先填接口地址');
+  const res = await fetch(base + '/models', {
+    headers: { Authorization: 'Bearer ' + (state.settings.apiKey || '') }
+  });
+  if (!res.ok) throw new Error(await apiFail(res));
+  const data = await res.json();
+  const list = [...new Set(((data && (data.data || data.models)) || [])
+    .map(m => (typeof m === 'string' ? m : (m && (m.id || m.name))))
+    .filter(Boolean))];
+  if (!list.length) throw new Error('返回里没有模型列表');
+  state.settings.modelList = list;
+  /* 不要无脑取 list[0]：聚合接口动辄列几百个，第一个常是 embedding 之类
+     根本不能聊天的模型，发过去就是 503「无可用渠道」。已经选过的优先留着。 */
+  if (!list.includes(state.settings.apiModel)) {
+    state.settings.apiModel = list.find(m => /chat|gpt|claude|deepseek|qwen|glm|llama|gemini|moonshot/i.test(m)) || list[0];
+  }
+  save();
+  return state.settings.apiModel;
+}
+
+/* 测试连通性：发一句最短的话，把「到底通不通、哪个模型答的、花了多久」摆出来。
+   不抛异常，失败也返回 { ok:false, error }，UI 好处理、也好写自检。 */
+async function testApi() {
+  const s = state.settings;
+  if (!apiRoot()) return { ok: false, error: '先填接口地址' };
+  if (!s.apiKey) return { ok: false, error: '先填 API Key' };
+  if (!s.apiModel) return { ok: false, error: '还没选模型：点上面的「拉取模型列表」选一个' };
+  const t0 = Date.now();
+  let res;
+  try {
+    res = await fetch(apiRoot() + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
+      body: JSON.stringify({ model: s.apiModel, messages: [{ role: 'user', content: '回复「连接正常」四个字' }] })
+    });
+  } catch (e) {
+    return { ok: false, error: '连不上：' + e.message + '（地址写错 / 没联网 / 对方不允许跨域）' };
+  }
+  const ms = Date.now() - t0;
+  if (!res.ok) return { ok: false, error: await apiFail(res) };
+  let reply = '';
+  try { reply = (((await res.json()).choices || [])[0] || {}).message?.content || ''; } catch (e) {}
+  return { ok: true, model: s.apiModel, ms, reply: String(reply).trim().slice(0, 40) };
+}
+
+/* ══════════════════════════════════════════════════════
+   回复拆条
+   真人不会一口气发一整段，而是一条条蹦。提示词让模型用 %% 分隔，
+   但模型经常不听话，所以这里逐级退化：%% → 空行 → 句子。
+   保证任何输出都不会糊成一大坨。
+   ══════════════════════════════════════════════════════ */
+const SPLIT_MARK = '%%';
+const MAX_CHUNKS = 6;
+
+function splitReply(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  const clean = a => a.map(x => x.trim()).filter(Boolean);
+  let parts = clean(s.split(/\s*%%+\s*/));
+  if (parts.length < 2) {
+    const byBlank = clean(s.split(/\n{2,}/));
+    if (byBlank.length > 1) parts = byBlank;
+  }
+  if (parts.length < 2 && s.length > 70) {
+    // 还是一整段：按句号断成 2~3 条（不能用 (?<=) 后行断言，老 Safari 直接 SyntaxError 白屏）
+    const sents = clean(s.match(/[^。！？!?…\n]+[。！？!?…]*/g) || []);
+    if (sents.length > 1) {
+      const per = Math.ceil(sents.length / Math.min(3, Math.ceil(sents.length / 2)));
+      parts = [];
+      for (let i = 0; i < sents.length; i += per) parts.push(sents.slice(i, i + per).join(''));
+    }
+  }
+  return (parts.length ? parts : [s]).slice(0, MAX_CHUNKS);
+}
+
+/* ══════════════════════════════════════════════════════
+   内置提示词。规则在前、人设在后 —— 先立「怎么说话」，
+   再告诉他演谁，模型才不会被一句「你是AI助手」带跑。
+   ══════════════════════════════════════════════════════ */
+const ROLE_RULES = [
+  '你在用手机跟人聊天。你是真人，不是助手。',
+  '',
+  '# 怎么说话',
+  '- 短句、口语，一条只说一件事，像随手打字。',
+  `- 一次回 1~3 条；每条之间单独占一行，那一行只写 ${SPLIT_MARK} 两个字符，别的什么都不要写。`,
+  '- 可以带「嗯」「诶」「哦对」「哈哈」这种口头语，但别每句都带。',
+  '- 允许停顿和没说完（用…），允许改口（用 * 划掉前一句，例如「我五点*六点下班」）。',
+  '- 标点和错别字都随意，不必工整。',
+  '',
+  '# 不要做',
+  '- 不要书面语：「首先」「其次」「总之」「综上」「希望对你有帮助」一律不要。',
+  '- 不要复述对方刚说过的话。',
+  '- 不要用 Markdown：**加粗**、# 标题、- 列表、`代码` 都不要。',
+  '- 不要在括号里写动作、神态、旁白（除非人设里明确要求）。',
+  '- 不要每句都挂 emoji，更不要一次堆一串。',
+  '- 不要像客服那样问「还有什么可以帮你」「请问您需要」。'
+].join('\n');
+
+function buildSystem(char) {
+  const c = char || {};
+  const now = virtualNow();
+  const lines = [
+    ROLE_RULES, '',
+    '---', '',
+    '# 你要演的人',
+    '名字：' + (c.name || '（没填）')
+  ];
+  if (c.desc) lines.push('一句话简介：' + c.desc);
+  if (c.persona) lines.push('人设 / 性格 / 说话方式：\n' + c.persona);
+  lines.push('');
+  lines.push(`你就是${c.name || '这个人'}本人，不是 AI、不是程序、不是助手。对方怎么问都别跳出这个身份。`);
+  lines.push(`现在是你那边的 ${fmtDate(now)} ${fmtTime(now, state.settings.clock24)}。`);
+  return lines.join('\n');
+}
+
+/* 让角色回一句话。没配 API 就走本地演示，保证离线也能玩。 */
+async function askCharacter(char, history) {
+  const s = state.settings;
+  if (!apiRoot() || !s.apiKey) {
+    const last = history.filter(m => m.me).pop();
+    return `（本地演示）我收到了：「${last ? last.text : ''}」。到「设置 → AI 接口」填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`;
+  }
+  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」点一下「拉取模型列表」，选一个能聊天的模型再来');
+  const res = await fetch(apiRoot() + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
+    body: JSON.stringify({
+      model: s.apiModel,
+      messages: [
+        { role: 'system', content: buildSystem(char) },
+        ...history.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
+      ]
+    })
+  });
+  if (!res.ok) throw new Error(await apiFail(res));
+  const data = await res.json();
+  return ((data.choices || [])[0] || {}).message?.content || '（模型没有返回内容）';
+}
+
+/* ══════════════════════════════════════════════════════
+   L0 存档导出 / 导入
+   导入走的就是 load() 那条 migrate()，所以坏文件只会被无视，
+   不会把现有数据搅烂（这两个函数刻意不碰 DOM，方便自检）。
+   ══════════════════════════════════════════════════════ */
+function exportState() { return JSON.stringify(state, null, 2); }
+
+function importState(text) {
+  let data;
+  try { data = JSON.parse(text); }
+  catch (e) { return { ok: false, error: '不是合法的 JSON 文件' }; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: '存档格式不对' };
+  const before = JSON.stringify(state);
+  try { state = migrate(data); }
+  catch (e) { state = JSON.parse(before); return { ok: false, error: '存档内容读取失败' }; }
+  save();
+  return { ok: true };
+}
+
+/* 导出到全局，供其他文件使用（无构建模式下的模块化） */
+window.SJ = {
+  KEY, DEFAULTS, WALLS, isDarkWall, get state() { return state; }, save, resetAll, load,
+  $, $$, el, uid, fmtTime, fmtDate, fmtAgo,
+  virtualNow, advanceTime, onTime,
+  makeCharacter, saveCharacter, deleteCharacter,
+  messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
+  apiRoot, fetchModels, askCharacter, testApi,
+  SPLIT_MARK, splitReply, buildSystem,
+  exportState, importState
+};

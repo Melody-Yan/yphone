@@ -151,8 +151,11 @@ function iconNode(app, { small = false } = {}) {
 }
 
 /* ══ 桌面插件 ══
-   6 种插件，每种就一段内容。点插件进对应的 App（时钟/电量没地方去，就不加跳转）。 */
-const WIDGET_APP = { calendar: 'calendar', notes: 'notes', chat: 'chat', gallery: 'gallery' };
+   9 种插件，每种就一段内容。点插件进对应的 App（时钟/电量没地方去，就不加跳转）。 */
+const WIDGET_APP = {
+  calendar: 'calendar', month: 'calendar', notes: 'notes',
+  chat: 'chat', moments: 'chat', music: 'music', gallery: 'gallery'
+};
 
 function widgetBody(type) {
   switch (type) {
@@ -202,6 +205,59 @@ function widgetBody(type) {
       ];
     }
 
+    case 'month': {
+      const now = SJ.virtualNow();
+      const y = now.getFullYear(), m = now.getMonth(), today = now.getDate();
+      const lead = new Date(y, m, 1).getDay();          // 0 = 周日
+      const days = new Date(y, m + 1, 0).getDate();
+      const has = new Set((SJ.state.events || []).map(e => e && e.date));
+      const cells = [];
+      for (let i = 0; i < lead; i++) cells.push(SJ.el('i', { class: 'wg-cell blank' }));
+      for (let d = 1; d <= days; d++) {
+        const key = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        cells.push(SJ.el('i', {
+          class: 'wg-cell' + (d === today ? ' now' : '') + (has.has(key) ? ' dot' : '')
+        }, String(d)));
+      }
+      return [
+        SJ.el('div', { class: 'wg-head' }, (m + 1) + ' 月 · ' + y),
+        SJ.el('div', { class: 'wg-week' }, ['日', '一', '二', '三', '四', '五', '六'].map(w => SJ.el('i', { class: 'wg-wd' }, w))),
+        SJ.el('div', { class: 'wg-grid' }, cells)
+      ];
+    }
+
+    case 'moments': {
+      const m = SJ.momentList()[0];
+      if (!m) return [SJ.el('div', { class: 'wg-head' }, '朋友圈'), SJ.el('div', { class: 'wg-empty' }, '还没人发动态')];
+      const who = m.charId === '__me'
+        ? { name: '我' }
+        : (SJ.state.characters.find(x => x.id === m.charId) || { name: '已删除的角色' });
+      return [
+        SJ.el('div', { class: 'wg-head' }, '朋友圈'),
+        SJ.el('div', { class: 'wg-list' }, SJ.el('div', { class: 'wg-row wg-mo' }, [
+          SJ.el('div', { class: 'wg-mo-head' }, [
+            SJ.el('span', { class: 'wg-who' }, who.name),
+            SJ.el('span', { class: 'wg-time' }, SJ.fmtAgo(m.ts))
+          ]),
+          SJ.el('div', { class: 'wg-title' }, String(m.text || '').replace(/\n/g, ' ').slice(0, 30))
+        ]))
+      ];
+    }
+
+    case 'music': {
+      const t = SJ.musicNow();
+      const n = SJ.musicTracks().length;
+      return [
+        SJ.el('div', { class: 'wg-head' }, '音乐'),
+        t
+          ? SJ.el('div', { class: 'wg-list' }, SJ.el('div', { class: 'wg-row' }, [
+              SJ.el('span', { class: 'wg-who' }, t.name || '未命名'),
+              SJ.el('span', { class: 'wg-title' }, t.artist || '')
+            ]))
+          : SJ.el('div', { class: 'wg-empty' }, n ? `${n} 首，还没选在听的` : '歌单是空的')
+      ];
+    }
+
     case 'battery': {
       const v = batteryLevel();
       return [
@@ -228,6 +284,7 @@ function widgetNode(pageIndex, w) {
   if (!def) return null;
   const to = WIDGET_APP[w.type];
   const node = SJ.el('div', { class: 'widget wg-' + w.type, style: { gridColumn: 'span ' + def.span } });
+  node.dataset.ico = def.icon;   // 右下角那个大表情水印，靠 CSS attr() 取
   if (to) {
     node.classList.add('tappable');
     node.addEventListener('click', () => openApp(to));
@@ -269,6 +326,27 @@ function bindPageHold(pageEl, pageIndex) {
   pageEl.addEventListener('touchmove', cancel, { passive: true });
 }
 
+/* 这一页放几个图标。用户说的「三个四个随便塞由自己决定」就是这儿：
+   只改 s[i]，总额对不对得上交给 homeSplit() 去补/去砍。 */
+function setPageSize(pageIndex, n) {
+  const rest = appOrder().slice(SJ.HOME_DOCK);
+  const s = SJ.homeSplit(rest.length).slice();
+  while (s.length <= pageIndex) s.push(0);
+  s[pageIndex] = Math.max(0, n | 0);
+  SJ.state.split = s;
+  SJ.save();
+  renderHome();
+}
+
+function openSizeSheet(pageIndex) {
+  const rest = appOrder().slice(SJ.HOME_DOCK);
+  const cur = SJ.homeSplit(rest.length);
+  window.sheet([2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24].map(n => ({
+    icon: '▦', label: n + ' 个', hint: cur[pageIndex] === n ? '当前' : '',
+    run: () => setPageSize(pageIndex, n)
+  })), '第 ' + (pageIndex + 1) + ' 页放几个图标');
+}
+
 function openWidgetSheet(pageIndex) {
   const items = SJ.WIDGET_TYPES.map(def => ({
     icon: def.icon,
@@ -276,6 +354,10 @@ function openWidgetSheet(pageIndex) {
     hint: def.span === 4 ? '整行' : '半行',
     run: () => { SJ.addWidget(pageIndex, def.type); renderHome(); }
   }));
+  items.push({
+    icon: '▦', label: '这一页放几个图标', hint: '现在放得下 24 格',
+    run: () => openSizeSheet(pageIndex)
+  });
   if (SJ.widgetsOf(pageIndex).length) {
     items.push({
       icon: '🧹', label: '清空这一页插件', hint: '',
@@ -293,13 +375,19 @@ function renderHome() {
 
   // 插件和图标抢同一块地方：桌面大约放得下 6 行图标，一个插件平均吃掉 2 行。
   // ponytail: 固定估算，没按真实高度测；插件多到图标装不下时再改成量高度。
+  // 每页装几个由 state.split 说了算（用户拖出来的），装不下的顺延到下一页，不静默弄丢。
+  const split = SJ.homeSplit(rest.length);
   let cursor = 0;
   const slice = pagesEls.map((page, i) => {
-    const n = Math.max(4, (6 - SJ.widgetsOf(i).length * 2) * 4);
-    const part = rest.slice(cursor, cursor + n);
-    cursor += n;
+    const cap = Math.max(4, (6 - SJ.widgetsOf(i).length * 2) * 4);
+    const want = split[i] === undefined ? 0 : split[i];
+    const take = Math.min(want, cap);
+    const part = rest.slice(cursor, cursor + take);
+    cursor += take;
+    if (take < want) split[i + 1] = (split[i + 1] || 0) + (want - take);
     return part;
   });
+  if (cursor < rest.length) slice[slice.length - 1] = slice[slice.length - 1].concat(rest.slice(cursor));
 
   pagesEls.forEach((page, i) => {
     page.innerHTML = '';
@@ -312,6 +400,7 @@ function renderHome() {
       if (!app) return;
       const node = iconNode(app);
       node.dataset.appId = id;
+      node.dataset.page = String(i);   // 拖动时靠它认「这一页」
       bindDrag(node);
       page.append(node);
     });
@@ -341,6 +430,15 @@ function renderHome() {
    「图标拖不动」的真身就是这个：不是没做，是被自己堆死了。 */
 let dragging = null;   // 真的拖起来了
 let press = null;      // 按下去了、还在等长按（这段时间不挡翻页和长按加插件）
+let edgeTimer = null;  // 拖到屏幕边上停住，等一会儿自动翻页
+
+const homePages = () => SJ.$$('.page');
+/* 只按元素现查自己的 .icon 子节点。别写 SJ.$$('.page .icon', page) —— 后代选择器
+   拿 .page 当根时，「.page」那一段在根里面找不到祖先，结果永远是空数组。 */
+const iconsOfPage = (i) => {
+  const p = homePages()[i];
+  return p ? Array.from(p.querySelectorAll('.icon')) : [];
+};
 
 function onDragMove(e) {
   const t = e.touches ? e.touches[0] : e;
@@ -356,6 +454,20 @@ function onDragMove(e) {
   dragging.ghost.style.left = (t.clientX - dragging.gx) + 'px';
   dragging.ghost.style.top = (t.clientY - dragging.gy) + 'px';
 
+  // 拖到屏幕左右边上停住就翻页 —— 不然「跨页移动图标」根本没法做
+  const w = window.innerWidth || 390;
+  const near = t.clientX < 44 ? -1 : (t.clientX > w - 44 ? 1 : 0);
+  if (near !== dragging.edge) {
+    dragging.edge = near;
+    clearTimeout(edgeTimer);
+    edgeTimer = near ? setTimeout(() => {
+      const next = currentPage + near;
+      if (next < 0 || next > homePages().length - 1) return;
+      goPage(next);
+      vibrate(8);
+    }, 550) : null;
+  }
+
   // 落点：手指下面的那个图标
   const over = SJ.$$('.page .icon', phone).find(n => {
     if (n === dragging.node) return false;
@@ -364,11 +476,15 @@ function onDragMove(e) {
   });
   if (!over) return;
   const id = dragging.node.dataset.appId;
-  const from = dragging.order.indexOf(id);
-  const to = dragging.order.indexOf(over.dataset.appId);
-  if (from < 0 || to < 0 || from === to) return;
-  dragging.order.splice(to, 0, dragging.order.splice(from, 1)[0]);
-  SJ.state.layout = dragging.order;   // renderHome() 读的是 state.layout，不写回这里就白换了
+  const dstPage = homePages().indexOf(over.parentNode);
+  const col = iconsOfPage(dstPage).indexOf(over);
+  if (dstPage < 0 || col < 0 || id === over.dataset.appId) return;
+  const r = SJ.reflowLayout(dragging.order, id, dstPage, col);
+  if (r.layout.join() === dragging.order.join() &&
+      r.split.join() === (SJ.state.split || []).join()) return;   // 没真的变，别白重绘
+  dragging.order = r.layout;
+  SJ.state.layout = r.layout;
+  SJ.state.split = r.split;
   renderHome();
   // renderHome 会把图标全换成新节点，这里把 dragging.node 指向「还是我」的那个，
   // 否则拖到第二次交换时 .dragging 就挂在一个已经脱离文档的旧节点上了
@@ -376,10 +492,25 @@ function onDragMove(e) {
   if (again) { dragging.node = again; again.classList.add('dragging'); }
 }
 
-function onDragEnd() {
+function onDragEnd(e) {
   if (press) { clearTimeout(press.timer); press = null; }
+  clearTimeout(edgeTimer); edgeTimer = null;
   if (!dragging) return;
-  SJ.state.layout = dragging.order;
+  // 松手时人在哪一页，就归哪一页 —— 拖到空白处也算（不用非得压着另一个图标）
+  const t = e && (e.changedTouches ? e.changedTouches[0] : e);
+  if (t && t.clientX !== undefined) {
+    const idx = homePages().findIndex(p => {
+      const b = p.getBoundingClientRect();
+      return t.clientX >= b.left && t.clientX < b.right;
+    });
+    const id = dragging.node.dataset.appId;
+    if (idx >= 0) {
+      const r = SJ.reflowLayout(dragging.order, id, idx);
+      dragging.order = r.layout;
+      SJ.state.layout = r.layout;
+      SJ.state.split = r.split;
+    }
+  }
   SJ.save();
   if (dragging.ghost) dragging.ghost.remove();
   dragging = null;
@@ -403,7 +534,10 @@ function bindDrag(node) {
       document.body.append(g);
       node.classList.add('dragging');
       // 抓住哪儿就从哪儿拖（以前是让图标瞬移到手指正中，手感很跳）
-      dragging = { node, ghost: g, order: appOrder(), gx: t.clientX - r.left, gy: t.clientY - r.top };
+      dragging = {
+        node, ghost: g, order: appOrder(), gx: t.clientX - r.left, gy: t.clientY - r.top,
+        page: homePages().indexOf(node.parentNode), edge: 0
+      };
       vibrate(14);
     }, 450);
     press = p;
@@ -498,7 +632,7 @@ function renderLock(anim) {
   pad.hidden = true;
   pad.innerHTML = '';                 // 不清的话上次的键盘会留在锁屏上
   SJ.$('#lock-hint').hidden = false;
-  SJ.$('#lock-hint').textContent = SJ.state.lock ? '输入 4 位密码' : '上滑解锁';
+  SJ.$('#lock-hint').textContent = (SJ.state.lock && SJ.state.password) ? '输入 4 位密码' : '上滑解锁';
   paintLockQuick();
   if (anim && locked) {
     lockEl.classList.remove('enter');
@@ -521,9 +655,11 @@ function openPending() {
 
 function unlock() {
   lockEl.classList.remove('enter');   // 别和 .shake 抢 animation
-  if (!SJ.state.lock) { locked = false; renderLock(); playUnlock(); openPending(); return; }
+  /* 没设密码就等于「防误触锁屏」：点一下或上滑直接进，不弹数字盘。
+     密码是可以留空的（外观 → 锁屏密码 → 清空），所以这里不能拿 '' 去比。 */
+  if (!SJ.state.lock || !SJ.state.password) { locked = false; renderLock(); playUnlock(); openPending(); return; }
   const hint = SJ.$('#lock-hint'), quick = SJ.$('#lock-quick');
-  hint.textContent = '输入 4 位密码（默认 1234）';
+  hint.textContent = '输入 4 位密码';
   hint.hidden = true;
   quick.hidden = true;
   const pad = SJ.$('#lock-pad');

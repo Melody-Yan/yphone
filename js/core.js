@@ -66,9 +66,12 @@ function isDarkWall(id) { const w = wallById(id); return w ? w.dark : false; }
 /* 桌面插件登记表。span = 占几列，桌面是 4 列网格：4 = 整行，2 = 半行（两个并排）。 */
 const WIDGET_TYPES = [
   { type: 'clock',    name: '时钟',   icon: '🕘', span: 4 },
-  { type: 'calendar', name: '日历',   icon: '📅', span: 4 },
+  { type: 'calendar', name: '今日日程', icon: '📅', span: 4 },
+  { type: 'month',    name: '月历',   icon: '🗓', span: 4 },
   { type: 'notes',    name: '备忘录', icon: '📝', span: 4 },
+  { type: 'moments',  name: '朋友圈', icon: '💞', span: 4 },
   { type: 'chat',     name: '聊天',   icon: '💬', span: 2 },
+  { type: 'music',    name: '音乐',   icon: '🎵', span: 2 },
   { type: 'battery',  name: '电量',   icon: '🔋', span: 2 },
   { type: 'gallery',  name: '相册',   icon: '🖼', span: 2 }
 ];
@@ -91,6 +94,7 @@ const DEFAULTS = {
   lock: false,
   password: '',
   layout: [],            // 桌面图标顺序：[appId, ...]，空数组=用注册表默认顺序
+  split: [],             // 每页放几个图标：[n0, n1, n2]，空数组=自动排（每页 24）
   notes: [],             // 备忘录：[{id,title,body,ts}, ...]
   settings: {
     theme: 'light',      // light | dark（莫兰迪浅色是默认）
@@ -147,7 +151,7 @@ const DEFAULTS = {
 /* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
    否则一个坏 JSON 就能让整台手机白屏（比如把 characters 写成字符串）。 */
 const SCHEMA = {
-  wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
+  wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
   moments: 'array', delivery: 'object', music: 'object'
@@ -684,6 +688,66 @@ function latestImage() {
     });
   });
   return best;
+}
+
+/* ══════════════════════════════════════════════════════
+   L1.7.1 桌面分页：每页放几个图标，由用户拖出来
+   state.split 是「每页几个」，和布局顺序（state.layout）分开存：
+   顺序归顺序、翻页归翻页，一个变了不会带着另一个一起乱。
+   返回值一定是长度 ≥1、和 restN 对得上的数组 —— 宁可修，不要清空用户的排布。
+   ══════════════════════════════════════════════════════ */
+const HOME_PER_PAGE = 24, HOME_DOCK = 3;   // 没分页信息时的老规矩：每页 24 个 = 4 列 6 行；dock 占前 3 个
+
+function homeSplit(restN) {
+  const raw = Array.isArray(state.split) ? state.split.map(n => Math.max(0, n | 0)) : [];
+  if (!raw.length) {
+    const auto = [];
+    for (let i = 0; i < restN; i += HOME_PER_PAGE) auto.push(Math.min(HOME_PER_PAGE, restN - i));
+    return auto.length ? auto : [0];
+  }
+  const s = raw.slice();
+  // 装多了 / 装少了（比如又新加了一个 App）都就地修补，别把排布整个丢掉
+  let sum = s.reduce((a, b) => a + b, 0);
+  for (let i = s.length - 1; i >= 0 && sum > restN; i--) {
+    const cut = Math.min(s[i], sum - restN);
+    s[i] -= cut; sum -= cut;
+  }
+  // 少了就开新页接着装。别往最后一项上堆 —— 用户把「第一页 4 个」改小之后，
+  // 第二页本该出现，往最后一项堆只会让第一页弹回原样。
+  if (sum < restN) {
+    let left = restN - sum;
+    while (left > 0) { const n = Math.min(HOME_PER_PAGE, left); s.push(n); left -= n; }
+  }
+  const out = s.filter(n => n > 0);
+  return out.length ? out : [Math.max(0, restN)];
+}
+
+/* 把一个图标挪到第 page 页的第 at 位（at 省略=放到这页最后）。
+   纯函数：不改 state，返回新的 {layout, split}，由调用方落盘。
+   顺带把源页减一、目标页加一 —— 这是「这页只放三个」唯一被写下来的地方。 */
+function reflowLayout(full, appId, page, at) {
+  const rest = full.slice(HOME_DOCK);
+  const split = homeSplit(rest.length);
+  const from = rest.indexOf(appId);
+  if (from < 0) return { layout: full, split };   // dock 上那三个不参与翻页
+  let src = 0, acc = 0;
+  while (src < split.length - 1 && acc + split[src] <= from) { acc += split[src]; src++; }
+  /* ponytail: 桌面 DOM 只有 WIDGET_PAGES(3) 个 .page，所以最多开到第 3 页。
+     拖到更后面不会丢图标 —— renderHome() 末尾会把装不下的并进最后一页。
+     真要无限页，先让 app.js 按需生成 .page 元素，再来放开这个上限。 */
+  const maxPage = Math.min(WIDGET_PAGES - 1, split.length);
+  const target = Math.max(0, Math.min(page | 0, maxPage));
+  const items = rest.slice();
+  items.splice(from, 1);
+  const cur = split[target] || 0;                 // 目标页可能还不存在
+  const inPage = Math.max(0, cur - (src === target ? 1 : 0));  // 目标页抽掉自己后还剩几个
+  let start = 0;
+  for (let i = 0; i < target; i++) start += split[i];
+  if (src < target) start -= 1;                   // 抽走之后目标页整体前移一位
+  const pos = at === undefined ? inPage : Math.max(0, Math.min(at | 0, inPage));
+  items.splice(start + pos, 0, appId);
+  if (src !== target) { split[src] -= 1; split[target] = cur + 1; }
+  return { layout: full.slice(0, HOME_DOCK).concat(items), split };
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1469,6 +1533,7 @@ window.SJ = {
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   /* 桌面插件 */
   WIDGET_TYPES, WIDGET_PAGES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
+  HOME_PER_PAGE, HOME_DOCK, homeSplit, reflowLayout,
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,

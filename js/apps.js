@@ -97,7 +97,7 @@ function myAvatarNode() {
 function sheet(items, head) {
   const mask = SJ.el('div', { class: 'mask sheet-mask' });
   const panel = SJ.el('div', { class: 'sheet' });
-  if (head) panel.append(head);
+  if (head) panel.append(typeof head === 'string' ? SJ.el('div', { class: 'sheet-head' }, head) : head);
   items.forEach(it => panel.append(SJ.el('button', {
     class: 'sheet-item' + (it.off ? ' off' : ''),
     onclick: () => { if (it.off) return; mask.remove(); it.run(); }
@@ -139,6 +139,19 @@ function toggleRow(title, sub, on, onClick) {
     ].filter(Boolean)),
     SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
   ]);
+}
+
+/* 锁屏总开关。放在模块级：设置和外观都要用它。
+   ⚠️ 打开锁屏时绝不强行塞一个默认密码 —— 密码留空 = 无密码锁屏（点一下就进，防误触）。
+   以前是关一次就写 password=''、再开就写死 '1234'，用户自己设的密码等于白设。 */
+function setLock(on) {
+  SJ.state.lock = !!on;
+  SJ.save();
+  if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
+}
+function lockSub() {
+  if (!SJ.state.lock) return '现在没开。打开后每次进小手机先过一道锁屏';
+  return SJ.state.password ? '已开启 · 密码解锁（4 位数字）' : '已开启 · 无密码，点一下就进';
 }
 
 /* ── 壁纸选择条（外观 App 用；内置 + 自己传的都从 SJ.wallList() 来）──
@@ -1786,7 +1799,13 @@ const APPS = [
           class: 'btn',
           onclick: () => {
             const x = a.value.trim(), y = b.value.trim();
-            if (!/^\d{4}$/.test(x)) { toast('要 4 位数字'); a.value = ''; return; }
+            // 两个都留空 = 换成「无密码锁屏」：照样有锁屏页，点一下就进（防误触）
+            if (!x && !y) {
+              SJ.state.password = ''; SJ.save();
+              toast('密码清掉了，锁屏改成点一下就进');
+              main(); return;
+            }
+            if (!/^\d{4}$/.test(x)) { toast('要么 4 位数字，要么留空'); a.value = ''; return; }
             if (x !== y) { toast('两次不一样，重来'); b.value = ''; return; }
             SJ.state.password = x;
             SJ.save();
@@ -1794,10 +1813,18 @@ const APPS = [
             main();
           }
         }, '保存');
+        const clear = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: () => {
+            SJ.state.password = ''; SJ.save();
+            toast('换成无密码锁屏了');
+            main();
+          }
+        }, '改成无密码锁屏');
         root.append(SJ.el('div', { class: 'pad' }, [
-          a, b, save,
+          a, b, save, clear,
           SJ.el('div', { class: 'hint' },
-            `现在用的是 ${SJ.state.password || '1234'}。` +
+            (SJ.state.password ? `现在用的是 ${SJ.state.password}。` : '现在没设密码。') +
             '这是玩具锁，忘了在锁屏上点「忘记密码」就能关掉它，聊天记录不会动。')
         ]));
       }
@@ -1860,13 +1887,16 @@ const APPS = [
           ])
         ]));
 
+        /* 锁屏的三件事（开关 / 密码 / 长相）都挤在这一段里，
+           以前开关在「设置」、密码在「外观」，改个密码要来回跳两个 App。 */
         box.append(SJ.el('div', { class: 'group-title' }, '锁屏'));
+        box.append(toggleRow('锁屏', lockSub(), SJ.state.lock, () => { setLock(!SJ.state.lock); main(); }));
         box.append(SJ.el('div', { class: 'row', onclick: () => passwordView() }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '锁屏密码'),
-            SJ.el('div', { class: 'row-sub' }, SJ.state.lock
-              ? `现在用 ${SJ.state.password || '1234'}，点这里改`
-              : '锁屏还没开；先把密码定好，再去「设置 → 锁屏」打开')
+            SJ.el('div', { class: 'row-sub' }, SJ.state.password
+              ? `现在是 ${SJ.state.password}。点这里改，也可以清空换成无密码`
+              : '现在是空的 = 无密码锁屏，点一下就进。想上密码点这里')
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
@@ -1925,21 +1955,15 @@ const APPS = [
 
         /* 通用 */
         box.append(SJ.el('div', { class: 'group-title' }, '通用'));
-        box.append(SJ.el('div', { class: 'row', onclick: () => toggleLock() }, [
+        /* 锁屏的开关 / 密码 / 长相全搬去「外观」了：以前开关在这儿、密码在外观，
+           改个密码要来回跳两个 App。这儿只留一条入口。 */
+        box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '锁屏'),
-            SJ.el('div', { class: 'row-sub' }, SJ.state.lock
-              ? '打开小手机先输 4 位密码（密码去「外观 → 锁屏密码」改）'
-              : '现在没开。点一下立刻锁上，之后每次打开都要输密码')
+            SJ.el('div', { class: 'row-sub' }, lockSub() + '（开关 / 密码 / 壁纸都在这儿改）')
           ]),
           SJ.el('div', { class: 'row-time' }, SJ.state.lock ? '已开启 ›' : '已关闭 ›')
         ]));
-        box.append(toggleRow('锁屏显示今日安排', '把日历里今天的日程直接摆在锁屏上（也能去「外观」里改）', SJ.state.settings.lockWidgets !== false, () => {
-          SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
-        }));
-        box.append(toggleRow('锁屏快捷按钮', '不解锁也能直接进日历 / 备忘录（也能去「外观」里改）', SJ.state.settings.lockQuick !== false, () => {
-          SJ.state.settings.lockQuick = !SJ.state.settings.lockQuick; SJ.save(); main();
-        }));
         box.append(SJ.el('div', { class: 'row', onclick: () => toggle24() }, [
           SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, '24 小时制')]),
           SJ.el('div', { class: 'row-time' }, SJ.state.settings.clock24 ? '开 ›' : '关 ›')
@@ -2121,13 +2145,7 @@ const APPS = [
         return SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, label), input]);
       }
 
-      function toggleLock() {
-        // 关掉锁屏不再抹掉密码：下次想开回来还是你自己设的那个。
-        if (SJ.state.lock) SJ.state.lock = false;
-        else { SJ.state.lock = true; if (!SJ.state.password) SJ.state.password = '1234'; }
-        SJ.save(); main();
-        if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
-      }
+      /* toggleLock 已经提成模块级的 setLock()：外观 App 也要用同一个开关 */
       function toggle24() { SJ.state.settings.clock24 = !SJ.state.settings.clock24; SJ.save(); main(); }
 
       main();

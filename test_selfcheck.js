@@ -1032,9 +1032,17 @@ ok('外观 App 里有「显示今日安排」开关', !!walk(sv3).find(n => n.te
 S.closeTop(true);
 
 const sv4 = openFresh('settings');
-ok('设置页有「锁屏显示今日安排」开关', !!walk(sv4).find(n => n.textContent.includes('锁屏显示今日安排')));
-ok('设置页有「锁屏快捷按钮」开关', !!walk(sv4).find(n => n.textContent.includes('锁屏快捷按钮')));
+/* 锁屏开关和密码都搬进「外观」了，设置里只剩一条入口 —— 用户抱怨过「改个密码要跳两个 App」 */
+ok('设置页不再自己放锁屏开关', !walk(sv4).find(n => n.textContent.includes('锁屏显示今日安排')));
+ok('设置页有「锁屏」入口行', !!walk(sv4).find(n => n.textContent.includes('开关 / 密码 / 壁纸都在这儿改')));
+ok('设置页锁屏行写着当前状态', !!walk(sv4).find(n => n.textContent.includes('已开启')));
 ok('设置页有跳去「外观」的那一行', !!walk(sv4).find(n => n.textContent.includes('外观与壁纸')));
+S.closeTop(true);
+
+/* 外观 App 里锁屏三件事挤在一处：开关 + 密码 + 长相 */
+const sv5 = openFresh('look');
+ok('外观 App 里有「锁屏」开关行', !!walk(sv5).find(n => n.textContent.includes('已开启 ·')));
+ok('外观 App 里有「锁屏密码」行', !!walk(sv5).find(n => n.textContent.includes('锁屏密码')));
 S.closeTop(true);
 
 /* 两个开关真的管用 */
@@ -1076,10 +1084,10 @@ ok('桌面图标数 = App 总数（插件没吃掉 App）', iconsOn() === sandbo
 /* 长按桌面空白处弹面板 */
 dispatch(pages[1], 'mousedown', {});
 ok('长按桌面空白处弹出插件面板', await waitFor(() => sheetLabels().length >= 6), JSON.stringify(sheetLabels()));
-ok('面板里 6 种插件都在',
-  ['时钟', '日历', '备忘录', '聊天', '电量', '相册'].every(t => sheetLabels().includes(t)), JSON.stringify(sheetLabels()));
-clickSheet('日历');
-ok('选了「日历」→ 第二页多了一个日历插件',
+ok('面板里 9 种插件都在',
+  wk.WIDGET_TYPES.every(t => sheetLabels().includes(t.name)), JSON.stringify(sheetLabels()));
+clickSheet('今日日程');
+ok('选了「今日日程」→ 第二页多了一个插件',
   wgOn(1).length === 1 && wgOn(1)[0]._class.has('wg-calendar'), wgOn(1).map(n => n.className).join(','));
 ok('日历插件里能看见今天没有安排', wgOn(1)[0].textContent.includes('今天'));
 
@@ -1700,8 +1708,10 @@ console.log('\n[27] 电量同步 / 改密码');
 }
 
 {
-  /* 改密码：以前根本没有入口，而且关一次锁屏就把密码抹回 1234 */
-  const App = sandbox.SJ;
+  /* 改密码：以前根本没有入口，而且关一次锁屏就把密码抹回 1234。
+     ⚠️ App 必须用 let 并在每次 boot() 后重新指 —— boot() 会整个重建沙箱，
+        抱着旧引用断言等于在查一个已经死掉的世界，测试会「绿得毫无意义」。 */
+  let App = sandbox.SJ;
   const LV = openFresh('look');
   const pwRow = walk(LV).find(n => n._class.has('row') && /^锁屏密码/.test(n.textContent.trim()));
   ok('外观里有「锁屏密码」入口', !!pwRow);
@@ -1726,16 +1736,163 @@ console.log('\n[27] 电量同步 / 改密码');
   ok('两次一致才真换掉', App.state.password === '5678', App.state.password);
   ok('换完自己退回外观首页', !!findBtn(LV, '上传'), '找不到「上传」说明没退回');
 
-  /* 以前 toggleLock 关掉锁屏写 password=''，再开回来又是 1234 —— 自己设的密码白设 */
+  /* 以前 toggleLock 关掉锁屏写 password=''，再开回来又是 1234 —— 自己设的密码白设。
+     开关本身也从「设置」搬到「外观」了（用户说改密码要跳两个 App 太乱）。 */
   App.state.lock = true; App.state.password = '5678'; App.save();
-  boot();
-  const lockRow = () => walk(byId.stack).find(n => n._class.has('row') && /^锁屏/.test(n.textContent.trim()));
-  openFresh('settings');
-  ok('设置里有「锁屏」开关行', !!lockRow());
-  lockRow().click();
+  boot(); App = sandbox.SJ;
+  const sSet = openFresh('settings');
+  ok('设置里只剩「锁屏」入口行，不再自己放开关',
+    !!walk(sSet).find(n => n._class.has('row') && /^锁屏/.test(n.textContent.trim())) &&
+    !walk(sSet).find(n => n._class.has('row') && /显示今日安排/.test(n.textContent.trim())));
+
+  const LV2 = openFresh('look');
+  const lockToggle = () => walk(LV2).find(n => n._class.has('row') && /^锁屏/.test(n.textContent.trim()));
+  ok('外观里有「锁屏」开关行', !!lockToggle());
+  lockToggle().click();
   ok('关掉锁屏不会顺手把密码抹掉', App.state.password === '5678', App.state.password);
-  lockRow().click();
-  ok('再开回来还是自己设的那个，不是 1234', App.state.password === '5678' && App.state.lock === true, App.state.password);
+  lockToggle().click();
+  ok('再开回来还是自己设的那个，不是 1234', App.state.password === '5678' && App.state.lock === true,
+    App.state.password + ' / lock=' + App.state.lock);
+}
+
+console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 新插件');
+{
+  /* 同上：boot() 会重建沙箱，App 必须跟着换，否则后面全在查一个死掉的 world */
+  let App = sandbox.SJ;
+  const locked = () => byId.lock.style.display !== 'none';   // SHELL 没导出 locked，看锁屏那一层的显示
+
+  /* ── 无密码锁屏：lock 开着但 password 是空的，点一下就进 ── */
+  App.state.lock = true; App.state.password = ''; App.save();
+  boot(); App = sandbox.SJ;
+  ok('没密码时锁屏不收数字盘', byId['lock-pad'].hidden === true);
+  ok('没密码时提示语说的是上滑解锁', byId['lock-hint'].textContent.includes('上滑'), byId['lock-hint'].textContent);
+  ok('锁屏本来是盖着的', locked());
+  S.SHELL.unlock();
+  ok('没密码时点一下就解锁，不会卡在锁屏', !locked());
+
+  /* 密码清空也要有个正经入口，不能只能靠「忘记密码」 */
+  App.state.lock = true; App.state.password = '4321'; App.save();
+  boot(); App = sandbox.SJ;
+  const LV3 = openFresh('look');
+  walk(LV3).find(n => n._class.has('row') && /^锁屏密码/.test(n.textContent.trim())).click();
+  ok('点「锁屏密码」进得去（有保存按钮）', !!findBtn(LV3, '保存'));
+  findBtn(LV3, '改成无密码锁屏').click();
+  ok('「改成无密码锁屏」真的把密码清空了', App.state.password === '', App.state.password);
+  ok('清空后锁屏还开着（只是不用密码了）', App.state.lock === true);
+  byId.lock.click();
+  ok('清空后点锁屏直接进', !locked());
+
+  /* ── 每页放几个图标，自己定 ── */
+  const restN = sandbox.APPS.length - 3;   // 前 3 个在 dock 上，不参与分页
+  const pk = i => pages[i].children;
+  const iconAt = i => pk(i).filter(c => c._class.has('icon')).length;
+  App.state.widgets = [[], [], []]; App.state.split = [2, 3]; App.save();
+  S.SHELL.renderHome();
+  ok('split=[2,3] → 第一页 2 个图标', iconAt(0) === 2, iconAt(0) + ' 个');
+  ok('split=[2,3] → 第二页 3 个图标', iconAt(1) === 3, iconAt(1) + ' 个');
+  ok('装不下的自己开了第三页，一个都没丢',
+    iconAt(0) + iconAt(1) + iconAt(2) === restN && iconAt(2) === restN - 5,
+    [iconAt(0), iconAt(1), iconAt(2)].join(' / ') + ' 共 ' + restN);
+  ok('图标总数还是 App 总数', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+
+  App.state.split = [2]; App.save(); S.SHELL.renderHome();
+  ok('split 只写了第一页 → 剩下的自己开第二页，不是全堆回第一页',
+    iconAt(0) === 2 && iconAt(1) === restN - 2, iconAt(0) + ' / ' + iconAt(1));
+
+  /* 「这一页放几个图标」的面板真的能改数，而且改完图标不丢 */
+  App.state.split = []; App.save(); S.SHELL.renderHome();
+  ok('默认是自动的（第一页装满）', iconAt(0) === restN, iconAt(0) + ' vs ' + restN);
+  dispatch(pages[0], 'mousedown', {});
+  await waitFor(() => sheetLabels().some(t => t.includes('放几个图标')));
+  clickSheet('这一页放几个图标');
+  ok('弹出「第 1 页放几个图标」并给出可选项', sheetLabels().some(t => t.includes('4 个')), JSON.stringify(sheetLabels()));
+  clickSheet('4 个');
+  ok('选「4 个」→ 第一页真的只剩 4 个', iconAt(0) === 4, iconAt(0) + ' 个');
+  ok('多出来的挤到第二页，没丢', iconAt(1) === restN - 4 && iconsOn() === sandbox.APPS.length,
+    iconAt(1) + ' / 共 ' + iconsOn());
+
+  App.state.split = [99, 99]; App.save();
+  ok('split 写超大也不会把图标弄丢', App.homeSplit(restN).reduce((a, b) => a + b, 0) === restN);
+  ok('split 是空的就走自动（每页 24）', (() => { App.state.split = []; return App.homeSplit(50).join(',') === '24,24,2'; })(), App.homeSplit(50).join(','));
+
+  /* ── 跨页移动：reflowLayout 是纯函数，直接查（先把 split 清干净，它读的是全局 state）── */
+  App.state.split = [];
+  const full = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];   // 前三个是 dock
+  const r1 = App.reflowLayout(full, 'd', 0, 1);
+  ok('从第一页拖到第一页第 1 位 → 顺序真的变了', r1.layout.join(',') === 'a,b,c,e,d,f,g', r1.layout.join(','));
+  ok('页内换位不动每页个数', r1.split.join(',') === '4', r1.split.join(','));
+
+  /* 只有一页的时候把图标拖到「下一页」→ 应该当场开出第二页 */
+  const r3 = App.reflowLayout(full, 'd', 1, 0);
+  ok('拖到还不存在的第二页 → 当场开出第二页', r3.split.join(',') === '3,1', r3.split.join(','));
+  ok('开新页时图标顺序没乱，也没丢', r3.layout.join(',') === 'a,b,c,e,f,g,d', r3.layout.join(','));
+
+  /* 两页都在时的跨页移动 */
+  App.state.split = [2, 2];
+  const r2 = App.reflowLayout(full, 'd', 1, 0);
+  ok('跨页移动：目标页多一个 / 源页少一个', r2.split.join(',') === '1,3', r2.split.join(','));
+  ok('跨页移动：d 真的落在第二页开头', r2.layout.join(',') === 'a,b,c,e,d,f,g', r2.layout.join(','));
+  ok('dock 上那三个不参与翻页', App.reflowLayout(full, 'b', 1, 0).layout.join(',') === full.join(','));
+  App.state.split = [];
+
+  /* ── 新插件：月历 / 朋友圈 / 音乐 ── */
+  App.state.widgets = [[], [], []];
+  ['month', 'moments', 'music'].forEach(t => App.addWidget(0, t));
+  S.SHELL.renderHome();
+  ok('新加的 3 种插件都在第一页', wgOn(0).filter(n => /wg-(month|moments|music)/.test(n.className)).length === 3,
+    wgOn(0).map(n => n.className).join(' | '));
+  ok('每种插件都有登记信息（名字 + 图标 + 占几列）',
+    ['month', 'moments', 'music'].every(t => { const d = App.widgetDef(t); return d && d.name && d.icon && d.span; }));
+
+  const monthWg = wgOn(0).find(n => n._class.has('wg-month'));
+  const now = App.virtualNow();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  ok('月历格子数 = 这个月的天数 + 前面补的空格',
+    walk(monthWg).filter(n => n._class.has('wg-cell')).length === daysInMonth + new Date(now.getFullYear(), now.getMonth(), 1).getDay(),
+    walk(monthWg).filter(n => n._class.has('wg-cell')).length + ' 格');
+  ok('月历上今天被标出来了', walk(monthWg).some(n => n._class.has('now') && n.textContent === String(now.getDate())));
+
+  const charX = App.saveCharacter(App.makeCharacter({ name: '圈友儿' }));
+  App.addMoment(charX.id, '今晚的月亮很好看');
+  S.SHELL.renderHome();
+  const moWg = wgOn(0).find(n => n._class.has('wg-moments'));
+  ok('朋友圈插件显示最新动态的作者', moWg.textContent.includes('圈友儿'), moWg.textContent);
+  ok('朋友圈插件显示正文', moWg.textContent.includes('今晚的月亮很好看'));
+
+  const muWg = wgOn(0).find(n => n._class.has('wg-music'));
+  ok('空歌单时音乐插件给的是空态', muWg.textContent.includes('歌单是空的'), muWg.textContent);
+  App.musicAdd([{ name: '夜航', artist: '某某', url: 'https://example.com/a.mp3' }]);
+  App.musicSetNow(App.musicTracks()[0].id);
+  S.SHELL.renderHome();
+  const muWg2 = wgOn(0).find(n => n._class.has('wg-music'));
+  ok('选了在听的歌之后音乐插件显示歌名和歌手',
+    muWg2.textContent.includes('夜航') && muWg2.textContent.includes('某某'), muWg2.textContent);
+
+  /* 新插件点进去要跳对 App */
+  const jumpTo = (cls, want) => {
+    S.SHELL.closeAll();
+    S.SHELL.renderHome();
+    const w = wgOn(0).find(n => n._class.has(cls));
+    w.click();
+    return S.SHELL.stack.length === 1 && S.SHELL.stack[0].id === want;
+  };
+  App.state.widgets = [[{ id: 'w1', type: 'month' }], [], []];
+  ok('点月历插件跳日历', jumpTo('wg-month', 'calendar'));
+  App.state.widgets = [[{ id: 'w1', type: 'moments' }], [], []];
+  ok('点朋友圈插件跳微信', jumpTo('wg-moments', 'chat'));
+  App.state.widgets = [[{ id: 'w1', type: 'music' }], [], []];
+  ok('点音乐插件跳音乐', jumpTo('wg-music', 'music'));
+  S.SHELL.closeAll();
+
+  /* ── 插件不能吃掉图标位 ── */
+  App.state.widgets = [[], [], []]; App.state.split = []; App.save();
+  S.SHELL.renderHome();
+  const base = iconAt(0);
+  App.addWidget(0, 'month'); App.addWidget(0, 'moments'); S.SHELL.renderHome();
+  ok('两个整行插件把第一页图标位压到 2 行（8 个）', iconAt(0) === 8, iconAt(0) + ' 个');
+  ok('压出去的图标没丢，挤到后面几页了', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+  App.state.widgets = [[{ id: 'wg-clock', type: 'clock' }], [], []]; App.save(); S.SHELL.renderHome();
+  ok('插件清掉后图标位回来了', iconAt(0) === base, iconAt(0) + ' vs ' + base);
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

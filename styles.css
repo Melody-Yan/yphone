@@ -776,7 +776,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
    这样头像才能跟着气泡一起靠左 / 靠右。
    ══════════════════════════════════════════════════════ */
 .chat-list .msg { display: flex; align-items: flex-end; gap: 8px; }
-.chat-list .msg.me { flex-direction: row-reverse; }
+/* 我发的那行 DOM 是 [气泡, 我的头像]，靠右对齐后头像自然落在最右 —— 别用 row-reverse，
+   那会把 [气泡, 头像] 反过来变成头像在最左，正是之前那个「我的头像跑到左边」的 bug。 */
+.chat-list .msg.ta { justify-content: flex-start; }
+.chat-list .msg.me { justify-content: flex-end; }
 .chat-list .msg .avatar { width: 34px; height: 34px; border-radius: 12px; font-size: 18px; }
 .chat-list .msg > .bubble { align-self: auto; max-width: 74%; }
 .chat-list .msg > .bubble.transfer,
@@ -1052,3 +1055,69 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ── 聊天：新蹦出来的那条弹一下 ── */
 @keyframes bubbleIn { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
 .chat-list > .msg:last-child { animation: bubbleIn .26s cubic-bezier(.22,1,.36,1) both; }
+
+/* ══════════════════════════════════════════════════════
+   插件好看化：玻璃层次、标题色条、右下角水印、月历网格
+   （数据行/空态沿用上面那批 .wg-* 规则，这里只加装饰和新版块）
+   ══════════════════════════════════════════════════════ */
+
+/* 玻璃层次靠 inset 阴影做，别用 ::before 盖一层 —— 伪元素是定位元素，
+   会盖在非定位的文字上面，字会发灰。 */
+.widget {
+  box-shadow: var(--shadow-s), inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -16px 26px -20px rgba(255, 255, 255, .75);
+}
+
+/* 右下角的大表情水印，data-ico 由 widgetNode() 写入 */
+.widget::after {
+  content: attr(data-ico);
+  position: absolute; right: 14px; bottom: 6px;
+  font-size: 46px; line-height: 1; opacity: .1;
+  pointer-events: none; user-select: none;
+}
+
+/* 小标题前面一根色条，一眼能分出插件类型 */
+.wg-head { display: flex; align-items: center; gap: 6px; }
+.wg-head::before {
+  content: ''; flex: none; width: 3px; height: 11px; border-radius: 2px;
+  background: var(--accent-ink); opacity: .72;
+}
+
+.wg-clock { background: linear-gradient(158deg, rgba(255, 255, 255, .62), rgba(255, 255, 255, .36)); }
+.wg-clock .widget-time { font-size: 52px; }
+
+.wg-batt-fill { background: linear-gradient(90deg, var(--accent), var(--accent-ink)); }
+
+/* 朋友圈插件：两行，第一行是「谁 · 多久前」 */
+.wg-row.wg-mo { flex-direction: column; align-items: stretch; gap: 3px; }
+.wg-mo-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+
+/* 月历 */
+.wg-week, .wg-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.wg-week { margin-top: 8px; }
+.wg-wd { font-size: 10.5px; font-style: normal; text-align: center; color: var(--fg-dim); }
+.wg-grid { margin-top: 4px; }
+.wg-cell {
+  position: relative; padding: 3px 0; border-radius: 8px;
+  font-size: 11.5px; font-style: normal; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.wg-cell.blank { visibility: hidden; }
+.wg-cell.now { background: var(--accent); color: #fff; font-weight: 600; }
+/* 那天有日程就点一个点 */
+.wg-cell.dot::after {
+  content: ''; position: absolute; left: 50%; bottom: 0;
+  width: 4px; height: 4px; margin-left: -2px; border-radius: 50%;
+  background: var(--accent-ink);
+}
+.wg-cell.now.dot::after { background: #fff; }
+
+#phone.dark-wall .wg-cell.now { background: rgba(255, 255, 255, .82); color: #262422; }
+#phone.dark-wall .wg-cell.dot::after { background: rgba(255, 255, 255, .8); }
+#phone.dark-wall .wg-head::before { background: rgba(255, 255, 255, .7); }
+#phone.dark-wall .wg-clock { background: rgba(38, 36, 34, .42); }
+
+/* 面板标题（sheet(items, '标题') 传字符串时用它包一层） */
+.sheet-head {
+  padding: 12px 22px 6px;
+  font-size: 12.5px; color: var(--fg-dim); letter-spacing: .3px;
+}

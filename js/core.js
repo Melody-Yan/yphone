@@ -125,6 +125,20 @@ function migrate(saved) {
     out.chats = {};
     out.chats[c.id] = saved.chatHistory.map(m => ({ me: !!m.me, text: String(m.text || ''), ts: Date.now() }));
   }
+  // 日程：导入的存档里可能是任意垃圾，逐条归一。没有 id 的补一个 ——
+  // 没 id 就删不掉，用户会以为「删了又回来」。
+  // 注意这里不能用 uid()：migrate 在模块初始化时就被 load() 调到，那时 const 还在 TDZ 里。
+  out.events = (Array.isArray(out.events) ? out.events : [])
+    .filter(e => e && typeof e === 'object')
+    .map((e, i) => ({
+      id: String(e.id || ('ev-' + i)),
+      date: String(e.date || '').slice(0, 10),
+      time: String(e.time || '').slice(0, 5),
+      title: String(e.title || '').slice(0, NAME_MAX),
+      note: String(e.note || '').slice(0, TEXT_MAX),
+      done: !!e.done
+    }))
+    .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date));
   return out;
 }
 
@@ -371,10 +385,59 @@ function dayKey(d = virtualNow()) {
   return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
 }
 function eventsOn(date) {
-  return state.events.filter(e => e && e.date === date)
-    .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+  return state.events.filter(e => e && e.date === date).sort(cmpEvent);
 }
 function todayEvents() { return eventsOn(dayKey()); }
+
+/* 日程排序的唯一规则：先日期、再时间；没填时间的用 99:99 顶格，全天的事排当天最后。
+   别再在别处写第二套比较 —— 两套规则就是两个结果。 */
+function cmpEvent(a, b) {
+  return String(a.date || '').localeCompare(String(b.date || ''))
+    || String(a.time || '99:99').localeCompare(String(b.time || '99:99'));
+}
+
+/* ── 日程的增删改：都在这里归一，App 只负责画 ── */
+function makeEvent(patch = {}) {
+  return Object.assign({ id: uid(), date: dayKey(), time: '', title: '', note: '', done: false }, patch);
+}
+
+function sortEvents() {
+  state.events.sort(cmpEvent);
+}
+
+function saveEvent(ev) {
+  ev.date = String(ev.date || dayKey()).slice(0, 10);
+  ev.time = String(ev.time || '').slice(0, 5);
+  ev.title = String(ev.title || '').trim().slice(0, NAME_MAX);
+  ev.note = String(ev.note || '').slice(0, TEXT_MAX);
+  ev.done = !!ev.done;
+  const i = state.events.findIndex(x => x.id === ev.id);
+  if (i < 0) state.events.push(ev); else state.events[i] = ev;
+  sortEvents();
+  save();
+  return ev;
+}
+
+function deleteEvent(id) {
+  state.events = state.events.filter(e => e.id !== id);
+  save();
+}
+
+/* 某个月里哪天有安排 —— 给月历画小圆点。month 是 1~12，跟人说话一致 */
+function busyDays(year, month) {
+  const head = `${year}-${String(month).padStart(2, '0')}-`;
+  const out = {};
+  state.events.forEach(e => {
+    if (String(e.date).startsWith(head)) out[String(e.date)] = (out[String(e.date)] || 0) + 1;
+  });
+  return out;
+}
+
+/* 还没做、且还没过去的几条 —— 给桌面小部件和角色用 */
+function upcomingEvents(n = 3) {
+  const today = dayKey();
+  return state.events.filter(e => !e.done && String(e.date) >= today).slice(0, n);
+}
 
 /* ══════════════════════════════════════════════════════
    L1 AI：模型列表 + 对话请求
@@ -677,6 +740,6 @@ window.SJ = {
   makeEntry, saveEntry, deleteEntry, activeEntries,
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,
-  dayKey, eventsOn, todayEvents,
+  dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   exportState, importState
 };

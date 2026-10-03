@@ -23,7 +23,8 @@ const ICON = {
   people: '<circle cx="9.5" cy="8" r="3.2"/><path d="M3 19.5c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><path d="M16.6 5.4a3.2 3.2 0 0 1 0 6.3"/><path d="M18.2 14.2c2 .6 3.3 2 3.3 3.9"/>',
   photo: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 4.5-4.5 3.5 3.5 3-2.5L20 17"/>',
   music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
-  wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14" r="1.2"/>'
+  wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14" r="1.2"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 9.6h17M8 3.4v3.2M16 3.4v3.2"/><path d="M7.6 13h2M11 13h2M14.4 13h2M7.6 16.6h2M11 16.6h2"/>'
 };
 
 function svg(name, size = 30) {
@@ -705,6 +706,125 @@ const APPS = [
   },
 
   /* ── 计算器 ── */
+  {
+    id: 'calendar',
+    name: '日历',
+    icon: 'calendar',
+    color: '#b08d7a',
+    render(root, close, openWith) {
+      const p2 = n => String(n).padStart(2, '0');
+      let cur = (() => { const d = SJ.virtualNow(); return new Date(d.getFullYear(), d.getMonth(), 1); })();
+
+      /* 一行日程。点进去改，返回回到你来的那一页（月历 / 某一天） */
+      function evRow(e, back) {
+        return SJ.el('div', { class: 'row', onclick: () => editView(e.id, back) }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' + (e.done ? ' done' : '') },
+              (e.time || '全天') + '  ' + (e.title || '（没写标题）')),
+            e.note ? SJ.el('div', { class: 'row-sub' }, e.note) : null
+          ]),
+          SJ.el('div', { class: 'row-time' }, e.done ? '已完成 ›' : '›')
+        ]);
+      }
+
+      function monthView() {
+        root.innerHTML = '';
+        const today = SJ.dayKey();
+        root.append(navBar('日历', {
+          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null, monthView, today) }, '＋')
+        }));
+
+        const y = cur.getFullYear(), m = cur.getMonth();
+        const head = SJ.el('div', { class: 'cal-head' }, [
+          SJ.el('button', { class: 'cal-nav', onclick: () => { cur = new Date(y, m - 1, 1); monthView(); } }, '‹'),
+          SJ.el('div', { class: 'cal-title' }, `${y} 年 ${m + 1} 月`),
+          SJ.el('button', { class: 'cal-nav', onclick: () => { cur = new Date(y, m + 1, 1); monthView(); } }, '›')
+        ]);
+        const week = SJ.el('div', { class: 'cal-week' }, ['日', '一', '二', '三', '四', '五', '六'].map(w => SJ.el('span', {}, w)));
+
+        const busy = SJ.busyDays(y, m + 1);
+        const lead = new Date(y, m, 1).getDay();        // 本月 1 号是周几，前面空几格
+        const days = new Date(y, m + 1, 0).getDate();   // 本月有几天（0 号 = 上个月最后一天）
+        const grid = SJ.el('div', { class: 'cal-grid' });
+
+        for (let i = 0; i < lead; i++) grid.append(SJ.el('div', { class: 'cal-cell blank' }));
+        for (let d = 1; d <= days; d++) {
+          const k = `${y}-${p2(m + 1)}-${p2(d)}`;
+          grid.append(SJ.el('div', {
+            class: 'cal-cell' + (k === today ? ' today' : '') + (busy[k] ? ' has' : ''),
+            onclick: () => dayView(k)
+          }, [
+            SJ.el('span', { class: 'cal-day' }, String(d)),
+            busy[k] ? SJ.el('span', { class: 'cal-dot' }) : null
+          ]));
+        }
+
+        const list = SJ.el('div', { class: 'cal-today' });
+        list.append(SJ.el('div', { class: 'group-title' }, '今天'));
+        const todays = SJ.eventsOn(today);
+        if (!todays.length) list.append(SJ.el('div', { class: 'hint' }, '今天还没有安排。点上面「＋」加一条。'));
+        todays.forEach(e => list.append(evRow(e, monthView)));
+
+        root.append(SJ.el('div', { class: 'pad cal-wrap' }, [head, week, grid, list]));
+      }
+
+      function dayView(k) {
+        root.innerHTML = '';
+        const back = () => dayView(k);
+        root.append(navBar(k, {
+          back: monthView,
+          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null, back, k) }, '＋')
+        }));
+        const box = SJ.el('div', { class: 'list' });
+        const list = SJ.eventsOn(k);
+        if (!list.length) box.append(SJ.el('div', { class: 'empty' }, '这天没有安排。\n右上角「＋」加一条。'));
+        list.forEach(e => box.append(evRow(e, back)));
+        root.append(box);
+      }
+
+      function editView(id, back, dateKey) {
+        const isNew = !id;
+        const e = SJ.state.events.find(x => x.id === id) || SJ.makeEvent({ date: dateKey || SJ.dayKey() });
+        root.innerHTML = '';
+        root.append(navBar(isNew ? '新建日程' : '编辑日程', {
+          back,
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => saveIt() }, '保存')
+        }));
+
+        const title = SJ.el('input', { class: 'field', placeholder: '要干嘛', value: e.title });
+        const date = SJ.el('input', { class: 'field', type: 'date', value: e.date });
+        const time = SJ.el('input', { class: 'field', type: 'time', value: e.time });
+        const note = SJ.el('textarea', { class: 'field area sm', placeholder: '备注（可以留空）' }, e.note);
+        const done = SJ.el('button', { class: 'btn ghost' });
+        const paint = () => { done.textContent = e.done ? '已完成 ✓（点一下取消）' : '还没做（点一下标记完成）'; };
+        done.addEventListener('click', () => { e.done = !e.done; paint(); });
+        paint();
+
+        function saveIt() {
+          e.title = title.value; e.date = date.value; e.time = time.value; e.note = note.value;
+          if (isNew && !e.title.trim()) return back();    // 空标题 = 没建，别在列表里留一条空白
+          SJ.saveEvent(e);
+          back();
+        }
+
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '标题'), title]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '日期'), date]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '时间（留空＝全天）'), time]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '备注'), note]),
+          done,
+          SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
+          isNew ? null : SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('删掉这条日程？', () => { SJ.deleteEvent(e.id); back(); })
+          }, '删除这条日程')
+        ]));
+      }
+
+      if (openWith) dayView(String(openWith)); else monthView();
+    }
+  },
+
   {
     id: 'calc',
     name: '计算器',

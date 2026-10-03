@@ -49,7 +49,7 @@ function makeEl(tag) {
       return c;
     },
     remove() { const p = this.parentNode; if (p) p.children = p.children.filter(x => x !== this); this.parentNode = null; },
-    setAttribute(k, v) { this.attrs[k] = v; if (k === 'class') this.className = v; },
+    setAttribute(k, v) { this.attrs[k] = v; if (k === 'class') this.className = v; if (k === 'value') this.value = v == null ? '' : String(v); },
     getAttribute(k) { return this.attrs[k]; },
     addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
     removeEventListener(t, fn) { (this._listeners[t] || []).forEach((f, i, a) => f === fn && a.splice(i, 1)); },
@@ -167,7 +167,7 @@ console.log('\n小手机 · 自检');
 console.log('\n[1] 启动与渲染');
 try { boot(); ok('三个 js 文件载入并执行 boot() 无异常', true); }
 catch (e) { ok('三个 js 文件载入并执行 boot() 无异常', false, e.message); }
-ok('window.APPS 已注册 7 个 App', sandbox.APPS.length === 7, '实际 ' + sandbox.APPS.length);
+ok('window.APPS 已注册 8 个 App', sandbox.APPS.length === 8, '实际 ' + sandbox.APPS.length);
 ok('window.SHELL 调试出口就位', !!(sandbox.SHELL && sandbox.SHELL.openApp && sandbox.SHELL.stack));
 ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
 ok('首页有桌面挂件（大时钟）', pages[0].children.some(c => c._class.has('widget')));
@@ -800,6 +800,109 @@ ok('聊天设置页的「返回」回到对话而不是列表', !!findBtn(cv4, '
 findBtn(cv4, '返回').click();
 ok('确实回到了对话页（看得见输入框）', !!findIn(cv4, '说点什么…'));
 S.closeTop(true);
+
+/* 20. 日历 App */
+console.log('\n[20] 日历：月历 + 某天列表 + 增删改');
+wb.state.events.length = 0;
+const tk2 = wb.dayKey();
+const confirmYes = () => {
+  const box = walk(byId.phone).find(x => x._class.has('confirm'));
+  const b = box && findBtn(box, '确定');
+  if (b) b.click();
+  return !!b;
+};
+
+ok('日历注册进了 App 列表', sandbox.APPS.some(a => a.id === 'calendar' && a.icon === 'calendar'));
+S.SHELL.renderHome();
+/* 垫片里 #pages / #dock 是 body 的孩子（只有 #home 挂进了 #phone），所以从 pages 数，
+   别从 byId.phone 走 —— 真实 DOM 里它们都在 #phone 下 */
+const homeIcons = () => [...pages, byId.dock].flatMap(p => p.children).filter(c => c._class.has('icon'));
+ok('桌面上多了「日历」图标', homeIcons().some(n => n.textContent.trim() === '日历'),
+  JSON.stringify(homeIcons().map(n => n.textContent.trim())));
+
+const cv5 = openFresh('calendar');
+ok('打开就是月历，星期表头 7 列', walk(cv5).some(n => n._class.has('cal-week') && n.children.length === 7));
+ok('今天的格子被标出来', walk(cv5).some(n => n._class.has('cal-cell') && n._class.has('today')));
+ok('下面有「今天」分组', walk(cv5).some(n => n.textContent === '今天'));
+ok('没安排时给一句提示', walk(cv5).some(n => n.textContent.includes('今天还没有安排')));
+ok('月历格子数 = 空白格 + 当月天数', (() => {
+  const cells = walk(cv5).filter(n => n._class.has('cal-cell'));
+  const blanks = cells.filter(n => n._class.has('blank')).length;
+  const d = wb.virtualNow();
+  return cells.length === blanks + new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+})());
+
+wb.saveEvent(wb.makeEvent({ date: tk2, time: '20:00', title: '和老妈视频' }));
+const cv6 = openFresh('calendar');
+ok('有安排的日期多一个小圆点', walk(cv6).some(n => n._class.has('cal-cell') && n._class.has('has') && n._class.has('today')));
+ok('今天的安排出现在月历下方', walk(cv6).some(n => n.textContent.includes('和老妈视频')));
+ok('角色知道今天的安排（进了系统提示词）', wb.buildSystem({ name: '甲' }, []).includes('和老妈视频'));
+
+wb.saveEvent(wb.makeEvent({ date: '1999-01-01', title: '上辈子的事' }));
+ok('别的日期的安排不会串到今天', !walk(openFresh('calendar')).some(n => n.textContent.includes('上辈子的事')));
+ok('但它在那个月的月历里数得到', wb.busyDays(1999, 1)['1999-01-01'] === 1);
+ok('upcomingEvents 只给没做完、还没过去的', !wb.upcomingEvents().some(e => e.title === '上辈子的事'));
+
+const cvDays = openFresh('calendar', tk2);
+ok('能从桌面用 openWith 直接进某一天', walk(cvDays).some(n => n.textContent.includes('和老妈视频')));
+findBtn(cvDays, '＋').click();
+const tiIn = findIn(cvDays, '要干嘛');
+const dtIn = walk(cvDays).find(n => n.attrs && n.attrs.type === 'date');
+const tmIn = walk(cvDays).find(n => n.attrs && n.attrs.type === 'time');
+ok('新建页有标题/日期/时间/备注', !!(tiIn && dtIn && tmIn && findIn(cvDays, '备注（可以留空）')));
+ok('日期默认选中你进来的那天', dtIn.value === tk2, dtIn.value);
+tiIn.value = '  交房租  ';                    // 前后空格该被 trim
+tmIn.value = '09:30';
+findIn(cvDays, '备注（可以留空）').value = '记得要发票';
+findBtn(cvDays, '保存').click();
+const made = wb.state.events.find(e => e.title === '交房租');
+ok('日历页能新建日程', !!made, JSON.stringify(wb.state.events.map(e => e.title)));
+ok('标题前后空格被 trim 掉', !!made && !wb.state.events.some(e => e.title !== e.title.trim()));
+ok('日期/时间/备注都存下来了', made.date === tk2 && made.time === '09:30' && made.note === '记得要发票', JSON.stringify(made));
+ok('新日程自动落盘（刷新不丢）', /交房租/.test(store.get('xiaoshouji.v1') || ''));
+ok('保存后回到那天的列表，看得见新条目', walk(cvDays).some(n => n.textContent.includes('交房租')));
+
+walk(cvDays).find(n => n._class.has('row') && n.textContent.includes('交房租')).click();
+const doneBtn = walk(cvDays).find(n => n._class.has('btn') && n._class.has('ghost'));
+ok('点条目进编辑页，有完成开关', !!doneBtn && doneBtn.textContent.includes('还没做'), doneBtn && doneBtn.textContent);
+doneBtn.click();
+ok('点一下变成已完成', doneBtn.textContent.includes('已完成'), doneBtn.textContent);
+findBtn(cvDays, '保存').click();
+ok('完成状态存下来了', wb.state.events.find(e => e.title === '交房租').done === true);
+ok('做完的事不再进 upcomingEvents', !wb.upcomingEvents().some(e => e.title === '交房租'));
+ok('列表上显示「已完成」', walk(cvDays).some(n => n.textContent.includes('已完成')));
+
+const n0 = wb.state.events.length;
+findBtn(cvDays, '＋').click();
+findBtn(cvDays, '保存').click();
+ok('标题空着点保存 = 什么都没建，不留空白条目', wb.state.events.length === n0, String(wb.state.events.length));
+
+wb.state.events.length = 0;
+wb.saveEvent(wb.makeEvent({ date: tk2, time: '18:00', title: '乙' }));
+wb.saveEvent(wb.makeEvent({ date: tk2, time: '07:00', title: '甲' }));
+wb.saveEvent(wb.makeEvent({ date: tk2, time: '', title: '丙' }));
+wb.saveEvent(wb.makeEvent({ date: '2000-01-01', title: '丁' }));
+ok('日程先按日期、再按时间，没填时间的排当天最后',
+  wb.eventsOn(tk2).map(e => e.title).join('') === '甲乙丙',
+  wb.eventsOn(tk2).map(e => e.title).join(''));
+
+const cv7 = openFresh('calendar', tk2);
+walk(cv7).find(n => n._class.has('row') && n.textContent.includes('丙')).click();
+ok('编辑页有删除按钮', !!findBtn(cv7, '删除这条日程'));
+findBtn(cv7, '删除这条日程').click();
+ok('删除先弹确认，不直接消失', !!walk(byId.phone).find(x => x._class.has('confirm')));
+confirmYes();
+ok('确认后那条日程没了', !wb.state.events.some(e => e.title === '丙'), JSON.stringify(wb.state.events.map(e => e.title)));
+ok('别的日程没被误删', wb.state.events.length === 3, String(wb.state.events.length));
+
+/* 导入的存档里日程可能是任意垃圾 —— migrate 得逐条归一，别把日历搞崩 */
+const imp = wb.importState(JSON.stringify({ events: [
+  { date: tk2, title: '好的' }, { date: '不是日期', title: '坏的' }, '这甚至不是对象', null
+] }));
+ok('导入存档时丢掉日期不合法的日程',
+  imp.ok && wb.state.events.length === 1 && wb.state.events[0].title === '好的',
+  JSON.stringify(wb.state.events));
+ok('导入的日程没有 id 也补一个（否则删不掉）', !!wb.state.events[0].id, String(wb.state.events[0].id));
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);

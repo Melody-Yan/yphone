@@ -2,7 +2,7 @@
   "name": "小手机",
   "short_name": "小手机",
   "description": "浏览器里的虚拟手机：桌面、锁屏、应用与状态栏",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

@@ -29,7 +29,12 @@ const ICON = {
   bowl: '<path d="M3.5 11h17a8.5 8.5 0 0 1-17 0Z"/><path d="M2.5 20.5h19"/><path d="M9 7.8c0-1.6 1.1-2.1 1.1-3.6M14 7.8c0-1.6 1.1-2.1 1.1-3.6"/>',
   play: '<path d="M8.5 5.6v12.8L19 12Z"/>',
   pause: '<path d="M9.5 5.5v13M14.5 5.5v13"/>',
-  link: '<path d="M10.2 13.8a4 4 0 0 0 5.9.3l2.6-2.6a4 4 0 1 0-5.7-5.6l-1.2 1.2"/><path d="M13.8 10.2a4 4 0 0 0-5.9-.3l-2.6 2.6a4 4 0 1 0 5.7 5.6l1.2-1.2"/>'
+  link: '<path d="M10.2 13.8a4 4 0 0 0 5.9.3l2.6-2.6a4 4 0 1 0-5.7-5.6l-1.2 1.2"/><path d="M13.8 10.2a4 4 0 0 0-5.9-.3l-2.6 2.6a4 4 0 1 0 5.7 5.6l1.2-1.2"/>',
+  palette: '<path d="M12 3.2c-4.9 0-8.8 3.9-8.8 8.8s3.9 8.8 8.8 8.8c1 0 1.7-.7 1.7-1.6 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.6 1.7-1.6h1.9c2.5 0 4.5-2 4.5-4.5 0-4.1-3.9-7.5-8.8-7.5Z"/><circle cx="7.8" cy="11.2" r="1.2"/><circle cx="10.6" cy="7.4" r="1.2"/><circle cx="15.4" cy="7.8" r="1.2"/>',
+  sparkle: '<path d="M12 3.5 13.7 9l5.5 1.7-5.5 1.7L12 18l-1.7-5.6L4.8 10.7 10.3 9Z"/><path d="M18.6 16.4l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7Z"/>',
+  image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.6" cy="10" r="1.6"/><path d="m3.6 16.8 4.6-4.4 3.4 3.2 2.8-2.4 5.6 4.8"/>',
+  heart: '<path d="M12 20.2s-7.6-4.6-7.6-9.6a4.2 4.2 0 0 1 7.6-2.5 4.2 4.2 0 0 1 7.6 2.5c0 5-7.6 9.6-7.6 9.6Z"/>',
+  comment: '<path d="M20.5 11.6c0 4-3.8 7.2-8.5 7.2-1 0-2-.2-2.9-.5L4 20l1.4-3.6A6.9 6.9 0 0 1 3.5 11.6c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2Z"/>'
 };
 
 function svg(name, size = 30) {
@@ -71,7 +76,20 @@ function confirmBox(text, onOk) {
 
 /* 角色头像：通讯录、微信会话列表、聊天页头都用这一个，改一处全变 */
 function avatarNode(c) {
-  return SJ.el('div', { class: 'avatar', style: { background: c.color || '#9cb9c2' } }, c.avatar || '🙂');
+  // 传过头像图片就用图片，否则退回 emoji + 底色。头像图片由 core 的 avatarSrc 白名单过。
+  if (c && c.avatarImg) {
+    return SJ.el('div', {
+      class: 'avatar img',
+      style: { backgroundImage: 'url("' + c.avatarImg + '")' }
+    });
+  }
+  return SJ.el('div', { class: 'avatar', style: { background: (c && c.color) || '#9cb9c2' } }, (c && c.avatar) || '🙂');
+}
+
+/* 「我」自己的头像。用自己的设置而不是某个角色，聊天页右侧和朋友圈都用它。 */
+function myAvatarNode() {
+  const s = SJ.state.settings;
+  return avatarNode({ avatarImg: s.myAvatarImg, avatar: s.myAvatar || '🙂', color: '#b9c6bd' });
 }
 
 /* 底部功能面板。items = [{icon,label,hint,run,off}]，
@@ -112,7 +130,8 @@ function getPlayer() {
   return player;
 }
 
-/* 设置/世界书共用的两种行：开关行、数字行 */function toggleRow(title, sub, on, onClick) {
+/* 设置/世界书共用的两种行：开关行、数字行 */
+function toggleRow(title, sub, on, onClick) {
   return SJ.el('div', { class: 'row', onclick: onClick }, [
     SJ.el('div', { class: 'row-main' }, [
       SJ.el('div', { class: 'row-title' }, title),
@@ -120,6 +139,62 @@ function getPlayer() {
     ].filter(Boolean)),
     SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
   ]);
+}
+
+/* ── 壁纸选择条（外观 App 用；内置 + 自己传的都从 SJ.wallList() 来）──
+   getCur 是函数而不是值：点完要重画，闭包里那份旧值会让「选中框」留在上一格。
+   withFollow 给锁屏用，最前面插一格「跟随桌面」。 */
+function wallStrip(getCur, pick, cls, withFollow) {
+  const wrap = SJ.el('div', { class: 'walls ' + cls });
+  const build = () => {
+    wrap.innerHTML = '';
+    if (withFollow) {
+      wrap.append(SJ.el('div', {
+        class: 'wall follow' + (getCur() ? '' : ' on'),
+        title: '跟随桌面',
+        onclick: () => { pick(''); build(); }
+      }));
+    }
+    SJ.wallList().forEach(w => {
+      const cell = SJ.el('div', {
+        class: 'wall' + (getCur() === w.id ? ' on' : '') + (w.custom ? ' mine' : ''),
+        style: { background: w.css },
+        title: w.name,
+        onclick: () => {
+          if (getCur() === w.id) return;
+          pick(w.id); build();
+        }
+      });
+      if (w.custom) {
+        cell.append(SJ.el('button', {
+          class: 'wall-x',
+          title: '删掉这张',
+          onclick: ev => {
+            ev.stopPropagation();
+            confirmBox('删掉这张壁纸？', () => { SJ.removeWall(w.id); build(); });
+          }
+        }, '✕'));
+      }
+      wrap.append(cell);
+    });
+  };
+  build();
+  return wrap;
+}
+
+/* 弹一个选图 → 压 → 存成壁纸的完整流程。两处（外观页、设置页）共用。 */
+async function addWallFlow(after) {
+  if (SJ.state.settings.wallImgs.length >= SJ.WALL_IMG_MAX) {
+    toast(`最多存 ${SJ.WALL_IMG_MAX} 张，先删一张`);
+    return;
+  }
+  const img = await pickImageFile(1280, 0.78);
+  if (!img) return;
+  const dark = await imageIsDark(img);
+  const w = SJ.addWall(img, dark);
+  if (!w) { toast('这张存不下（也可能是相册太大）'); return; }
+  toast('壁纸存好了，点一下就能用');
+  if (after) after();
 }
 
 function numRow(title, sub, key, min, max) {
@@ -140,10 +215,11 @@ function numRow(title, sub, key, min, max) {
   ]);
 }
 
-/* 压到最长边 360px 的 JPEG 再存。
+/* 压到最长边 max 的 JPEG 再存。
    图片绝不能原样塞 localStorage —— 一张几百 KB，几十张就把存档撑爆，
-   而 save() 一失败就整台手机的数据都写不进去了（别人踩过的坑）。 */
-function shrinkImage(file) {
+   而 save() 一失败就整台手机的数据都写不进去了（别人踩过的坑）。
+   头像 360 就够看清，壁纸要 1280 才不糊，所以 max/q 由调用方给。 */
+function shrinkImage(file, max = 360, q = 0.72) {
   return new Promise(resolve => {
     const fr = new FileReader();
     fr.onerror = () => resolve('');
@@ -152,17 +228,57 @@ function shrinkImage(file) {
       im.onerror = () => resolve('');
       im.onload = () => {
         try {
-          const k = Math.min(1, 360 / Math.max(im.width || 1, im.height || 1));
+          const k = Math.min(1, max / Math.max(im.width || 1, im.height || 1));
           const cv = document.createElement('canvas');
           cv.width = Math.max(1, Math.round((im.width || 1) * k));
           cv.height = Math.max(1, Math.round((im.height || 1) * k));
           cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
-          resolve(cv.toDataURL('image/jpeg', 0.72));
+          resolve(cv.toDataURL('image/jpeg', q));
         } catch (e) { resolve(''); }
       };
       im.src = fr.result;
     };
     fr.readAsDataURL(file);
+  });
+}
+
+/* 弹系统选图框，选完压好给你 data URI；取消/读不出来给 ''。
+   用一次性的 input，不进 DOM（手机上点了就会弹相册/相机）。 */
+function pickImageFile(max, q) {
+  return new Promise(resolve => {
+    const input = SJ.el('input', { type: 'file', accept: 'image/*' });
+    let done = false;
+    const finish = v => { if (!done) { done = true; resolve(v); } };
+    input.onchange = async () => {
+      const f = input.files && input.files[0];
+      if (!f) return finish('');
+      const img = await shrinkImage(f, max, q);
+      if (!img) { toast('这张图读不出来'); return finish(''); }
+      finish(img);
+    };
+    input.click();
+  });
+}
+
+/* 一张图是深是浅：缩到 16×16 数一数平均亮度。决定桌面文字要不要翻白。
+   算不上精确，但对「深色照片上白字」这件事足够了。 */
+function imageIsDark(dataUri) {
+  return new Promise(resolve => {
+    const im = new Image();
+    im.onerror = () => resolve(false);
+    im.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = 16; cv.height = 16;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(im, 0, 0, 16, 16);
+        const d = ctx.getImageData(0, 0, 16, 16).data;
+        let sum = 0;
+        for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        resolve(sum / (d.length / 4) < 132);
+      } catch (e) { resolve(false); }
+    };
+    im.src = dataUri;
   });
 }
 
@@ -247,6 +363,43 @@ const APPS = [
         const persona = SJ.el('textarea', { class: 'field area', placeholder: '人设 / 性格 / 说话方式 —— 这段会当系统提示词发给模型' }, c.persona);
         const greet = SJ.el('textarea', { class: 'field area sm', placeholder: '开场白：他第一句会说什么？（可留空）' }, c.greeting);
 
+        /* 头像：emoji 或一张真图。真图存在存档里（data URI），所以要压过再存。
+           压头像 360px 就够；壁纸才需要 1280。 */
+        const avPrev = SJ.el('div', { class: 'av-prev' });
+        const refreshAv = () => { avPrev.innerHTML = ''; avPrev.append(avatarNode(c)); };
+        refreshAv();
+        const avBtn = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            const img = await pickImageFile(360, 0.75);
+            if (!img) return;
+            c.avatarImg = img; refreshAv(); toast('头像换好了，记得点保存');
+          }
+        }, '从相册选一张');
+        const avClear = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: () => { c.avatarImg = ''; refreshAv(); toast('改回 emoji 了'); }
+        }, '用 emoji');
+        const avAi = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            avAi.disabled = true; avAi.textContent = '画着呢…';
+            try {
+              const src = await SJ.genImage(
+                `一个角色的头像：${c.name}。${c.desc || ''}\n` +
+                (c.persona ? `人设参考：${c.persona.slice(0, 120)}\n` : '') +
+                '圆润可爱的简笔插画，扁平柔和配色，纯色背景，只画头部特写。'
+              );
+              c.avatarImg = src; refreshAv(); toast('画好了，记得点保存');
+            } catch (e) { toast(e.message || '没画出来'); }
+            avAi.disabled = false; avAi.textContent = 'AI 画一张';
+          }
+        }, 'AI 画一张');
+        const avBox = SJ.el('div', { class: 'av-box' }, [
+          avPrev,
+          SJ.el('div', { class: 'av-btns' }, [avBtn, avClear, avAi])
+        ]);
+
         function saveIt() {
           c.avatar = (av.value.trim() || '🙂').slice(0, 4);
           c.desc = desc.value; c.persona = persona.value; c.greeting = greet.value;
@@ -262,6 +415,7 @@ const APPS = [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), name]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '头像'), av]),
           emojiRow,
+          avBox,
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '配色'), colorRow]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '简介'), desc]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '人设'), persona]),
@@ -290,7 +444,9 @@ const APPS = [
     render(root, close, openWith) {
       function listView() {
         root.innerHTML = '';
-        root.append(navBar('微信'));
+        root.append(navBar('微信', {
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => momentsView() }, '朋友圈')
+        }));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
         if (!rows.length) {
@@ -305,6 +461,133 @@ const APPS = [
             ]),
             last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null
           ]));
+        });
+        root.append(box);
+      }
+
+      /* ── 朋友圈：角色自己发的生活动态，内容由 AI 按最近聊了什么生成 ── */
+      const charName = id => {
+        const c = SJ.state.characters.find(x => x.id === id);
+        return c ? c.name : '已删除的角色';
+      };
+      const charOf = id => SJ.state.characters.find(x => x.id === id) || { name: '已删除的角色', avatar: '🕯', color: '#c9c4bd' };
+
+      /* 挑一个人来发：优先最近聊过的。懒得让用户每次自己选。 */
+      function pickSomeone() {
+        const rows = SJ.chatList().filter(r => r.last);           // 有聊天记录的
+        if (!rows.length) return SJ.state.characters[0] || null;  // 一个都没聊过就随便挑一个
+        return rows[Math.min(rows.length - 1, Math.floor(Math.random() * 2))].c;
+      }
+
+      async function postOne(c) {
+        if (!c) { toast('先去「通讯录」造一个角色'); return; }
+        const t = toast(`「${c.name}」正在想发点什么…`);
+        try {
+          const m = await SJ.generateMoment(c);
+          if (t && t.remove) t.remove();
+          if (m) { toast('发出去了'); momentsView(); }
+          else toast('没写出东西来');
+        } catch (e) {
+          if (t && t.remove) t.remove();
+          toast(e.message || '发失败了');
+        }
+      }
+
+      function momentNew() {
+        const cs = SJ.state.characters;
+        const items = [{
+          icon: '✨', label: '让最近聊过的人发一条', hint: '按你们最近的对话写',
+          run: () => postOne(pickSomeone())
+        }];
+        if (cs.length) {
+          items.push({
+            icon: '👥', label: '指定一个人发…', hint: `通讯录里 ${cs.length} 个`,
+            run: () => window.sheet(cs.map(c => ({
+              icon: c.avatarImg ? '🖼' : (c.avatar || '🙂'),
+              label: c.name,
+              hint: c.relation || c.desc || '',
+              run: () => postOne(c)
+            })))
+          });
+        }
+        items.push({
+          icon: '🗑', label: '清空朋友圈', hint: '全删掉，不留',
+          run: () => confirmBox('把朋友圈全部清空？', () => {
+            SJ.state.moments.forEach(m => SJ.deleteMoment(m.id));
+            momentsView();
+          })
+        });
+        window.sheet(items);
+      }
+
+      function momentsView() {
+        root.innerHTML = '';
+        root.append(navBar('朋友圈', {
+          back: listView,
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => momentNew() }, '写')
+        }));
+        const box = SJ.el('div', { class: 'list moments' });
+        const list = SJ.momentList();
+        if (!list.length) {
+          box.append(SJ.el('div', { class: 'empty' },
+            '朋友圈还空着。\n点右上角「写」，让他们说说最近在干嘛 —— 内容是按你们刚聊过的剧情生成的。'));
+        }
+        list.forEach(m => {
+          const who = charOf(m.charId);
+          const card = SJ.el('div', { class: 'mo' });
+          card.append(SJ.el('div', { class: 'mo-head' }, [
+            avatarNode(who),
+            SJ.el('div', { class: 'mo-who' }, [
+              SJ.el('div', { class: 'mo-name' }, who.name),
+              SJ.el('div', { class: 'mo-time' }, SJ.fmtAgo(m.ts))
+            ])
+          ]));
+          card.append(SJ.el('div', { class: 'mo-text' }, m.text));
+          if (m.img) card.append(SJ.el('img', { class: 'mo-pic', src: m.img, alt: '配图' }));
+          else {
+            card.append(SJ.el('button', {
+              class: 'mo-make',
+              onclick: async ev => {
+                const b = ev.target;
+                b.disabled = true; b.textContent = '画着呢…';
+                try { m.img = await SJ.genImage(`配图，画的是这个场景：${m.text}\n风格：柔和的日系插画，莫兰迪配色，方形构图`); SJ.save(); momentsView(); }
+                catch (e) { toast(e.message || '没画出来'); b.disabled = false; b.textContent = '让 AI 配张图'; }
+              }
+            }, '让 AI 配张图'));
+          }
+          /* 点赞 / 评论 */
+          const likes = m.likes.map(charName).filter(Boolean);
+          if (likes.length) {
+            card.append(SJ.el('div', { class: 'mo-likes' }, '♡ ' + likes.join('、')));
+          }
+          m.comments.forEach(c => {
+            card.append(SJ.el('div', { class: 'mo-cm' }, [
+              SJ.el('span', { class: 'mo-cm-who' }, charName(c.charId) + '：'),
+              SJ.el('span', {}, c.text)
+            ]));
+          });
+          card.append(SJ.el('div', { class: 'mo-acts' }, [
+            SJ.el('button', {
+              class: 'mo-act',
+              onclick: () => { SJ.momentLike(m.id, '__me'); momentsView(); }
+            }, m.likes.indexOf('__me') >= 0 ? '♥ 取消赞' : '♡ 赞'),
+            SJ.el('button', {
+              class: 'mo-act',
+              onclick: () => {
+                const others = SJ.state.characters.filter(c => c.id !== m.charId);
+                if (!others.length) { toast('通讯录里还没别人'); return; }
+                window.sheet(others.map(c => ({
+                  icon: c.avatar || '🙂', label: c.name,
+                  run: () => { SJ.momentComment(m.id, c.id, '说得好。'); momentsView(); }
+                })));
+              }
+            }, '💬 让他来评论'),
+            SJ.el('button', {
+              class: 'mo-act danger',
+              onclick: () => confirmBox('删掉这条动态？', () => { SJ.deleteMoment(m.id); momentsView(); })
+            }, '✕ 删掉')
+          ]));
+          box.append(card);
         });
         root.append(box);
       }
@@ -417,10 +700,22 @@ const APPS = [
         const typingDelay = t => Math.min(1200, 220 + String(t).length * 18) + Math.random() * 160;
 
         /* ── 各种气泡 ── */
+        /* 每条消息先包成一行：左/右各留一个头像位，气泡在中间。
+           bubble() 仍然把「气泡本身」返回给调用方（打字动画要改它的文字），
+           所以这里只多套一层 .msg，外面那些调用一行都不用改。 */
+        function row(inner, me) {
+          const r = SJ.el('div', { class: 'msg ' + (me ? 'me' : 'ta') }, [
+            me ? null : avatarNode(c),
+            inner,
+            me ? myAvatarNode() : null
+          ]);
+          list.append(r);
+          list.scrollTop = list.scrollHeight;
+          return r;
+        }
         function bubble(text, me) {
           const b = SJ.el('div', { class: 'bubble ' + (me ? 'me' : 'ta') }, text);
-          list.append(b);
-          list.scrollTop = list.scrollHeight;
+          row(b, me);
           return b;
         }
         function imgBubble(m) {
@@ -428,7 +723,7 @@ const APPS = [
             ? SJ.el('img', { class: 'bubble-pic', src: m.img, alt: '图片' })
             : SJ.el('div', { class: 'bubble-sticker' }, m.img || '🖼');
           const b = SJ.el('div', { class: 'bubble me media' }, [inner]);
-          list.append(b); list.scrollTop = list.scrollHeight;
+          row(b, true);
           return b;
         }
         function transferBubble(m) {
@@ -439,7 +734,7 @@ const APPS = [
               SJ.el('div', { class: 'tr-tip' }, '转账给对方')
             ])
           ]);
-          list.append(b); list.scrollTop = list.scrollHeight;
+          row(b, true);
           return b;
         }
         /* 一条存档消息 → 屏幕上的一坨气泡（对面的长回复会被拆成好几条） */
@@ -516,6 +811,8 @@ const APPS = [
           busy = false; syncSend();
           /* 攒够条数就悄悄把这段浓缩成记忆，下次她还能记得（失败不打扰用户） */
           SJ.autoMemorize(c).then(n => { if (n) toast(`她记住了 ${n} 件事`); }).catch(() => {});
+          /* 偶尔让她自己冒一条朋友圈（她自己决定发不发，失败也不打扰） */
+          SJ.autoMoment(c).then(m => { if (m) toast(`「${c.name}」发了一条朋友圈`); }).catch(() => {});
         }
 
         /* 重新生成：砍掉她最后那条回复，拿同样的历史再问一遍 */
@@ -1023,29 +1320,46 @@ const APPS = [
       let busy = false;
       const dl = () => SJ.state.delivery;
 
+      /* 封面底色按店铺下标轮着来。不让 AI 给 CSS —— 它给的渐变十次有八次是乱的。 */
+      const SHOP_BG = [
+        'linear-gradient(150deg,#f8dcb4,#dfa457)',
+        'linear-gradient(150deg,#d3e3d1,#8fb28d)',
+        'linear-gradient(150deg,#f5d2cb,#d68f85)',
+        'linear-gradient(150deg,#d3dbec,#8ea1c6)',
+        'linear-gradient(150deg,#f2e3bb,#c9ae61)',
+        'linear-gradient(150deg,#e5d6ec,#a98fc1)',
+        'linear-gradient(150deg,#d2e8e4,#84b5ad)',
+        'linear-gradient(150deg,#f4d8d1,#cd968e)'
+      ];
+      const shopBg = i => SHOP_BG[i % SHOP_BG.length];
+
       /* 每次换一批时随口点一个由头。同样的提示词问十次会拿回十批差不多的店，
          加一句「这次想吃…」结果就散开了 —— 比做一套筛选 UI 便宜得多。 */
-      const CRAVINGS = ['', '辣的', '清淡的', '日式的', '面食', '烧烤', '甜的', '一碗热汤'];
+      const CRAVINGS = ['随便', '辣的', '清淡的', '日式的', '面食', '烧烤', '甜的', '热汤'];
       const GEN_SYS = '你是一个外卖平台的商家数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
       function genUser(craving) {
         return '随机生成 4 家风格完全不同的外卖店铺，JSON 格式：\n' +
-          '{"shops":[{"name":"店名","kind":"品类","eta":"30分钟","rating":"4.7",' +
-          '"dishes":[{"name":"菜名","desc":"一句话描述","price":28}]}]}\n' +
-          '要求：每家 4 道菜；店名要有人间烟火气，别用「XX美食」这种套话；价格是人民币整数；' +
-          '菜名要具体（「黑椒牛柳饭」而不是「牛肉饭」）；4 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶…）。' +
-          (craving ? '这次用户想吃：' + craving + '。' : '');
+          '{"shops":[{"name":"店名","kind":"品类","emoji":"一个代表这家店的 emoji",' +
+          '"eta":"30分钟","rating":"4.7","fee":3,"min":20,"tags":["现炒","老字号"],' +
+          '"dishes":[{"name":"菜名","desc":"一句话描述","price":28,"emoji":"一个 emoji","hot":true}]}]}\n' +
+          '要求：每家 5 道菜，其中 1~2 道 hot 为 true（招牌）；店名要有人间烟火气，别用「XX美食」这种套话；' +
+          '价格是人民币整数（12~68 之间）；菜名要具体（「黑椒牛柳饭」而不是「牛肉饭」）；' +
+          'desc 要勾人，写做法或口感，别超过 18 个字；emoji 要和那道菜对得上；' +
+          '4 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶…）。' +
+          (craving && craving !== '随便' ? '这次用户想吃：' + craving + '。' : '');
       }
 
-      async function regen() {
+      async function regen(craving) {
         if (busy) return;
         busy = true;
+        const want = craving || CRAVINGS[Math.floor(Math.random() * CRAVINGS.length)];
         listView();
         try {
-          const craving = CRAVINGS[Math.floor(Math.random() * CRAVINGS.length)];
-          const text = await SJ.askOnce(GEN_SYS, genUser(craving));
+          const text = await SJ.askOnce(GEN_SYS, genUser(want));
           const shops = SJ.setShops(SJ.normalizeShops(SJ.parseJSONLoose(text)));
           if (!shops.length) throw new Error('这次没生成出东西，再点一下右上角 ⟳');
         } catch (e) {
+          /* 失败要留住上一批 —— 把已经看得见的店换成一片空白最气人 */
           toast((e && e.message) || '生成失败');
         }
         busy = false;
@@ -1056,8 +1370,10 @@ const APPS = [
         const n = SJ.cartCount();
         if (!n) return null;
         return SJ.el('div', { class: 'cart-bar', onclick: cartView }, [
-          SJ.el('span', {}, '购物车 ' + n + ' 件'),
-          SJ.el('span', { class: 'cart-total' }, '¥' + SJ.cartTotal())
+          SJ.el('span', { class: 'cart-ico' }, '🛒'),
+          SJ.el('span', {}, n + ' 件'),
+          SJ.el('span', { class: 'cart-total' }, '¥' + SJ.cartTotal()),
+          SJ.el('span', { class: 'cart-go' }, '去结算')
         ]);
       }
 
@@ -1065,50 +1381,92 @@ const APPS = [
         root.innerHTML = '';
         root.append(navBar('外卖', {
           left: SJ.el('button', { class: 'nav-btn', title: '我的订单', html: svg('note', 17), onclick: ordersView }),
-          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: regen }, '⟳')
+          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
         }));
         const cb = cartBar(); if (cb) root.append(cb);
+
+        /* 口味横滑条：点一下就是「这次想吃 X」，直接换一批。 */
+        const chips = SJ.el('div', { class: 'chips' });
+        CRAVINGS.forEach(c => chips.append(SJ.el('button', {
+          class: 'chip', onclick: () => regen(c)
+        }, c)));
+        root.append(chips);
+
         if (busy) return void root.append(SJ.el('div', { class: 'empty big' }, '正在给你张罗商家…\n（AI 现编，头一次慢几秒）'));
         const shops = dl().shops;
         if (!shops.length) {
           root.append(SJ.el('div', { class: 'empty big' }, '还没有商家'));
           root.append(SJ.el('div', { class: 'pad' }, [
-            SJ.el('button', { class: 'btn', onclick: regen }, '生成一批商家'),
+            SJ.el('button', { class: 'btn', onclick: () => regen() }, '生成一批商家'),
             SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
               '商家和菜是 AI 现编的，每点一次都不一样。需要先在「设置 → AI 接口」里配好接口和模型。')
           ]));
           return;
         }
-        const list = SJ.el('div', { class: 'list' });
-        shops.forEach(s => list.append(SJ.el('div', { class: 'row shop', onclick: () => shopView(s.id) }, [
-          SJ.el('div', { class: 'row-main' }, [
-            SJ.el('div', { class: 'row-title' }, s.name),
-            SJ.el('div', { class: 'row-sub' }, [s.kind, s.eta, s.rating && ('★ ' + s.rating)].filter(Boolean).join(' · '))
-          ]),
-          SJ.el('span', { class: 'row-time' }, s.dishes.length + ' 道菜')
-        ])));
+        const list = SJ.el('div', { class: 'shop-list' });
+        shops.forEach((s, i) => {
+          const card = SJ.el('div', { class: 'shop-card', onclick: () => shopView(s.id) });
+          card.append(SJ.el('div', { class: 'shop-art', style: { background: shopBg(i) } }, s.emoji || '🍽'));
+          const info = SJ.el('div', { class: 'shop-info' });
+          info.append(SJ.el('div', { class: 'shop-name' }, [
+            SJ.el('span', {}, s.name),
+            s.rating ? SJ.el('span', { class: 'shop-star' }, '★ ' + s.rating) : null
+          ].filter(Boolean)));
+          info.append(SJ.el('div', { class: 'shop-meta' },
+            [s.kind, s.eta, s.fee ? '配送 ¥' + s.fee : '', s.min ? '起送 ¥' + s.min : ''].filter(Boolean).join(' · ')));
+          if (s.tags.length) {
+            const tg = SJ.el('div', { class: 'shop-tags' });
+            s.tags.forEach(t => tg.append(SJ.el('span', { class: 'tag' }, t)));
+            info.append(tg);
+          }
+          info.append(SJ.el('div', { class: 'shop-meta dim' }, s.dishes.length + ' 道菜在卖'));
+          card.append(info);
+          list.append(card);
+        });
         root.append(list);
       }
 
       function shopView(id) {
-        const shop = dl().shops.find(s => s.id === id);
+        const list = dl().shops;
+        const shop = list.find(s => s.id === id);
         if (!shop) return listView();
+        const idx = list.indexOf(shop);
         root.innerHTML = '';
         root.append(navBar(shop.name, { back: listView }));
-        root.append(SJ.el('div', { class: 'hint', style: { padding: '0 20px 10px' } },
-          [shop.kind, shop.eta, shop.rating && ('★ ' + shop.rating)].filter(Boolean).join(' · ')));
         const cb = cartBar(); if (cb) root.append(cb);
-        const list = SJ.el('div', { class: 'list' });
-        shop.dishes.forEach(x => list.append(SJ.el('div', {
-          class: 'row', onclick: () => { SJ.addToCart(shop.id, x); toast('已加入购物车'); shopView(id); }
-        }, [
-          SJ.el('div', { class: 'row-main' }, [
-            SJ.el('div', { class: 'row-title' }, x.name),
-            x.desc && SJ.el('div', { class: 'row-sub' }, x.desc)
-          ]),
-          SJ.el('span', { class: 'price' }, '¥' + x.price)
-        ])));
-        root.append(list);
+
+        root.append(SJ.el('div', { class: 'shop-hero' }, [
+          SJ.el('div', { class: 'shop-art big', style: { background: shopBg(idx) } }, shop.emoji || '🍽'),
+          SJ.el('div', { class: 'shop-info' }, [
+            SJ.el('div', { class: 'shop-name' }, shop.name),
+            SJ.el('div', { class: 'shop-meta' },
+              [shop.kind, shop.eta, shop.rating ? '★ ' + shop.rating : ''].filter(Boolean).join(' · ')),
+            SJ.el('div', { class: 'shop-meta dim' },
+              [shop.min ? '起送 ¥' + shop.min : '', shop.fee ? '配送 ¥' + shop.fee : ''].filter(Boolean).join(' · ') || '免配送费')
+          ])
+        ]));
+
+        const box = SJ.el('div', { class: 'list' });
+        shop.dishes.forEach(x => {
+          const row = SJ.el('div', { class: 'dish' });
+          row.append(SJ.el('div', { class: 'dish-art' }, x.emoji || '🍚'));
+          row.append(SJ.el('div', { class: 'dish-main' }, [
+            SJ.el('div', { class: 'dish-name' }, [x.name, x.hot ? SJ.el('i', { class: 'dish-hot' }, '招牌') : null].filter(Boolean)),
+            x.desc ? SJ.el('div', { class: 'dish-desc' }, x.desc) : null,
+            SJ.el('div', { class: 'dish-price' }, '¥' + x.price)
+          ].filter(Boolean)));
+          row.append(SJ.el('button', {
+            class: 'dish-add',
+            onclick: ev => {
+              ev.stopPropagation();
+              SJ.addToCart(shop.id, x);
+              toast('已加入购物车');
+              shopView(id);
+            }
+          }, '＋'));
+          box.append(row);
+        });
+        root.append(box);
       }
 
       function cartView() {
@@ -1116,16 +1474,23 @@ const APPS = [
         root.append(navBar('购物车', { back: listView }));
         const cart = dl().cart;
         if (!cart.length) return void root.append(SJ.el('div', { class: 'empty big' }, '购物车是空的'));
+        const shopName = (dl().shops.find(s => s.id === cart[0].shopId) || {}).name || '';
         const list = SJ.el('div', { class: 'list' });
-        cart.forEach(x => list.append(SJ.el('div', { class: 'row' }, [
+        cart.forEach(x => list.append(SJ.el('div', { class: 'cart-row' }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, x.name),
-            SJ.el('div', { class: 'row-sub' }, '¥' + x.price + ' × ' + x.n)
+            SJ.el('div', { class: 'row-sub' }, '¥' + x.price + ' / 份')
           ]),
-          SJ.el('span', { class: 'row-time' }, '¥' + x.price * x.n)
+          SJ.el('div', { class: 'stepper' }, [
+            SJ.el('button', { class: 'st-btn', onclick: () => { SJ.cartAdd(x.id, -1); cartView(); } }, '−'),
+            SJ.el('span', { class: 'st-n' }, String(x.n)),
+            SJ.el('button', { class: 'st-btn', onclick: () => { SJ.cartAdd(x.id, 1); cartView(); } }, '＋')
+          ]),
+          SJ.el('span', { class: 'cart-line' }, '¥' + x.price * x.n)
         ])));
         root.append(list);
         root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('div', { class: 'hint' }, (shopName ? shopName + ' · ' : '') + SJ.cartCount() + ' 件'),
           SJ.el('button', { class: 'btn', onclick: checkout }, '去结算 ¥' + SJ.cartTotal()),
           SJ.el('button', { class: 'btn danger', onclick: () => { SJ.clearCart(); cartView(); } }, '清空购物车')
         ]));
@@ -1150,14 +1515,22 @@ const APPS = [
         orders.forEach(o => {
           const i = SJ.orderStage(o);
           const done = i >= SJ.ORDER_STAGES.length - 1;
-          list.append(SJ.el('div', { class: 'row' }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, o.shopName + ' · ¥' + o.total),
-              SJ.el('div', { class: 'row-sub' + (done ? ' done' : '') }, SJ.ORDER_STAGES[i]),
-              SJ.el('div', { class: 'row-sub' }, o.items.map(x => x.name + '×' + x.n).join('、'))
-            ]),
-            SJ.el('span', { class: 'row-time' }, done ? '已送达' : '进行中')
+          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') });
+          card.append(SJ.el('div', { class: 'od-head' }, [
+            SJ.el('div', { class: 'od-shop' }, o.shopName),
+            SJ.el('div', { class: 'od-amt' }, '¥' + o.total)
           ]));
+          /* 时间轴：走过的点亮，没到的灰着 */
+          const steps = SJ.el('div', { class: 'od-steps' });
+          SJ.ORDER_STAGES.forEach((s, k) => steps.append(SJ.el('div', {
+            class: 'od-step' + (k <= i ? ' on' : '') + (k === i && !done ? ' now' : '')
+          }, [
+            SJ.el('span', { class: 'od-dot' }),
+            SJ.el('span', { class: 'od-lab' }, s)
+          ])));
+          card.append(steps);
+          card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          list.append(card);
         });
         root.append(list);
         if (orders.some(o => SJ.orderStage(o) < SJ.ORDER_STAGES.length - 1)) {
@@ -1321,6 +1694,103 @@ const APPS = [
     }
   },
 
+  /* ── 外观：壁纸 + 锁屏长相 + 我的头像，全在这一个 App 里 ── */
+  {
+    id: 'look',
+    name: '外观',
+    icon: 'palette',
+    color: 'linear-gradient(150deg,#e3d3e8,#b196bf)',
+    render(root, close) {
+      function main() {
+        root.innerHTML = '';
+        root.append(navBar('外观', {
+          right: SJ.el('button', { class: 'nav-btn', onclick: () => addWallFlow(main) }, '上传')
+        }));
+        const box = SJ.el('div', { class: 'list' });
+
+        box.append(SJ.el('div', { class: 'group-title' }, '桌面壁纸'));
+        box.append(wallStrip(
+          () => SJ.state.wallpaper,
+          id => { SJ.state.wallpaper = id; SJ.save(); SJ.applyWallpaper(); },
+          'desktop-walls', false
+        ));
+
+        box.append(SJ.el('div', { class: 'group-title' }, '锁屏壁纸'));
+        box.append(wallStrip(
+          () => SJ.state.settings.lockWallpaper,
+          id => { SJ.state.settings.lockWallpaper = id; SJ.save(); SJ.applyWallpaper(); },
+          'lock-walls', true
+        ));
+
+        box.append(SJ.el('div', { class: 'group-title' }, '我自己的头像'));
+        const mine = SJ.el('div', { class: 'av-box' }, [myAvatarNode()]);
+        const nameInput = SJ.el('input', {
+          class: 'field', placeholder: '我', value: SJ.state.settings.userName || '',
+          onchange: () => { SJ.state.settings.userName = nameInput.value.trim() || '我'; SJ.save(); }
+        });
+        const repaintMine = () => {
+          mine.innerHTML = '';
+          mine.append(myAvatarNode());
+        };
+        const emojiEdit = SJ.el('input', {
+          class: 'field tiny', placeholder: '一个 emoji', maxlength: 4, value: SJ.state.settings.myAvatar || '🙂',
+          onchange: () => {
+            SJ.state.settings.myAvatar = (emojiEdit.value.trim() || '🙂').slice(0, 4);
+            SJ.save(); repaintMine();
+          }
+        });
+        box.append(mine);
+        box.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '昵称'), nameInput]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '头像 emoji'), emojiEdit]),
+          SJ.el('div', { class: 'av-btns' }, [
+            SJ.el('button', {
+              class: 'btn ghost',
+              onclick: async () => {
+                const img = await pickImageFile(360, 0.75);
+                if (!img) return;
+                SJ.state.settings.myAvatarImg = img; SJ.save(); repaintMine(); toast('换好了');
+              }
+            }, '上传头像图片'),
+            SJ.el('button', {
+              class: 'btn ghost',
+              onclick: () => { SJ.state.settings.myAvatarImg = ''; SJ.save(); repaintMine(); toast('改回 emoji 了'); }
+            }, '用 emoji')
+          ])
+        ]));
+
+        box.append(SJ.el('div', { class: 'group-title' }, '锁屏'));
+        box.append(toggleRow('显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
+          SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
+        }));
+        box.append(toggleRow('快捷按钮', '不解锁也能直接进日历 / 备忘录', SJ.state.settings.lockQuick !== false, () => {
+          SJ.state.settings.lockQuick = !SJ.state.settings.lockQuick; SJ.save(); main();
+        }));
+
+        box.append(SJ.el('div', { class: 'group-title' }, '我的壁纸'));
+        box.append(SJ.el('div', { class: 'hint' },
+          `内置 ${SJ.WALLS.length} 张，自己传的最多 ${SJ.WALL_IMG_MAX} 张（现在 ${SJ.state.settings.wallImgs.length} 张）。` +
+          '上传的图会压到 1280px 存进手机存档里，不联网也能用。'));
+        const add = SJ.el('button', { class: 'btn ghost', onclick: () => addWallFlow(main) }, '＋ 从相册选一张当壁纸');
+        box.append(SJ.el('div', { class: 'pad' }, [add]));
+        if (SJ.state.settings.wallImgs.length) {
+          box.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('button', {
+              class: 'btn danger',
+              onclick: () => confirmBox('删掉所有自己传的壁纸？', () => {
+                SJ.state.settings.wallImgs.slice().forEach(w => SJ.removeWall(w.id));
+                SJ.applyWallpaper(); main();
+              })
+            }, '删掉我传的所有壁纸')
+          ]));
+        }
+
+        root.append(box);
+      }
+      main();
+    }
+  },
+
   /* ── 设置 ── */
   {
     id: 'settings',
@@ -1333,45 +1803,15 @@ const APPS = [
         root.append(navBar('设置'));
         const box = SJ.el('div', { class: 'list' });
 
-        /* 壁纸（列表在 core.js 的 WALLS，别在这里再抄一份） */
-        const walls = SJ.WALLS;
-        function wallStrip(cur, pick, cls) {
-          const wrap = SJ.el('div', { class: 'walls ' + cls });
-          walls.forEach(([name, css]) => {
-            const cell = SJ.el('div', {
-              class: 'wall' + (cur === css ? ' on' : ''),
-              style: { background: css },
-              title: name,
-              onclick: () => {
-                pick(css);
-                SJ.$$('.wall', wrap).forEach(w => w.classList.remove('on'));
-                cell.classList.add('on');
-              }
-            });
-            wrap.append(cell);
-          });
-          return wrap;
-        }
-
-        box.append(SJ.el('div', { class: 'group-title' }, '桌面壁纸'));
-        box.append(wallStrip(SJ.state.wallpaper, css => {
-          SJ.state.wallpaper = css; SJ.save(); SJ.applyWallpaper();
-        }, 'desktop-walls'));
-
-        box.append(SJ.el('div', { class: 'group-title' }, '锁屏壁纸'));
-        const lockWalls = wallStrip(SJ.state.settings.lockWallpaper, css => {
-          SJ.state.settings.lockWallpaper = css; SJ.save(); SJ.applyWallpaper();
-        }, 'lock-walls');
-        lockWalls.insertBefore(SJ.el('div', {
-          class: 'wall follow' + (SJ.state.settings.lockWallpaper ? '' : ' on'),
-          title: '跟随桌面',
-          onclick: () => {
-            SJ.state.settings.lockWallpaper = ''; SJ.save(); SJ.applyWallpaper();
-            SJ.$$('.wall', lockWalls).forEach(w => w.classList.remove('on'));
-            lockWalls.firstChild.classList.add('on');
-          }
-        }), lockWalls.firstChild);
-        box.append(lockWalls);
+        /* 壁纸 / 锁屏长相都搬去「外观」App 了，这儿只留一个入口。
+           理由：那一摊有 3 组壁纸条 + 上传 + 删除，塞在设置里把 AI 接口挤到看不见。 */
+        box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '外观与壁纸'),
+            SJ.el('div', { class: 'row-sub' }, '桌面壁纸 / 锁屏壁纸 / 上传自己的图 / 我的头像')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]));
 
         /* 通用 */
         box.append(SJ.el('div', { class: 'group-title' }, '通用'));
@@ -1384,10 +1824,10 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, SJ.state.lock ? '已开启 ›' : '已关闭 ›')
         ]));
-        box.append(toggleRow('锁屏显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
+        box.append(toggleRow('锁屏显示今日安排', '把日历里今天的日程直接摆在锁屏上（也能去「外观」里改）', SJ.state.settings.lockWidgets !== false, () => {
           SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
         }));
-        box.append(toggleRow('锁屏快捷按钮', '不解锁也能直接进日历 / 备忘录', SJ.state.settings.lockQuick !== false, () => {
+        box.append(toggleRow('锁屏快捷按钮', '不解锁也能直接进日历 / 备忘录（也能去「外观」里改）', SJ.state.settings.lockQuick !== false, () => {
           SJ.state.settings.lockQuick = !SJ.state.settings.lockQuick; SJ.save(); main();
         }));
         box.append(SJ.el('div', { class: 'row', onclick: () => toggle24() }, [
@@ -1450,6 +1890,40 @@ const APPS = [
           modelTip
         ]));
 
+        /* 生图接口：单独一套。留空就整段跟随上面那套（很多中转站共用域名和 key），
+           单填的意义是聊天用一个模型、出图换一个更会画的。 */
+        box.append(SJ.el('div', { class: 'group-title' }, '生图接口（留空跟随上面）'));
+        const imgTip = SJ.el('div', { class: 'hint' },
+          SJ.imgModel() ? '当前用：' + SJ.imgModel() : '还没配，AI 画头像 / 朋友圈配图会提示去配');
+        const imgTest = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            imgTest.disabled = true; imgTest.textContent = '画着呢…';
+            try {
+              const r = await SJ.testImage();
+              imgTip.style.color = 'var(--accent-ink)';
+              imgTip.textContent = `出图成功 ✓ 用了 ${r.ms} ms`;
+              imgTest.textContent = '再试一张';
+            } catch (e) {
+              imgTip.style.color = 'var(--danger)';
+              imgTip.textContent = '出图失败：' + (e.message || e);
+              imgTest.textContent = '测试生图';
+            }
+            imgTest.disabled = false;
+          }
+        }, '测试生图');
+        box.append(SJ.el('div', { class: 'pad' }, [
+          field('生图接口地址', 'imgBase', 'https://api.openai.com/v1'),
+          field('生图 API Key', 'imgKey', 'sk-…', 'password'),
+          field('生图模型', 'imgModel', 'gpt-image-1 / gemini-2.5-flash-image'),
+          field('图片尺寸', 'imgSize', '1024x1024'),
+          imgTest,
+          imgTip,
+          SJ.el('div', { class: 'hint' },
+            '依次会试：/images/generations（文生图）→ /images/edits（带参考图时的图生图）→ ' +
+            '/chat/completions（Gemini 系出图模型只能走聊天）。哪条通算哪条。')
+        ]));
+
         /* 世界书 */
         box.append(SJ.el('div', { class: 'group-title' }, '世界书'));
         box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('worldbook'); } }, [
@@ -1458,6 +1932,20 @@ const APPS = [
             SJ.el('div', { class: 'row-sub' }, '关键词触发的设定卡，分「通用」和「个人」两本')
           ]),
           SJ.el('div', { class: 'row-time' }, `${SJ.state.worldbook.length} 条 · ${SJ.state.settings.wbOn === false ? '已关闭' : '已开启'} ›`)
+        ]));
+
+        /* 朋友圈 */
+        box.append(SJ.el('div', { class: 'group-title' }, '朋友圈'));
+        box.append(toggleRow('聊天时让他们自己发', '聊够条数就随机挑一个人，按你们刚聊的剧情发一条动态', SJ.state.settings.momentsAuto !== false, () => {
+          SJ.state.settings.momentsAuto = !SJ.state.settings.momentsAuto; SJ.save(); main();
+        }));
+        box.append(numRow('发圈间隔', '攒够这么多条消息才可能发一条', 'momentEvery', 6, 200));
+        box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('chat'); } }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '去看朋友圈'),
+            SJ.el('div', { class: 'row-sub' }, `现在 ${SJ.state.moments.length} 条 · 微信右上角「朋友圈」也在那儿`)
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
         ]));
 
         /* 存档 */

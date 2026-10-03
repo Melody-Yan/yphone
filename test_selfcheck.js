@@ -73,7 +73,8 @@ function makeEl(tag) {
   };
   return n;
 }
-function walk(n) { const out = []; const dig = x => x.children.forEach(c => { out.push(c); dig(c); }); dig(n); return out; }
+/* 找不到父节点时别把整个测试跑崩 —— 让断言以「0 个匹配」红掉，而不是抛 TypeError 掩盖后面的用例 */
+function walk(n) { const out = []; const dig = x => { if (!x || !x.children) return; x.children.forEach(c => { out.push(c); dig(c); }); }; dig(n); return out; }
 function match(n, sel) {
   return sel.split(',').some(one => {
     one = one.trim();
@@ -232,31 +233,31 @@ ok('每个 App 都有返回键且点了真能退回桌面', noBack.length === 0,
 
 /* 3. 持久化（验收标准：刷新后还在） */
 console.log('\n[3] 持久化 · 验收标准');
-const W_TEST = sandbox.SJ.WALLS[2][1];          // 鼠尾草
+const W_TEST = sandbox.SJ.wallList()[2].id;     // 鼠尾草。壁纸现在存的是 id，不是整条 CSS
 sandbox.SJ.state.wallpaper = W_TEST;
 sandbox.SJ.state.layout = ['calc', 'notes', 'chat', 'clock', 'settings', 'gallery'];
 sandbox.SJ.save();
 ok('已写入 localStorage', !!store.get('xiaoshouji.v1'));
 boot();                    // ← 模拟刷新
 ok('刷新后壁纸仍是所选那张', sandbox.SJ.state.wallpaper === W_TEST, sandbox.SJ.state.wallpaper);
-ok('刷新后桌面已应用该壁纸', byId.home.style.background === W_TEST, byId.home.style.background);
+ok('刷新后桌面已应用该壁纸', byId.home.style.background === sandbox.SJ.wallCSS(W_TEST), byId.home.style.background);
 ok('浅色壁纸不加 dark-wall（桌面用深字）', !byId.phone._class.has('dark-wall'));
-sandbox.SJ.state.wallpaper = sandbox.SJ.WALLS[6][1];   // 石墨（深色）
+sandbox.SJ.state.wallpaper = sandbox.SJ.wallList()[6].id;   // 石墨（深色）
 sandbox.SJ.applyWallpaper();
 ok('深色壁纸自动加 dark-wall（桌面翻白字）', byId.phone._class.has('dark-wall'));
 sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();
 
-/* 设置页点壁纸缩略图要真的换壁纸（曾经这里调 SJ.applyWallpaper 是 undefined 直接抛） */
-S.openApp('settings');
-const sv = S.SHELL.stack[0].node;
+/* 外观 App 点壁纸缩略图要真的换壁纸（曾经这里调 SJ.applyWallpaper 是 undefined 直接抛） */
+S.openApp('look');
+const sv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
 const wallStrip = walk(sv).find(n => n._class.has('desktop-walls'));
 const wallTiles = walk(wallStrip).filter(n => n._class.has('wall'));
-ok('桌面壁纸栏渲染出 7 张缩略图', wallTiles.length === sandbox.SJ.WALLS.length, wallTiles.length + ' 张');
+ok('外观页桌面壁纸栏渲染出 7 张缩略图', wallTiles.length === sandbox.SJ.wallList().length, wallTiles.length + ' 张');
 try {
   wallTiles[4].click();
-  ok('点第 5 张缩略图能换壁纸且不抛异常', sandbox.SJ.state.wallpaper === sandbox.SJ.WALLS[4][1],
+  ok('点第 5 张缩略图能换壁纸且不抛异常', sandbox.SJ.state.wallpaper === sandbox.SJ.wallList()[4].id,
     String(sandbox.SJ.state.wallpaper).slice(0, 30));
-  ok('换完桌面背景同步了', byId.home.style.background === sandbox.SJ.WALLS[4][1]);
+  ok('换完桌面背景同步了', byId.home.style.background === sandbox.SJ.wallCSS(sandbox.SJ.wallList()[4].id));
   ok('桌面壁纸栏选中框只留一个', walk(wallStrip).filter(n => n._class.has('on')).length === 1);
 } catch (e) { ok('点第 5 张缩略图能换壁纸且不抛异常', false, e.message); }
 S.closeTop(true);
@@ -993,39 +994,46 @@ ok('解锁瞬间桌面做了入场动效', byId.phone._class.has('unlocking'));
 S.closeTop(true);
 
 /* 锁屏可以单独一张壁纸 */
-const DESK_W = lk.WALLS[0][1], LOCK_W = lk.WALLS[6][1];
+const DESK_W = lk.wallList()[0].id, LOCK_W = lk.wallList()[6].id;
 lk.state.wallpaper = DESK_W;
 lk.state.settings.lockWallpaper = LOCK_W;
 lk.applyWallpaper();
-ok('锁屏背景 = 锁屏那张', byId.lock.style.background === LOCK_W);
-ok('桌面背景 = 桌面那张（两边互不干扰）', byId.home.style.background === DESK_W);
+ok('锁屏背景 = 锁屏那张', byId.lock.style.background === lk.wallCSS(LOCK_W));
+ok('桌面背景 = 桌面那张（两边互不干扰）', byId.home.style.background === lk.wallCSS(DESK_W));
 ok('锁屏壁纸深色 → 锁屏翻白字（lock-dark）', byId.phone._class.has('lock-dark'));
 ok('桌面壁纸浅色 → 桌面不加 dark-wall（分开判）', !byId.phone._class.has('dark-wall'));
 lk.state.settings.lockWallpaper = '';
 lk.applyWallpaper();
-ok('锁屏壁纸留空 = 跟随桌面', byId.lock.style.background === DESK_W);
+ok('锁屏壁纸留空 = 跟随桌面', byId.lock.style.background === lk.wallCSS(DESK_W));
 ok('跟随桌面后 lock-dark 也跟桌面走', !byId.phone._class.has('lock-dark'));
 
-/* 设置页：锁屏壁纸栏 + 两个开关 */
-const sv2 = openFresh('settings');
+/* 外观 App：锁屏壁纸栏 + 两个开关（壁纸都搬进「外观」了，设置页只剩一个跳转行） */
+const sv2 = openFresh('look');
 const lws = walk(sv2).find(n => n._class.has('lock-walls'));
-ok('设置页有锁屏壁纸栏', !!lws);
+ok('外观 App 有锁屏壁纸栏', !!lws);
 ok('锁屏壁纸栏第一格是「跟随桌面」', lws.firstChild._class.has('follow'));
 ok('锁屏壁纸栏 = 跟随桌面 + 7 张', walk(lws).filter(n => n._class.has('wall')).length === 8,
   walk(lws).filter(n => n._class.has('wall')).length + ' 格');
 ok('跟随桌面时第一格是选中态', lws.firstChild._class.has('on'));
 S.closeTop(true);
-lk.state.settings.lockWallpaper = lk.WALLS[3][1]; lk.save(); lk.applyWallpaper();
-const sv3 = openFresh('settings');
+lk.state.settings.lockWallpaper = lk.wallList()[3].id; lk.save(); lk.applyWallpaper();
+const sv3 = openFresh('look');
 const lws2 = walk(sv3).find(n => n._class.has('lock-walls'));
 const follow2 = walk(lws2).find(n => n._class.has('follow'));
 ok('有单独壁纸时「跟随桌面」不是选中态', !follow2._class.has('on'));
 follow2.click();
 ok('点「跟随桌面」清空锁屏壁纸', lk.state.settings.lockWallpaper === '', String(lk.state.settings.lockWallpaper));
-ok('清空后锁屏背景立刻跟随桌面', byId.lock.style.background === lk.state.wallpaper);
-ok('跟随桌面变成选中态', follow2._class.has('on'));
-ok('设置页有「锁屏显示今日安排」开关', !!walk(sv3).find(n => n.textContent.includes('锁屏显示今日安排')));
-ok('设置页有「锁屏快捷按钮」开关', !!walk(sv3).find(n => n.textContent.includes('锁屏快捷按钮')));
+ok('清空后锁屏背景立刻跟随桌面', byId.lock.style.background === lk.wallCSS(lk.state.wallpaper));
+/* 点完要重新找节点：wallStrip 会 build() 重建整条，旧引用已经脱离文档（同密码盘那个坑） */
+const follow3 = walk(lws2).find(n => n._class.has('follow'));
+ok('跟随桌面变成选中态', !!(follow3 && follow3._class.has('on')));
+ok('外观 App 里有「显示今日安排」开关', !!walk(sv3).find(n => n.textContent.includes('显示今日安排')));
+S.closeTop(true);
+
+const sv4 = openFresh('settings');
+ok('设置页有「锁屏显示今日安排」开关', !!walk(sv4).find(n => n.textContent.includes('锁屏显示今日安排')));
+ok('设置页有「锁屏快捷按钮」开关', !!walk(sv4).find(n => n.textContent.includes('锁屏快捷按钮')));
+ok('设置页有跳去「外观」的那一行', !!walk(sv4).find(n => n.textContent.includes('外观与壁纸')));
 S.closeTop(true);
 
 /* 两个开关真的管用 */
@@ -1394,6 +1402,217 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   App.state.delivery = { shops: [], cart: [], orders: [] };
   App.musicClear();
   App.state.layout = [];
+  App.save();
+}
+
+/* 26. 外观 / 头像 / 朋友圈 / 生图 / 外卖精致化（放 [24] 前面：[24] 会直接改 store 和 boot()） */
+console.log('\n[26] 外观、头像、朋友圈与生图');
+{
+  const App = sandbox.SJ;
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  App.state.settings.imgBase = '';            // 留空 = 跟随聊天接口
+  App.state.settings.imgKey = '';
+  App.state.settings.imgModel = '';
+
+  /* ── 壁纸：改成「存 id」，不再是整条 CSS ── */
+  ok('内置壁纸 7 张，id 是 w0…w6', App.wallList().length === 7 && App.wallList()[2].id === 'w2',
+    App.wallList().map(w => w.id).join(','));
+  ok('wallCSS 按 id 取回那条渐变', App.wallCSS('w2') === App.WALLS[2][1]);
+  ok('深浅判断也按 id（石墨深、晨雾浅）', App.isDarkWall('w6') === true && App.isDarkWall('w0') === false);
+  ok('认不出的 id 不炸，退回第一张', App.wallCSS('nope') === App.WALLS[0][1]);
+
+  /* ── 自己传的壁纸：scheme 白名单 / 上限 / 删掉正在用的那张 ── */
+  App.state.settings.wallImgs.slice().forEach(w => App.removeWall(w.id));
+  /* 壁纸只收 data:image：本地上传出来的就是 data URI，
+     外链（http）断网就变白屏、图床挂了整台手机跟着难看，所以这条比头像严。 */
+  ok('壁纸只收 data:image（javascript: 和外链都拒）',
+    App.addWall('javascript:alert(1)', false) === null &&
+    App.addWall('https://img.test/a.png', false) === null);
+  const uw = App.addWall('data:image/png;base64,' + 'A'.repeat(40), true);
+  ok('data:image 收下并标成 custom', !!uw && App.wallList().some(w => w.id === uw.id && w.custom));
+  ok('自定义壁纸的 css 是 url(...)，不是渐变', /^url\("/.test(App.wallCSS(uw.id)), App.wallCSS(uw.id).slice(0, 26));
+  ok('自己传的那张记着它是不是深色', App.isDarkWall(uw.id) === true);
+  App.state.wallpaper = uw.id;
+  App.removeWall(uw.id);
+  ok('删掉正在用的那张壁纸 → 退回默认，不留一张空桌面', App.state.wallpaper === 'w0', App.state.wallpaper);
+  App.state.settings.wallImgs.slice().forEach(w => App.removeWall(w.id));
+  for (let i = 0; i < App.WALL_IMG_MAX; i++) App.addWall('data:image/png;base64,AAA' + i, false);
+  ok('加到上限就不再收了', App.state.settings.wallImgs.length === App.WALL_IMG_MAX &&
+    App.addWall('data:image/png;base64,ZZZ', false) === null, App.state.settings.wallImgs.length + ' 张');
+  App.state.settings.wallImgs.slice().forEach(w => App.removeWall(w.id));
+  App.state.wallpaper = 'w0';
+  App.applyWallpaper();
+
+  /* ── 头像：本地图 / 图床都行，别的 scheme 全清掉 ── */
+  ok('javascript: / file: 头像被清成空',
+    App.avatarSrc('javascript:alert(1)') === '' && App.avatarSrc('file:///x.png') === '');
+  ok('data:image 和 https 头像留着',
+    App.avatarSrc('data:image/png;base64,x') !== '' && App.avatarSrc('https://a.test/a.png') !== '');
+
+  /* ── 朋友圈：数据层 ── */
+  /* 角色必须真落进 state：chatView 找不到 id 会直接退回列表页，是自检以前踩过的坑 */
+  if (!App.state.characters.length) App.saveCharacter(App.makeCharacter({ name: '圈友' }));
+  const cA = App.state.characters[0];
+  App.state.moments = [];
+  App.save();
+  const mo = App.addMoment(cA.id, '今天天气真好');
+  ok('发一条朋友圈', !!mo && App.momentList().length === 1);
+  ok('空白正文不收', App.addMoment(cA.id, '   ') === null);
+  App.addMoment(cA.id, '第二条');
+  ok('最新的一条排在最前', App.momentList()[0].text === '第二条', App.momentList()[0].text);
+  App.momentLike(mo.id, '__me');
+  ok('点一次是赞', App.momentList().find(m => m.id === mo.id).likes.indexOf('__me') >= 0);
+  App.momentLike(mo.id, '__me');
+  ok('再点一次是取消赞', App.momentList().find(m => m.id === mo.id).likes.indexOf('__me') < 0);
+  App.momentLike(mo.id, cA.id);
+  App.momentComment(mo.id, cA.id, '是呀');
+  const got = App.momentList().find(m => m.id === mo.id);
+  ok('赞和评论都存下来了（各自带 charId）',
+    got.likes.length === 1 && got.comments.length === 1 && got.comments[0].text === '是呀');
+  App.deleteMoment(mo.id);
+  ok('删掉就没了', !App.momentList().some(m => m.id === mo.id));
+
+  /* ── 朋友圈：让 AI 现写一条 ── */
+  let moBody = null;
+  fetchImpl = (url, opts) => {
+    moBody = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '「刚烤好的面包，香了一整条街」' } }] }));
+  };
+  App.state.moments = [];
+  App.pushMessage(cA.id, true, '你今天干嘛呢');
+  let genOk = false;
+  try { genOk = !!(await App.generateMoment(cA)); } catch (e) { genOk = false; }
+  ok('AI 写的那条落进朋友圈了', genOk && App.momentList().length === 1 && App.momentList()[0].charId === cA.id,
+    App.momentList().map(m => m.text).join('|'));
+  ok('模型爱加的那层引号被剥掉了', App.momentList()[0].text === '刚烤好的面包，香了一整条街', App.momentList()[0].text);
+  ok('写朋友圈只发 system + user 两条，没把角色扮演那套塞进去',
+    !!moBody && moBody.messages.length === 2 && moBody.messages[0].role === 'system',
+    moBody ? moBody.messages.length + ' 条' : '没发出去');
+  ok('提示词里带上了她的人设和你们最近聊过的话',
+    !!moBody && /人设|最近聊的/.test(moBody.messages[1].content), moBody ? moBody.messages[1].content.slice(0, 40) : '');
+  ok('关掉自动发圈就不自动发了', await App.autoMoment(cA) === null);
+
+  /* ── 生图：三条接口依次试 ── */
+  /* 两条路各回各的错：验证报错时把每一次的失败原因都摊出来，而不是只留最后一条 */
+  fetchImpl = url => Promise.resolve(mockRes(false,
+    { error: { message: /images\//.test(String(url)) ? '没有生图权限' : '模型不会画图' } }, 404));
+  let imgErr = '';
+  try { await App.genImage('一只兔子'); } catch (e) { imgErr = e.message; }
+  ok('两条路都不通时，把每一条的失败原因都报出来',
+    /没有生图权限/.test(imgErr) && /模型不会画图/.test(imgErr), imgErr.slice(0, 60));
+
+  fetchImpl = () => Promise.resolve(mockRes(false, { error: { message: '不支持' } }, 400));
+  let noModel = '';
+  App.state.settings.imgModel = '';
+  App.state.settings.apiModel = '';
+  try { await App.genImage('一只兔子'); } catch (e) { noModel = e.message; }
+  ok('没填生图模型就不去打接口，先让人去配', /模型/.test(noModel), noModel);
+  App.state.settings.apiModel = 'test-model';
+
+  let hits = [];
+  fetchImpl = (url, opts) => {
+    hits.push(url);
+    if (/images\/generations/.test(url)) return Promise.resolve(mockRes(false, { error: { message: '不支持' } }, 400));
+    if (/chat\/completions/.test(url)) {
+      return Promise.resolve(mockRes(true, { choices: [{ message: { content:
+        '好的，给你：\n![img](data:image/png;base64,' + 'B'.repeat(120) + ')' } }] }));
+    }
+    return Promise.resolve(mockRes(false, {}, 404));
+  };
+  const out = await App.genImage('一只兔子');
+  ok('生图接口挂了会自动退到聊天接口出图', hits.length >= 2 && /^data:image\/png;base64,B/.test(out), out.slice(0, 26));
+  ok('图片直链也认（图床回的是 url 时不用重新编 base64）',
+    App.pickImage('![x](https://a.test/b.png)') === 'https://a.test/b.png' &&
+    /^data:image/.test(App.pickImage('data:image/png;base64,' + 'C'.repeat(120))) &&
+    App.pickImage('图片：https://a.test/c.jpg?x=1') === 'https://a.test/c.jpg?x=1');
+  ok('一堆废话里没有图就返回空，不硬猜', App.pickImage('好的，我画好了（并没有）') === '');
+  ok('生图接口留空就跟随聊天接口', App.imgRoot() === App.state.settings.apiBase &&
+    App.imgModel() === App.state.settings.apiModel);
+
+  /* ── 聊天页的每一条消息都带头像 ── */
+  App.pushMessage(cA.id, false, '在吗');
+  App.pushMessage(cA.id, true, '在的');
+  const cv = openFresh('chat', cA.id);
+  const msgs = walk(cv).filter(n => n._class.has('msg'));
+  ok('消息渲染成「头像 + 气泡」一行',
+    msgs.length >= 2 && msgs.every(m => walk(m).some(n => n._class.has('avatar'))), msgs.length + ' 行');
+  ok('我发的那行靠右，她发的那行靠左',
+    msgs.some(m => m._class.has('me')) && msgs.some(m => m._class.has('ta')));
+  S.closeTop(true);
+
+  /* ── 微信里的朋友圈入口 ── */
+  App.state.moments = [];
+  const mEntry = App.addMoment(cA.id, '剪了头发，短了三厘米');
+  const wx = openFresh('chat');
+  const moBtn = walk(wx).find(n => n.attrs && /朋友圈/.test(n.textContent || '') && n.tagName === 'BUTTON');
+  ok('微信首页导航栏有「朋友圈」', !!moBtn);
+  moBtn.click();
+  ok('朋友圈能看到那条动态和作者名', walk(wx).some(n => n._class.has('mo-text') && /剪了头发/.test(n.textContent)) &&
+    walk(wx).some(n => n._class.has('mo-name') && n.textContent === cA.name));
+  ok('没配图时给的是「让 AI 配张图」按钮', !!walk(wx).find(n => n._class.has('mo-make')));
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content:
+    '![img](data:image/png;base64,' + 'D'.repeat(120) + ')' } }] }));
+  walk(wx).find(n => n._class.has('mo-make')).click();
+  await waitFor(() => !!walk(wx).find(n => n._class.has('mo-pic')), 2000);
+  ok('点了就真的去生图并贴到卡片上', !!walk(wx).find(n => n._class.has('mo-pic')) &&
+    /^data:image/.test(App.momentList().find(m => m.id === mEntry.id).img || ''));
+  ok('卡片下面有赞 / 评论 / 删掉三个动作', walk(wx).filter(n => n._class.has('mo-act')).length >= 3);
+  S.closeTop(true);
+
+  /* ── 外卖变精致了：卡片 / 菜品行 / 步进器 / 订单时间轴 ── */
+  App.setShops(App.normalizeShops({ shops: [{
+    name: '巷口面馆', kind: '面食', emoji: '🍜', rating: '4.8', eta: '25分钟', fee: 3, min: 20,
+    tags: ['现炒', '老字号'],
+    dishes: [{ name: '雪菜肉丝面', desc: '汤头熬了三小时', price: 22, emoji: '🍲', hot: true }, { name: '素鸡', price: 8 }]
+  }] }));
+  const dApp = openFresh('delivery');
+  ok('首页有口味横滑条（点一下就是「这次想吃 X」，换一批）',
+    walk(dApp).filter(n => n._class.has('chip')).length >= 6);
+  ok('商家渲染成卡片，封面是 emoji + 渐变',
+    walk(dApp).filter(n => n._class.has('shop-card')).length === 1 &&
+    !!walk(dApp).find(n => n._class.has('shop-art') && n.textContent === '🍜'));
+  ok('卡片上有评分、配送费/起送价和标签',
+    !!walk(dApp).find(n => n._class.has('shop-star')) &&
+    walk(dApp).some(n => n._class.has('shop-meta') && /配送 ¥3/.test(n.textContent)) &&
+    !!walk(dApp).find(n => n._class.has('tag') && n.textContent === '现炒'));
+  walk(dApp).find(n => n._class.has('shop-card')).click();
+  ok('进店后菜品是自己一行，不是普通列表行', walk(dApp).filter(n => n._class.has('dish')).length === 2);
+  ok('招牌菜挂了「招牌」标', !!walk(dApp).find(n => n._class.has('dish-hot')));
+  App.clearCart();
+  walk(dApp).find(n => n._class.has('dish-add')).click();
+  ok('点 ＋ 就加购了', App.cartCount() === 1, App.cartCount() + ' 件');
+  ok('加了东西，导航栏下面就浮出购物车条', !!walk(dApp).find(n => n._class.has('cart-bar')));
+  walk(dApp).find(n => n._class.has('cart-bar')).click();
+  ok('购物车每行有 − / ＋ 步进器', walk(dApp).filter(n => n._class.has('st-btn')).length === 2);
+  App.cartAdd(App.state.delivery.cart[0].id, -1);
+  ok('减到 0 就把那一行删掉，不留一条「0 份」的鬼行', App.state.delivery.cart.length === 0,
+    JSON.stringify(App.state.delivery.cart));
+  App.addToCart(App.state.delivery.shops[0].id, App.state.delivery.shops[0].dishes[0]);
+  App.placeOrder();
+  const oApp = openFresh('delivery');
+  walk(oApp).find(n => n.attrs && n.attrs.title === '我的订单').click();
+  ok('订单是一张卡片，不是一行字', !!walk(oApp).find(n => n._class.has('order-card')));
+  ok('订单有 5 格时间轴，才下单只亮第一格',
+    walk(oApp).filter(n => n._class.has('od-step')).length === 5 &&
+    walk(oApp).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 1,
+    walk(oApp).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length + ' 格亮');
+  /* 订单进度是按时间现算的，把时间拨到 10 分钟后再看，时间轴应该走完。
+     重开一次 App（订单页导航栏里没有「我的订单」按钮，点不回去）。 */
+  App.state.delivery.orders[0].ts = App.virtualNow().getTime() - 10 * 60 * 1000;
+  const oApp2 = openFresh('delivery');
+  walk(oApp2).find(n => n.attrs && n.attrs.title === '我的订单').click();
+  ok('时间走完 → 5 格全亮 + 卡片变已送达',
+    walk(oApp2).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 5 &&
+    !!walk(oApp2).find(n => n._class.has('order-card') && n._class.has('done')));
+  S.closeTop(true);
+
+  /* 收摊：别把这一节造的数据留给 [24] */
+  App.state.moments = [];
+  App.state.delivery = { shops: [], cart: [], orders: [] };
+  App.state.settings.wallImgs = [];
+  App.state.wallpaper = 'w0';
   App.save();
 }
 

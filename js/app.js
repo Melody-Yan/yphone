@@ -572,9 +572,11 @@ function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch
 
 function applyWallpaper() {
   const s = SJ.state.settings;
+  // 壁纸存的是 id（内置 'w0'… / 自己传的 'u…'），css 由 core 的 wallCSS 解出来，
+  // 自定义那张是 url(data:...) center/cover。别在这儿再拼一份。
   const lockBg = s.lockWallpaper || SJ.state.wallpaper;   // 锁屏可以单独一张，留空就跟随桌面
-  homeEl.style.background = SJ.state.wallpaper;
-  lockEl.style.background = lockBg;
+  homeEl.style.background = SJ.wallCSS(SJ.state.wallpaper);
+  lockEl.style.background = SJ.wallCSS(lockBg);
   // 深色壁纸翻白字；浅色（默认）走 styles.css 的基础色。锁屏单独判，两边可以不一样
   phone.classList.toggle('dark-wall', SJ.isDarkWall(SJ.state.wallpaper));
   phone.classList.toggle('lock-dark', SJ.isDarkWall(lockBg));

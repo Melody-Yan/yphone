@@ -38,7 +38,30 @@ const WALLS = [
     'radial-gradient(100% 82% at 84% 92%, #2f3236 0%, rgba(47,50,54,0) 58%),' +
     'linear-gradient(168deg, #5f6469, #35383c)', true]
 ];
-const isDarkWall = css => { const w = WALLS.find(w => w[1] === css); return w ? w[2] : false; };
+/* 壁纸按 id 存：内置的是 'w0'…'w6'，自己上传的是 'u…'。
+   以前存的是整条 CSS 字符串 —— 那样既没法反过来判深浅，也塞不下自定义图片。
+   migrate() 会在内置表里按字符串找回对应的 id，老存档无缝切过来。
+   自定义那张会顺手算一个平均亮度存成 dark，好决定桌面文字翻不翻白。 */
+function customWalls() {
+  const list = state && state.settings && state.settings.wallImgs;
+  return Array.isArray(list) ? list : [];
+}
+function wallList() {
+  const out = WALLS.map((w, i) => ({ id: 'w' + i, name: w[0], css: w[1], dark: w[2], custom: false }));
+  customWalls().forEach((u, i) => {
+    if (!u || !u.img) return;
+    out.push({
+      id: u.id, name: u.name || ('我的壁纸 ' + (i + 1)),
+      css: 'url("' + u.img + '") center / cover no-repeat',
+      dark: !!u.dark, custom: true
+    });
+  });
+  return out;
+}
+const wallById = id => wallList().find(w => w.id === id) || null;
+const wallCSS = id => { const w = wallById(id); return w ? w.css : WALLS[0][1]; };
+function isDarkWall(id) { const w = wallById(id); return w ? w.dark : false; }
+
 
 /* 桌面插件登记表。span = 占几列，桌面是 4 列网格：4 = 整行，2 = 半行（两个并排）。 */
 const WIDGET_TYPES = [
@@ -56,10 +79,15 @@ const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
    migrate 里的 e.title.slice(0, NAME_MAX) 就抛 ReferenceError，
    被 load() 的 catch 吃掉 → 整台手机看起来像被清空（角色、聊天、备忘录全没了）。 */
 const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+/* 自己上传的壁纸最多几张。一张 1280px 的 JPEG 转成 data URI 大约 300KB，
+   localStorage 一共就 5MB 左右，再往上存就要开始丢东西了。 */
+const WALL_IMG_MAX = 6;
+/* 朋友圈最多留几条 */
+const MOMENT_KEEP = 120;
 
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
-  wallpaper: WALLS[0][1], // 默认晨雾
+  wallpaper: 'w0',       // 默认晨雾（内置壁纸 id，见 WALLS）
   lock: false,
   password: '',
   layout: [],            // 桌面图标顺序：[appId, ...]，空数组=用注册表默认顺序
@@ -68,10 +96,17 @@ const DEFAULTS = {
     theme: 'light',      // light | dark（莫兰迪浅色是默认）
     clock24: true,
     userName: '我',
+    myAvatar: '🙂',      // 我自己的头像（聊天页右边那个）
+    myAvatarImg: '',     // 传了图就用图
     apiBase: '',
     apiKey: '',
     apiModel: '',
     modelList: [],       // 从 /models 拉回来的候选，省得手填模型名
+    /* 生图：留空就跟随上面那套聊天接口 */
+    imgBase: '',
+    imgKey: '',
+    imgModel: '',
+    imgSize: '1024x1024',
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
@@ -81,17 +116,24 @@ const DEFAULTS = {
     /* 锁屏 */
     lockWallpaper: '',   // 空 = 跟随桌面壁纸
     lockWidgets: true,   // 锁屏上显示「今日安排」
-    lockQuick: true      // 锁屏底部快捷按钮
+    lockQuick: true,     // 锁屏底部快捷按钮
+    /* 外观 */
+    wallImgs: [],        // 自己上传的壁纸：[{id,name,img,dark}, ...]
+    /* 朋友圈 */
+    momentsAuto: true,   // 聊着聊着让他们自己发
+    momentEvery: 24      // 攒够多少条新消息最多自动发一条
   },
-  characters: [],        // 通讯录：[{id,name,avatar,color,desc,persona,greeting,alias,relation,memUpTo,ts}, ...]
+  characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
   worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
   memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
   events: [],            // 日历：[{id,date,time,title,done}, ...]
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
+  /* 朋友圈：角色自己发的生活动态 */
+  moments: [],           // [{id,charId,text,img,ts,likes:[charId],comments:[{charId,text,ts}]}, ...]
   /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
   delivery: {
-    shops: [],           // [{id,name,kind,eta,rating,dishes:[{id,name,desc,price}]}, ...]
+    shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
     cart: [],            // [{id,shopId,name,price,n}, ...]（一次只能点一家）
     orders: []           // [{id,shopName,items:[{name,n}],total,ts}, ...]
   },
@@ -108,7 +150,7 @@ const SCHEMA = {
   wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
-  delivery: 'object', music: 'object'
+  moments: 'array', delivery: 'object', music: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -197,6 +239,33 @@ function migrate(saved) {
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
   out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
+
+  // 角色也是导入边界：以前这里根本没归过，一个 "{name:123}" 就能让后面到处炸
+  out.characters = (Array.isArray(out.characters) ? out.characters : [])
+    .map((c, i) => normalizeCharacter(c, i)).filter(Boolean);
+  out.moments = normalizeMoments(out.moments);
+
+  /* 壁纸从「整条 CSS」改成「id」。老存档存的是一整串渐变，按 CSS 找回内置编号；
+     对不上（比如那张自己传的壁纸已经删了）就退回默认，别留一张白屏。 */
+  out.settings.wallImgs = (Array.isArray(out.settings.wallImgs) ? out.settings.wallImgs : [])
+    .filter(u => u && typeof u === 'object' && /^(data:image\/|https?:)/.test(String(u.img || '')))
+    .slice(0, WALL_IMG_MAX)
+    .map((u, i) => ({
+      id: String(u.id || ('u' + i)),
+      name: String(u.name || ('我的壁纸 ' + (i + 1))).slice(0, NAME_MAX),
+      img: String(u.img),
+      dark: !!u.dark
+    }));
+  const hasImg = id => out.settings.wallImgs.some(u => u.id === id);
+  const wallId = (v, emptyOk) => {
+    const s = String(v || '');
+    if (/^w\d+$/.test(s)) return s;
+    if (/^u[\w-]+$/.test(s)) return hasImg(s) ? s : (emptyOk ? '' : 'w0');
+    const i = WALLS.findIndex(w => w[1] === s);
+    return i >= 0 ? 'w' + i : (emptyOk ? '' : 'w0');
+  };
+  out.wallpaper = wallId(out.wallpaper, false);
+  out.settings.lockWallpaper = wallId(out.settings.lockWallpaper, true);
   return out;
 }
 
@@ -290,11 +359,44 @@ function onTime(fn) { timeListeners.add(fn); return () => timeListeners.delete(f
 
 function makeCharacter(patch = {}) {
   return Object.assign({
-    id: uid(), name: '新角色', avatar: '🙂', color: '#9cb9c2',
+    id: uid(), name: '新角色', avatar: '🙂', avatarImg: '', color: '#9cb9c2',
     desc: '', persona: '', greeting: '',
     alias: '', relation: '', memUpTo: 0,   // 昵称 / 关系 / 已经总结到第几条消息
     ts: Date.now()
   }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
+}
+
+/* 头像/壁纸图片只收本地上传的 data: 和网上的 http(s):。
+   别的（尤其是 javascript: / file: / 乱七八糟的 scheme）一律清掉 ——
+   它最后会被塞进 CSS 的 background-image，不能让存档决定加载什么。
+
+   ⚠️ 正则直接写在函数里，不要提成模块级 const：
+   avatarSrc() 会被 normalizeCharacter() 调到，而 normalizeCharacter 在 migrate() 里、
+   migrate 又在模块初始化时就被 load() 调到 —— 那时后面定义的 const 全在 TDZ 里。
+   这个坑已经踩过三次了（NAME_MAX、AVATAR_IMG_OK），这里不再给它第四次机会。 */
+function avatarSrc(v) {
+  const s = String(v || '');
+  return /^(data:image\/|https?:\/\/)/.test(s) ? s : '';
+}
+
+/* 角色的导入边界。id 兜底用序号而不是 uid()：migrate 每次加载都跑，
+   用 uid() 的话没有 id 的老角色每次刷新都会换一个身份，聊天记录就接不上了。 */
+function normalizeCharacter(c, i) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  return {
+    id: String(c.id || ('c' + i)),
+    name: String(c.name || '新角色').slice(0, NAME_MAX),
+    avatar: String(c.avatar || '🙂').slice(0, 4),
+    avatarImg: avatarSrc(c.avatarImg),
+    color: String(c.color || '#9cb9c2').slice(0, 60),
+    desc: String(c.desc || '').slice(0, 200),
+    persona: String(c.persona || '').slice(0, TEXT_MAX),
+    greeting: String(c.greeting || '').slice(0, TEXT_MAX),
+    alias: String(c.alias || '').slice(0, NAME_MAX),
+    relation: String(c.relation || '').slice(0, 60),
+    memUpTo: Math.max(0, Number(c.memUpTo) || 0),
+    ts: Number(c.ts) || 0
+  };
 }
 
 function saveCharacter(c) {
@@ -305,6 +407,7 @@ function saveCharacter(c) {
   c.alias = String(c.alias || '').slice(0, NAME_MAX);    // 他平时怎么叫你
   c.relation = String(c.relation || '').slice(0, 60);    // 他认为你们是什么关系
   c.memUpTo = Math.max(0, Number(c.memUpTo) || 0);       // 记忆总结到第几条了
+  c.avatarImg = avatarSrc(c.avatarImg);                  // 头像图片（本地/图床），空 = 用 emoji
   const i = state.characters.findIndex(x => x.id === c.id);
   if (i < 0) state.characters.push(c); else state.characters[i] = c;
   save();
@@ -598,12 +701,18 @@ function normalizeShops(raw) {
     kind: String(s.kind || '').slice(0, NAME_MAX),
     eta: String(s.eta || '').slice(0, 16),
     rating: String(s.rating || '').slice(0, 8),
+    emoji: String(s.emoji || '').slice(0, 4),                                          // 店铺封面那个大字
+    tags: (Array.isArray(s.tags) ? s.tags : []).map(t => String(t).slice(0, 10)).slice(0, 3),
+    fee: Math.max(0, Math.round(Number(s.fee) || 0)),                                  // 配送费
+    min: Math.max(0, Math.round(Number(s.min) || 0)),                                  // 起送价
     dishes: (Array.isArray(s.dishes) ? s.dishes : [])
       .filter(x => x && typeof x === 'object').slice(0, 10).map((x, j) => ({
         id: 'dish-' + i + '-' + j,
         name: String(x.name || '一道菜').slice(0, NAME_MAX),
         desc: String(x.desc || '').slice(0, 60),
-        price: Math.max(0, Math.round(Number(x.price) || 0))
+        price: Math.max(0, Math.round(Number(x.price) || 0)),
+        emoji: String(x.emoji || '').slice(0, 4),
+        hot: !!x.hot                                                                   // 招牌菜
       }))
   })).filter(s => s.dishes.length);
 }
@@ -671,6 +780,16 @@ function addToCart(shopId, dish) {
 }
 function cartCount() { return state.delivery.cart.reduce((s, x) => s + x.n, 0); }
 function cartTotal() { return state.delivery.cart.reduce((s, x) => s + x.price * x.n, 0); }
+/* 购物车里的加减。减到 0 就把那一行删掉 —— 不然会留一条「0 份」的鬼行。 */
+function cartAdd(id, delta) {
+  const d = state.delivery;
+  const it = d.cart.find(x => x.id === id);
+  if (!it) return d.cart;
+  it.n = Math.min(99, it.n + delta);
+  if (it.n <= 0) d.cart = d.cart.filter(x => x.id !== id);
+  save();
+  return d.cart;
+}
 function clearCart() { state.delivery.cart = []; save(); }
 
 function placeOrder() {
@@ -748,6 +867,123 @@ function parsePlaylist(text) {
   });
   const seen = new Set();
   return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
+}
+
+/* ══════════════════════════════════════════════════════
+   L1.9 外观（自己上传的壁纸）
+   ══════════════════════════════════════════════════════ */
+/* 加一张自定义壁纸。img 是 data URI（App 里已经压过），dark 是它的平均亮度判断，
+   由 App 侧用 canvas 算好传进来 —— core 里不碰 canvas，自检垫片里也没有。 */
+function addWall(img, dark) {
+  const src = avatarSrc(img);              // 同一套 scheme 白名单：只收 data:image/ 和 http(s):
+  if (!/^data:image\//.test(src)) return null;
+  if (customWalls().length >= WALL_IMG_MAX) return null;
+  const w = { id: 'u' + uid(), name: '我的壁纸 ' + (customWalls().length + 1), img: src, dark: !!dark };
+  state.settings.wallImgs.push(w);
+  save();
+  return w;
+}
+function removeWall(id) {
+  state.settings.wallImgs = customWalls().filter(u => u.id !== id);
+  // 正用着的那张被删了，退回默认，别留一张空桌面
+  if (state.wallpaper === id) state.wallpaper = 'w0';
+  if (state.settings.lockWallpaper === id) state.settings.lockWallpaper = '';
+  save();
+}
+
+/* ══════════════════════════════════════════════════════
+   L1.10 朋友圈
+   ══════════════════════════════════════════════════════ */
+function normalizeMoments(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(m => m && typeof m === 'object')
+    .map((m, i) => ({
+      id: String(m.id || ('mo' + i)),
+      charId: String(m.charId || ''),
+      text: String(m.text || '').slice(0, TEXT_MAX),
+      img: avatarSrc(m.img),                                  // 配图也是同一个 scheme 白名单
+      ts: Number(m.ts) || 0,
+      likes: (Array.isArray(m.likes) ? m.likes : []).map(x => String(x)).slice(0, 200),
+      comments: (Array.isArray(m.comments) ? m.comments : [])
+        .filter(x => x && typeof x === 'object')
+        .map(c => ({ charId: String(c.charId || ''), text: String(c.text || '').slice(0, 300), ts: Number(c.ts) || 0 }))
+        .slice(0, 100)
+    }))
+    .slice(0, MOMENT_KEEP);
+}
+
+/* 一条朋友圈。charId 是发的人。 */
+function addMoment(charId, text, img) {
+  const t = String(text || '').trim();
+  if (!charId || !t) return null;
+  const m = { id: uid(), charId: String(charId), text: t.slice(0, TEXT_MAX), img: avatarSrc(img), ts: virtualNow().getTime(), likes: [], comments: [] };
+  state.moments.unshift(m);
+  state.moments = state.moments.slice(0, MOMENT_KEEP);
+  save();
+  return m;
+}
+function deleteMoment(id) {
+  state.moments = state.moments.filter(m => m.id !== id);
+  save();
+}
+/* 时间线：最新在前。找不到角色（被删了）的照样留着，界面上署「已删除的角色」。 */
+function momentList() { return state.moments.slice(); }
+function momentLike(mid, charId) {
+  const m = state.moments.find(x => x.id === mid);
+  if (!m) return null;
+  const i = m.likes.indexOf(charId);
+  if (i < 0) m.likes.push(charId); else m.likes.splice(i, 1);
+  save();
+  return m;
+}
+function momentComment(mid, charId, text) {
+  const m = state.moments.find(x => x.id === mid);
+  const t = String(text || '').trim();
+  if (!m || !t) return null;
+  m.comments.push({ charId: String(charId), text: t.slice(0, 300), ts: virtualNow().getTime() });
+  save();
+  return m;
+}
+
+/* 让她发一条朋友圈。素材是「她的人设 + 你们最近聊了什么」，
+   所以发出来的东西是接得上剧情的，不是随机抽一句天气。 */
+const MOMENT_SYS =
+  '你在帮一个角色写她自己的社交动态（类似微信朋友圈）。\n' +
+  '要求：\n' +
+  '1. 用第一人称，写她此刻真实的生活片段：在做什么、看到什么、心情如何。\n' +
+  '2. 必须和「最近发生的事」有暗合之处，但不要直接复述对话，也不要写成回复。\n' +
+  '3. 1~3 句，60 字以内。口语、具体、有画面感，可以带一点点情绪或小心思。\n' +
+  '4. 不要加引号、不要写「朋友圈」三个字、不要加话题标签、不要用 emoji 堆砌（最多一个）。\n' +
+  '5. 只输出这一条动态的正文本身。';
+
+async function generateMoment(char) {
+  const hist = (state.chats[char.id] || []).slice(-12)
+    .filter(m => !m.img)
+    .map(m => (m.me ? '我：' : (char.name + '：')) + m.text).join('\n');
+  const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  const usr =
+    '角色：' + char.name + '\n' +
+    (char.relation ? '我们俩的关系：' + char.relation + '\n' : '') +
+    (char.persona ? '人设：' + char.persona + '\n' : '') +
+    (mem ? '她还记得的事：\n' + mem + '\n' : '') +
+    '现在的时间：' + fmtDate(virtualNow()) + ' ' + fmtTime(virtualNow()) + '\n' +
+    (hist ? '你们最近聊的：\n' + hist + '\n' : '（你们还没怎么聊过）\n') +
+    '\n写一条她此刻会发出来的动态。';
+  const text = (await askOnce(MOMENT_SYS, usr)).trim().replace(/^["'「]|["'」]$/g, '').slice(0, 300);
+  if (!text) throw new Error('接口没返回内容');
+  return addMoment(char.id, text);
+}
+
+/* 攒够新消息就随机挑一个人发一条。和 autoMemorize 一个路子：
+   记账记在 settings 里，避免每次开 App 都触发。 */
+async function autoMoment(char) {
+  const s = state.settings;
+  if (s.momentsAuto === false) return null;
+  const every = Math.max(4, Number(s.momentEvery) || 24);
+  if (!char || !apiRoot() || !s.apiKey || !s.apiModel) return null;
+  if ((state.chats[char.id] || []).length % every !== 0) return null;   // 只在整倍数那一刻试一次
+  if (Math.random() > 0.5) return null;                                // 再随机一半，别每次必发
+  try { return await generateMoment(char); } catch (e) { return null; }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -858,6 +1094,151 @@ function parseJSONLoose(text) {
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
   if (a >= 0 && b > a) s = s.slice(a, b + 1);
   try { return JSON.parse(s); } catch (e) { return null; }
+}
+
+/* ══════════════════════════════════════════════════════
+   生图：单独一套接口（留空就整段跟随聊天接口）
+   很多中转站聊天和生图是同一个域名、同一个 key，所以「留空跟随」是常态；
+   单独填的用途是：聊天用好模型，出图换成便宜/更会画的模型。
+   三条路依次试，哪条通算哪条：
+   1. {root}/images/generations —— 标准 OpenAI 生图，认 b64_json，也认 url
+   2. {root}/images/edits      —— 官方图生图入口（multipart），只有带了参考图才走
+   3. {root}/chat/completions  —— Gemini 系的图片模型只能走聊天，从回复的 markdown 里抠图
+   ══════════════════════════════════════════════════════ */
+const imgRoot  = () => String(state.settings.imgBase || '').trim().replace(/\/+$/, '') || apiRoot();
+const imgKey   = () => String(state.settings.imgKey || '').trim() || String(state.settings.apiKey || '');
+const imgModel = () => String(state.settings.imgModel || '').trim() || String(state.settings.apiModel || '');
+const imgSize  = () => String(state.settings.imgSize || '').trim() || '1024x1024';
+
+/* 图床/接口给回来的可能是个 http 图片地址（会过期），先试着抓成本地 data URI 存下来。
+   抓不动（跨域、没有 CORS 头）就原样用地址，能用一天是一天。 */
+async function imgToData(src) {
+  const s = String(src || '');
+  if (/^data:image\//.test(s)) return s;
+  if (!/^https?:\/\//.test(s)) return '';
+  try {
+    const r = await fetch(s);
+    if (!r.ok) return s;
+    const b = await r.blob();
+    return await new Promise((ok, no) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result));
+      fr.onerror = no;
+      fr.readAsDataURL(b);
+    });
+  } catch (e) { return s; }
+}
+
+function dataUriToBlob(uri) {
+  const m = /^data:([^;,]+);base64,(.*)$/.exec(String(uri || ''));
+  if (!m) return null;
+  const bin = atob(m[2]);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: m[1] });
+}
+
+/* 从一段回复里抠出图片：markdown 图片、裸 data URI、裸 http 图片地址都认 */
+function pickImage(text) {
+  const s = String(text || '');
+  let m = s.match(/!\[[^\]]*\]\(\s*(data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s)]+)\s*\)/i);
+  if (m) return m[1];
+  m = s.match(/data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{80,}/i);
+  if (m) return m[0];
+  m = s.match(/https?:\/\/\S+\.(?:png|jpe?g|webp|gif)(?:\?\S*)?/i);
+  return m ? m[0] : '';
+}
+
+function imgBodyError(json, res) {
+  const d = json && (json.error || json.message);
+  if (d) return typeof d === 'string' ? d : (d.message || JSON.stringify(d));
+  return 'HTTP ' + res.status;
+}
+
+async function imgViaGenerations(root, key, model, prompt, size) {
+  const res = await fetch(root + '/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+    body: JSON.stringify({ model, prompt, n: 1, size, response_format: 'b64_json' })
+  });
+  const txt = await res.text();
+  let json = null;
+  try { json = JSON.parse(txt); } catch (e) { /* 有些站直接回 HTML 错误页 */ }
+  if (!res.ok) throw new Error(imgBodyError(json, res));
+  const d = (json && json.data && json.data[0]) || {};
+  if (d.b64_json) return 'data:image/png;base64,' + d.b64_json;
+  if (d.url) return await imgToData(d.url);
+  const loose = pickImage(txt);
+  if (loose) return loose;
+  throw new Error('生图接口没返回图片');
+}
+
+async function imgViaEdits(root, key, model, prompt, ref, size) {
+  if (typeof FormData === 'undefined' || typeof Blob === 'undefined') throw new Error('这个浏览器不支持图生图');
+  const blob = dataUriToBlob(ref);
+  if (!blob) throw new Error('参考图不是 base64 图片');
+  const fd = new FormData();
+  fd.append('model', model);
+  fd.append('prompt', prompt);
+  fd.append('size', size);
+  fd.append('n', '1');
+  fd.append('image', blob, 'ref.png');
+  const res = await fetch(root + '/images/edits', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
+  const txt = await res.text();
+  let json = null;
+  try { json = JSON.parse(txt); } catch (e) { /* 同上 */ }
+  if (!res.ok) throw new Error(imgBodyError(json, res));
+  const d = (json && json.data && json.data[0]) || {};
+  if (d.b64_json) return 'data:image/png;base64,' + d.b64_json;
+  if (d.url) return await imgToData(d.url);
+  const loose = pickImage(txt);
+  if (loose) return loose;
+  throw new Error('图生图接口没返回图片');
+}
+
+async function imgViaChat(root, key, model, prompt, ref) {
+  const content = ref
+    ? [{ type: 'text', text: prompt + '\n（请参照这张图，只输出生成好的图片本身）' }, { type: 'image_url', image_url: { url: ref } }]
+    : [{ type: 'text', text: prompt + '\n（只输出生成好的图片本身，不要写别的）' }];
+  const res = await fetch(root + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }] })
+  });
+  const txt = await res.text();
+  let json = null;
+  try { json = JSON.parse(txt); } catch (e) { /* 同上 */ }
+  if (!res.ok) throw new Error(imgBodyError(json, res));
+  const msg = ((json && json.choices) || [])[0] || {};
+  const body = (msg.message && msg.message.content) || '';
+  const real = typeof body === 'string' ? body : (Array.isArray(body) ? body.map(p => p.text || (p.image_url && p.image_url.url) || '').join('\n') : '');
+  const src = pickImage(real) || pickImage(txt);
+  if (!src) throw new Error('聊天接口没返回图片（模型可能不会出图）');
+  return await imgToData(src);
+}
+
+/* 出图。ref 传了就是图生图。返回可直接塞进 <img src> 的字符串。 */
+async function genImage(prompt, ref) {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('先用一句话说说想画什么');
+  const root = imgRoot(), key = imgKey(), model = imgModel();
+  if (!root || !key) throw new Error('还没配接口：去「设置 → 生图接口」（也可以留空，跟随聊天接口）');
+  if (!model) throw new Error('还没填生图模型：去「设置 → 生图接口」写一个能出图的模型名');
+  const size = imgSize();
+  const meta = [];
+  try {
+    return await (ref ? imgViaEdits(root, key, model, text, ref, size) : imgViaGenerations(root, key, model, text, size));
+  } catch (e) { meta.push(e.message); }
+  try { return await imgViaChat(root, key, model, text, ref); }
+  catch (e) { meta.push(e.message); }
+  throw new Error(meta.join('；'));
+}
+
+/* 「测试」按钮：花最少的 token 试一条，只为确认这条路通。 */
+async function testImage() {
+  const t0 = Date.now();
+  const src = await genImage('一个奶油色的小圆点，纯白背景，极简');
+  return { ok: true, ms: Date.now() - t0, src };
 }
 
 const SPLIT_MARK = '%%';
@@ -1090,8 +1471,15 @@ window.SJ = {
   WIDGET_TYPES, WIDGET_PAGES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
-  cartCount, cartTotal, clearCart, placeOrder,
+  cartCount, cartTotal, cartAdd, clearCart, placeOrder,
   parsePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
+  /* 外观：自定义壁纸 + 头像 */
+  WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,
+  /* 生图 */
+  imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData,
+  /* 朋友圈 */
+  MOMENT_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
+  generateMoment, autoMoment,
   exportState, importState
 };

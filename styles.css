@@ -1504,3 +1504,15 @@ input.field[type="range"]::-webkit-slider-thumb {
   background-size: cover; background-position: center; box-shadow: var(--shadow-s);
 }
 .mo-prev.on { display: block; }
+
+/* ══════════════════════════════════════════════════════
+   转账 / 红包：金额和留言自己填
+   金额框用 calc 扣掉两侧留白 —— .field 是 width:100%，
+   直接加 margin 会顶出屏幕。
+   ══════════════════════════════════════════════════════ */
+.money-form { padding-top: 2px; }
+.money-form .field { width: calc(100% - 44px); margin: 0 22px 10px; box-sizing: border-box; }
+.money-amt { text-align: center; font-size: 26px; font-weight: 600; letter-spacing: .4px; }
+.money-amt::-webkit-outer-spin-button, .money-amt::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.money-chips { padding: 2px 22px 10px; }
+.money-go { width: calc(100% - 44px); margin: 4px 22px 6px; }

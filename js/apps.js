@@ -1404,7 +1404,7 @@ const APPS = [
             SJ.el('div', { class: 'tr-ico' }, '¥'),
             SJ.el('div', { class: 'tr-body' }, [
               SJ.el('div', { class: 'tr-amt' }, '¥' + Number(m.amount || 0).toFixed(2)),
-              SJ.el('div', { class: 'tr-tip' }, '转账给对方')
+              SJ.el('div', { class: 'tr-tip' }, m.note || '转账给对方')
             ])
           ]);
           row(b, true);
@@ -1797,13 +1797,49 @@ const APPS = [
           ]));
         }
 
-        const AMOUNTS = [[5.2, '一杯奶茶'], [13.14, '一点点心意'], [52, '请你吃顿饭'], [100, '帮个忙'], [520, '别问了']];
-        function askTransfer() {
-          sheet(AMOUNTS.map(([v, hint]) => ({
-            icon: '¥', label: v.toFixed(2), hint,
-            run: () => sendMedia({ kind: 'transfer', amount: v, text: `[转账 ¥${v.toFixed(2)}]` })
-          })));
+        /* 转账和红包共用一张单：金额自己填，留言自己写。
+           快捷金额是「填进去」不是「直接发」—— 想改个数字不该从头再点一遍。
+           留言会拼进 text 一起存：接口历史喂给模型的就是 m.text，
+           不拼进去的话，AI 收到转账只知道有钱、不知道你说了什么。 */
+        const QUICK = {
+          transfer: [5.2, 13.14, 52, 100, 520],
+          packet: [1.68, 6.66, 8.88, 18.88, 66.6]
+        };
+        function askMoney(kind) {
+          const isT = kind === 'transfer';
+          const amt = SJ.el('input', {
+            class: 'field money-amt', type: 'number', inputmode: 'decimal',
+            step: '0.01', min: '0.01', placeholder: '0.00'
+          });
+          const note = SJ.el('input', {
+            class: 'field money-note', maxlength: '30',
+            placeholder: isT ? '留句话（可不填）' : '恭喜发财，大吉大利'
+          });
+          const chips = SJ.el('div', { class: 'chips money-chips' },
+            QUICK[kind].map(v => SJ.el('button', {
+              class: 'chip', type: 'button',
+              onclick: () => { amt.value = v.toFixed(2); note.focus(); }
+            }, v.toFixed(2))));
+          let mask = null;
+          const go = () => {
+            const v = Math.round(Number(amt.value) * 100) / 100;
+            if (!(v > 0)) { toast('先填个金额'); amt.focus(); return; }
+            if (v > 200000) { toast('一次别超过 20 万'); amt.focus(); return; }
+            const msg = String(note.value || '').trim().slice(0, 30);
+            const text = (isT ? `[转账 ¥${v.toFixed(2)}]` : `[红包 ¥${v.toFixed(2)}]`) + (msg ? ' ' + msg : '');
+            if (mask) mask.remove();
+            sendMedia({ kind, amount: v, note: msg, text });
+          };
+          const form = SJ.el('div', { class: 'money-form' }, [
+            SJ.el('div', { class: 'sheet-head' }, isT ? '转账' : '发红包'),
+            chips, amt, note,
+            SJ.el('button', { class: 'btn money-go', onclick: go }, isT ? '转账' : '塞进红包')
+          ]);
+          mask = sheet([], form);
+          setTimeout(() => { if (amt.focus) amt.focus(); }, 60);
         }
+        const askTransfer = () => askMoney('transfer');
+        const askPacket = () => askMoney('packet');
 
         /* 发语音：把输入框里的话包成语音条。
            浏览器 TTS 念的就是这段文字，所以「用打字模仿说话」这件事天然成立。 */
@@ -1838,13 +1874,6 @@ const APPS = [
           });
           root.append(f);
           f.click();
-        }
-
-        function askPacket() {
-          sheet(AMOUNTS.map(([v, hint]) => ({
-            icon: '🧧', label: '¥' + v.toFixed(2), hint,
-            run: () => sendMedia({ kind: 'packet', amount: v, note: hint, text: `[红包 ¥${v.toFixed(2)}]` })
-          })));
         }
 
         const PLACES = [

@@ -685,6 +685,19 @@ const clickSheet = label => {
 };
 const toasts = () => walk(byId.phone).filter(x => x._class.has('toast')).map(x => x.textContent).join('|');
 
+/* 转账 / 红包那张单：金额和留言自己填。发送键是 .btn.money-go，不是 .sheet-item，
+   所以 clickSheet() 够不着，得单独两个小工具。 */
+const setMoney = (cls, v) => {
+  const i = walk(byId.phone).find(x => x._class.has(cls));
+  if (i) i.value = v;
+  return !!i;
+};
+const moneyGo = () => {
+  const b = walk(byId.phone).find(x => x._class.has('money-go'));
+  if (b) b.click();
+  return !!b;
+};
+
 const xm3 = sandbox.SJ.saveCharacter(sandbox.SJ.makeCharacter({ name: '阿澈3', greeting: '' }));
 sandbox.SJ.state.settings.apiBase = 'https://api.example.com/v1';
 sandbox.SJ.state.settings.apiKey = 'sk-test';
@@ -738,8 +751,10 @@ ok('撤回把自己最后发的那条拿掉了',
 
 plus3.click();
 clickSheet('转账');
-ok('转账面板给出好几个金额可选', sheetLabels().length >= 3, JSON.stringify(sheetLabels()));
-clickSheet('13.14');
+ok('转账面板给了一排快捷金额', walk(byId.phone).filter(x => x._class.has('chip')).length >= 3,
+  String(walk(byId.phone).filter(x => x._class.has('chip')).length));
+setMoney('money-amt', '13.14');
+moneyGo();
 const tr = sandbox.SJ.messages(xm3.id).slice(-1)[0];
 ok('转账作为一条消息存下来', tr.kind === 'transfer' && tr.amount === 13.14, JSON.stringify(tr));
 ok('给模型看到的是一句人话，不是一串 JSON', tr.text === '[转账 ¥13.14]', tr.text);
@@ -2246,7 +2261,9 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
   const msgKind = k => S.messages(mc.id).filter(m => m.kind === k).slice(-1)[0];
 
   clickSheet('发红包');
-  clickSheet('¥52.00');
+  setMoney('money-amt', '52');
+  setMoney('money-note', '请你吃顿饭');
+  moneyGo();
   ok('红包落盘成 kind=packet 且带金额备注',
     (msgKind('packet') || {}).amount === 52 && (msgKind('packet') || {}).note === '请你吃顿饭');
   ok('红包画成了红包气泡', last().some(n => n._class.has('packet')));
@@ -3013,6 +3030,101 @@ console.log('\n[36] 主动找多人 / 自己发朋友圈');
     !!myRow && !myRow.textContent.includes('已删除的角色'), myRow ? myRow.textContent.slice(0, 40) : 'none');
   ok('自己发的也落盘了',
     (JSON.parse(store.get('xiaoshouji.v1') || '{}').moments || []).some(m => m.charId === '__me'));
+
+  sandbox.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   [37] 转账 / 红包：金额自己填、留言自己写
+   ══════════════════════════════════════════════════════════════ */
+console.log('\n[37] 转账 / 红包自己填');
+{
+  const A = sandbox.SJ;
+  sandbox.SHELL.closeAll();
+  A.resetAll();
+  const top = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+  const onPhone = () => walk(byId.phone);
+  const c = A.saveCharacter(A.makeCharacter({ name: '钱测试' }));
+  /* 面板（.mask）是挂在 #phone 上的，不是挂在视图栈里 —— 上一个区没关干净的话
+     find() 会先摸到那张旧表单。开工前先把残留面板清掉。 */
+  walk(byId.phone).filter(n => n._class.has('mask')).forEach(n => n.remove());
+  sandbox.SHELL.openApp('chat', c.id);
+  await sleep(120);
+  const plus = top().find(n => n._class.has('chat-plus'));
+  const kindLast = k => A.messages(c.id).filter(m => m.kind === k).slice(-1)[0];
+  /* 表单在 #phone 上、气泡在栈顶视图里 —— 两边都得找，别拿一个函数套两处 */
+  const money = cls => onPhone().find(n => n._class.has(cls));
+
+  plus.click();
+  const labels = sheetLabels();
+  ok('「＋」里有发红包和转账', labels.includes('发红包') && labels.includes('转账'), JSON.stringify(labels));
+
+  /* ── 那张单长什么样 ── */
+  clickSheet('转账');
+  ok('转账给了金额框', !!money('money-amt'));
+  ok('转账给了留言框', !!money('money-note'));
+  ok('金额框用数字键盘（手机上一按就是数字）', (money('money-amt') || {}).attrs.type === 'number');
+  const chipNodes = walk(money('money-chips') || { children: [] }).filter(n => n._class.has('chip'));
+  ok('有一排快捷金额', chipNodes.length >= 5, String(chipNodes.length));
+  ok('留言框有字数上限', (money('money-note') || {}).attrs.maxlength === '30');
+
+  /* ── 填错的不让发 ── */
+  moneyGo();
+  ok('空金额不给发，还提醒了一句', !kindLast('transfer') && /金额/.test(toasts()), toasts());
+  setMoney('money-amt', '0'); moneyGo();
+  ok('金额 0 不给发', !kindLast('transfer'));
+  setMoney('money-amt', 'abc'); moneyGo();
+  ok('填了不是数字的东西也不给发', !kindLast('transfer'));
+  setMoney('money-amt', '999999'); moneyGo();
+  ok('一次超过 20 万不给发', !kindLast('transfer'));
+
+  /* ── 快捷金额是「填进去」不是「直接发」 ── */
+  const chip = walk(money('money-chips')).find(n => n._class.has('chip'));
+  ok('快捷金额的按钮找得到', !!chip, chip ? chip.textContent : 'none');
+  if (chip) chip.click();
+  ok('点快捷金额是把它填进框里，不是直接发出去',
+    (money('money-amt') || {}).value === chip.textContent && !kindLast('transfer'),
+    (money('money-amt') || {}).value);
+
+  /* ── 自己填的金额 + 留言 ── */
+  setMoney('money-amt', '88.88');
+  setMoney('money-note', '生日快乐');
+  moneyGo();
+  const tr = kindLast('transfer');
+  ok('转账金额是自己填的那个', !!tr && tr.amount === 88.88, String(tr && tr.amount));
+  ok('留言跟着消息一起存下来了', !!tr && tr.note === '生日快乐', tr ? tr.note : 'none');
+  ok('留言拼进了「给模型看的那句话」里',
+    !!tr && tr.text.includes('88.88') && tr.text.includes('生日快乐'), tr ? tr.text : 'none');
+  ok('转账卡片上写的是我留的话',
+    top().some(n => n._class.has('tr-tip') && n.textContent === '生日快乐'));
+  ok('金额显示成两位小数', top().some(n => n._class.has('tr-amt') && n.textContent === '¥88.88'));
+  ok('发完那张单自己关了', !onPhone().some(n => n._class.has('money-form')));
+
+  /* ── 不留言时的兜底 ── */
+  plus.click(); clickSheet('转账');
+  setMoney('money-amt', '1');
+  moneyGo();
+  ok('转账不留言就有个兜底文案',
+    top().some(n => n._class.has('tr-tip') && n.textContent === '转账给对方'));
+  ok('不留言时 text 里就只有金额，不会多一个空格尾巴',
+    kindLast('transfer').text === '[转账 ¥1.00]', kindLast('transfer').text);
+
+  /* ── 红包走同一个单 ── */
+  plus.click(); clickSheet('发红包');
+  setMoney('money-amt', '9.99');
+  moneyGo();
+  const pk = kindLast('packet');
+  ok('红包金额也是自己填的', !!pk && pk.amount === 9.99, String(pk && pk.amount));
+  ok('红包不留言时是「恭喜发财，大吉大利」',
+    top().some(n => n._class.has('pk-note') && n.textContent === '恭喜发财，大吉大利'));
+
+  plus.click(); clickSheet('发红包');
+  setMoney('money-amt', '6.66');
+  setMoney('money-note', '给你买水');
+  moneyGo();
+  ok('红包留言也存下来了并且显示在红包上',
+    (kindLast('packet') || {}).note === '给你买水'
+    && top().some(n => n._class.has('pk-note') && n.textContent === '给你买水'));
 
   sandbox.SHELL.closeAll();
 }

@@ -204,6 +204,12 @@ html, body {
   stroke-width: 2.05;
   filter: drop-shadow(0 1px 1.5px rgba(70, 62, 52, .26));
 }
+/* 桌面图标现在是彩色图片（OpenMoji）。同一套投影 —— 图也得「浮」在色块上，
+   否则平贴上去，色调再好看也还是贴纸。 */
+.icon-art img {
+  position: relative; z-index: 1; display: block;
+  filter: drop-shadow(0 1px 1.5px rgba(70, 62, 52, .26));
+}
 .icon.small .icon-art { width: 56px; height: 56px; border-radius: 19px; }
 .icon-name {
   font-size: 11.5px; letter-spacing: .2px; color: #4b463f; font-weight: 500;
@@ -552,12 +558,23 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   animation: fade .16s;
 }
 @keyframes fade { from { opacity: 0; } }
+/* 收场 —— 入场做了动画、出场直接 remove() 是「啪」地原地消失，最生硬的就是这一下。
+   统一由 apps.js 的 dismiss() 加 .out 类，动画走完才摘节点。
+   pointer-events: none 是为了让正在淡出的遮罩别再把底下的点击吃掉。 */
+.mask.out { animation: fadeOut .2s ease-in forwards; pointer-events: none; }
+@keyframes fadeOut { to { opacity: 0; } }
+.mask.out .confirm { transform: scale(.96); opacity: 0; }
 .confirm {
   width: 100%; max-width: 280px;
   background: rgba(255, 255, 255, .96); backdrop-filter: blur(24px);
   border-radius: 20px; overflow: hidden;
   box-shadow: 0 20px 50px rgba(90, 82, 72, .3);
+  transition: transform .18s ease-in, opacity .18s ease-in;
+  /* 入场：从略小弹到原尺寸。遮罩只是淡进来，弹窗自己不缩一下就「平」了。
+     不加 forwards —— 播完要回到基准值，不然后面 .out 的过渡接不上。 */
+  animation: confirmIn .2s cubic-bezier(.22, 1, .36, 1);
 }
+@keyframes confirmIn { from { transform: scale(.92); opacity: 0; } }
 .confirm-text { padding: 22px 20px; font-size: 15px; text-align: center; line-height: 1.6; }
 .confirm-actions { display: flex; border-top: 1px solid var(--line); }
 .confirm-actions .btn { flex: 1; border-radius: 0; background: none; padding: 15px; font-weight: 600; color: var(--accent-ink); box-shadow: none; }
@@ -618,6 +635,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   animation: sheetUp .24s cubic-bezier(.22, 1, .36, 1);
 }
 @keyframes sheetUp { from { transform: translateY(100%); } }
+/* 出场：面板滑回屏幕下沿。比遮罩淡出快一点点，否则会出现
+   「底色已经透明、面板还在半空中滑」的穿帮。 */
+.mask.out .sheet { animation: sheetDown .18s cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes sheetDown { to { transform: translateY(100%); } }
 .sheet-item {
   display: flex; align-items: center; gap: 13px; width: 100%;
   border: 0; background: none; font: inherit; font-size: 15px; color: var(--fg);
@@ -658,6 +679,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   animation: toastIn .18s ease-out;
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+/* 出场：淡下去并略微下移，和入场对称。toast 的基准位置是 translateX(-50%)，
+   所以这里必须是 translate(-50%, 6px)，只写 translateY 会把水平居中弄丢。 */
+.toast.out { animation: toastOut .2s ease-in forwards; }
+@keyframes toastOut { to { opacity: 0; transform: translate(-50%, 6px); } }
 
 /* ══ 聊天设置页（左上加的齿轮进这里） ══ */
 .who { display: flex; align-items: center; gap: 12px; padding: 2px 0 4px; }
@@ -755,6 +780,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   background: linear-gradient(180deg, rgba(255, 255, 255, .30), rgba(255, 255, 255, .04) 50%, rgba(0, 0, 0, .10));
 }
 .qk-art svg { position: relative; z-index: 1; stroke-width: 2; }
+.qk-art img { position: relative; z-index: 1; display: block; }
 .qk-name { font-size: 10.5px; opacity: .62; }
 #lock-quick .qk:active .qk-art { transform: scale(.92); }
 

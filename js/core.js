@@ -2136,8 +2136,8 @@ async function testApi() {
    那些是「谁在跟谁说话」的东西，塞进一个点外卖的请求里只会互相污染。 */
 async function askOnce(system, user) {
   const s = state.settings;
-  if (!apiRoot() || !s.apiKey) throw new Error('还没配 AI 接口：去「设置 → AI 接口」填接口地址和 Key');
-  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」拉一下模型列表，选一个再来');
+  if (!apiRoot() || !s.apiKey) throw new Error('还没填接口地址和 Key：去「设置」里补上');
+  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
   const res = await fetch(apiRoot() + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
@@ -2306,8 +2306,8 @@ async function genImage(prompt, ref) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('先用一句话说说想画什么');
   const root = imgRoot(), key = imgKey(), model = imgModel();
-  if (!root || !key) throw new Error('还没配接口：去「设置 → 生图接口」（也可以留空，跟随聊天接口）');
-  if (!model) throw new Error('还没填生图模型：去「设置 → 生图接口」写一个能出图的模型名');
+  if (!root || !key) throw new Error('还没配接口：去「设置」里的「生图接口」（也可以留空，跟着上面那套走）');
+  if (!model) throw new Error('还没填生图模型：去「设置」里的「生图接口」写一个能出图的');
   const size = imgSize();
   const meta = [];
   try {
@@ -2631,9 +2631,9 @@ async function askGroup(g, history) {
     const who = pickSpeaker(g, '');
     const last = all.filter(m => m.me).pop();
     return (who ? who.name : '群里的人') + '：（本地演示）我收到了：「' + (last ? last.text : '')
-      + '」。到「设置 → AI 接口」填上接口地址和 Key，群里就会真的有人接话。';
+      + '」。去「设置」里填上接口地址和 Key，群里就会真的有人接话。';
   }
-  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」点一下「拉取模型列表」，选一个能聊天的模型再来');
+  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
   const keep = Math.max(2, Number(s.historyKeep) || 40);
   const usr = '【群里刚说的话】\n' + groupLines(all.slice(-keep)).join('\n') + '\n\n接着往下聊。';
   return askOnce(buildGroupSystem(g, all), usr);
@@ -2646,9 +2646,9 @@ async function askCharacter(char, history) {
   const all = history || [];
   if (!apiRoot() || !s.apiKey) {
     const last = all.filter(m => m.me).pop();
-    return `（本地演示）我收到了：「${last ? last.text : ''}」。到「设置 → AI 接口」填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`;
+    return `（本地演示）我收到了：「${last ? last.text : ''}」。去「设置」里填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`;
   }
-  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」点一下「拉取模型列表」，选一个能聊天的模型再来');
+  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
   /* 只带最近 keep 条原文，更早的内容靠记忆卡片顶上。
      世界书扫描仍然吃全部历史 —— 不然刚滚出窗口的关键词就触发不了了。 */
   const keep = Math.max(2, Number(s.historyKeep) || 40);
@@ -2694,8 +2694,8 @@ async function summarize(char, msgs) {
   const s = state.settings;
   const list = (msgs || []).filter(m => m && m.text && !m.img);
   if (list.length < 2) throw new Error('这段对话太短了，没什么好总结的');
-  if (!apiRoot() || !s.apiKey) throw new Error('先去「设置 → AI 接口」填接口地址和 Key');
-  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」拉一下模型列表');
+  if (!apiRoot() || !s.apiKey) throw new Error('先去「设置」里填上接口地址和 Key');
+  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」');
   const who = (char && char.name) || '对方';
   const text = list.map(m => (m.me ? '我：' : who + '：') + m.text).join('\n').slice(-TEXT_MAX * 2);
   const res = await fetch(apiRoot() + '/chat/completions', {

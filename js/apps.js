@@ -72,6 +72,19 @@ function svg(name, size = 30) {
     ${ICON[name] || ICON.note}</svg>`;
 }
 
+/* ── 桌面图标：换成一套彩色的 ──
+   上面那批单色描边只用来画 App 内部的导航/按钮（返回、关闭、加号…）——
+   那些地方必须跟文字同色，塞彩色图反而乱。
+   桌面上那 14 个格子用文件图标：OpenMoji（CC BY-SA 4.0），
+   德国包豪斯设计学院那套开源 emoji —— 粗描边 + 平涂，手绘感强、全彩、有表情。
+   每个 App 的 art 字段就是对应码点，图片在 icons/om/<码点>.svg。
+   想整套换掉：把另一套按同样码点放进 icons/xx/，改下面这行前缀即可。 */
+const ART_SET = 'icons/om';
+function appIcon(app, size = 36) {
+  if (!app || !app.art) return svg(app && app.icon, size);   // 没配 art 的退回线性图
+  return `<img src="${ART_SET}/${app.art}.svg" width="${size}" height="${size}" alt="" draggable="false">`;
+}
+
 /* ── 共用小组件 ── */
 /* 不传 back 的一律退回上一层视图（App 主页面 = 退回桌面）。
    以前这里默认渲染一个空占位，导致每个 App 点进去都出不来 —— 别再改回去。 */
@@ -88,18 +101,43 @@ function navBar(title, { back = null, left = null, right = null } = {}) {
   ]);
 }
 
+/* 收起遮罩 / 面板 / 吐司一律走这里。直接 remove() 是「啪」一下原地消失，
+   手感很硬 —— 而这些东西入场都做了动画（fade / sheetUp / toastIn），
+   只补入场不补出场，等于把最容易被看见的那一半落下了。
+   加 .out 播一段收尾，动画走完再摘节点。
+   开了「关掉动画」的用户直接摘：不要给一个明确说不要动画的人留一段空等。
+
+   还有一条：自检跑在极简 DOM 垫片上，那里没有真正的动画引擎。
+   靠 getAnimations 探一下有没有 CSS 动画能力 —— 没有就同步摘掉，
+   否则遮罩会在树上挂 230ms，自检里「点了就该关掉」的同步断言会看到一堆残留。
+   真浏览器里 Element.prototype.getAnimations 是有的（Chrome 84+）。 */
+function canAnimate() {
+  try { return typeof Element !== 'undefined' && typeof Element.prototype.getAnimations === 'function'; }
+  catch (e) { return false; }
+}
+function dismiss(node, ms = 230) {
+  if (!node || !node.parentNode) return;
+  let quiet = false;
+  try { quiet = document.getElementById('phone').classList.contains('no-anim'); } catch (e) {}
+  if (quiet || !canAnimate()) { node.remove(); return; }
+  node.classList.add('out');
+  setTimeout(() => node.remove(), ms);
+}
+
 /* 确认弹窗（自己实现，不用 window.confirm，样式统一且不阻塞） */
 function confirmBox(text, onOk) {
   const mask = SJ.el('div', { class: 'mask' });
   const box = SJ.el('div', { class: 'confirm' }, [
     SJ.el('div', { class: 'confirm-text' }, text),
     SJ.el('div', { class: 'confirm-actions' }, [
-      SJ.el('button', { class: 'btn ghost', onclick: () => mask.remove() }, '取消'),
-      SJ.el('button', { class: 'btn danger', onclick: () => { mask.remove(); onOk(); } }, '确定')
+      SJ.el('button', { class: 'btn ghost', onclick: () => dismiss(mask) }, '取消'),
+      /* onOk 立刻执行，不跟着动画等：它多半要重画整个页面，
+         等 200ms 再执行会让用户觉得点了没反应。遮罩自己淡出就行。 */
+      SJ.el('button', { class: 'btn danger', onclick: () => { dismiss(mask); onOk(); } }, '确定')
     ])
   ]);
   mask.append(box);
-  mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+  mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
   document.getElementById('phone').append(mask);
 }
 
@@ -141,14 +179,17 @@ function sheet(items, head) {
   if (head) panel.append(typeof head === 'string' ? SJ.el('div', { class: 'sheet-head' }, head) : head);
   items.forEach(it => panel.append(SJ.el('button', {
     class: 'sheet-item' + (it.off ? ' off' : ''),
-    onclick: () => { if (it.off) return; mask.remove(); it.run(); }
+    /* 点任何一项都先收起面板，再干活。it.off 那条是「不给你点」，直接 return，面板留着。
+       ⚠️ 别把 dismiss 挪进 it.off 分支 —— 那样普通项点完面板就永远关不掉了
+       （自检里会攒出一堆残留面板，正是这么被抓出来的）。 */
+    onclick: () => { if (it.off) return; dismiss(mask); it.run(); }
   }, [
     SJ.el('span', { class: 'si-icon' }, it.icon),
     SJ.el('span', { class: 'si-label' }, it.label),
     it.hint ? SJ.el('span', { class: 'si-hint' }, it.hint) : null
   ].filter(Boolean))));
   mask.append(panel);
-  mask.addEventListener('click', e => { if (e.target === mask) mask.remove(); });
+  mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
   document.getElementById('phone').append(mask);
   return mask;
 }
@@ -157,7 +198,9 @@ function sheet(items, head) {
 function toast(msg) {
   const t = SJ.el('div', { class: 'toast' }, msg);
   document.getElementById('phone').append(t);
-  setTimeout(() => t.remove(), 1700);
+  /* 1700ms 到点后不能直接 remove：那是瞬间消失。多给 200ms 让它淡出去。
+     返回值还是要能立刻摘掉（调用方拿它当「这条提示作废」用），所以 remove 照旧可用。 */
+  setTimeout(() => dismiss(t, 220), 1700);
   return t;
 }
 
@@ -382,6 +425,7 @@ const APPS = [
     id: 'contacts',
     name: '通讯录',
     icon: 'people',
+    art: '1F465',
     color: 'linear-gradient(150deg,#d9cfc3,#b9aa9a)',
     render(root, close) {
       function listView() {
@@ -450,7 +494,7 @@ const APPS = [
 
         const name = SJ.el('input', { class: 'field', placeholder: '名字', value: c.name });
         const desc = SJ.el('input', { class: 'field', placeholder: '一句话简介（可留空）', value: c.desc });
-        const persona = SJ.el('textarea', { class: 'field area', placeholder: '人设 / 性格 / 说话方式 —— 这段会当系统提示词发给模型' }, c.persona);
+        const persona = SJ.el('textarea', { class: 'field area', placeholder: '人设 / 性格 / 说话方式 —— 你写什么，她就像什么' }, c.persona);
         const greet = SJ.el('textarea', { class: 'field area sm', placeholder: '开场白：他第一句会说什么？（可留空）' }, c.greeting);
 
         /* 头像：emoji 或一张真图。真图存在存档里（data URI），所以要压过再存。
@@ -482,9 +526,9 @@ const APPS = [
               );
               c.avatarImg = src; refreshAv(); toast('画好了，记得点保存');
             } catch (e) { toast(e.message || '没画出来'); }
-            avAi.disabled = false; avAi.textContent = 'AI 画一张';
+            avAi.disabled = false; avAi.textContent = '帮我画一张';
           }
-        }, 'AI 画一张');
+        }, '帮我画一张');
         const avBox = SJ.el('div', { class: 'av-box' }, [
           avPrev,
           SJ.el('div', { class: 'av-btns' }, [avBtn, avClear, avAi])
@@ -530,6 +574,7 @@ const APPS = [
     id: 'chat',
     name: '微信',
     icon: 'wechat',
+    art: '1F4AC',
     color: 'linear-gradient(150deg,#c7dcc4,#a2c09e)',
     render(root, close, openWith) {
       /* 底部三个页签，和真微信一样。只在三个「主页面」上挂，
@@ -732,7 +777,7 @@ const APPS = [
           if (!(v > 0)) { toast('先填个金额'); amt.focus(); return; }
           if (v > 99999999) { toast('一次别超过 1 亿'); amt.focus(); return; }
           SJ.walletIn(v, '充值', '零钱充值');
-          if (mask) mask.remove();
+          if (mask) dismiss(mask);
           toast('充值成功 ' + money(v));
           walletView();
         };
@@ -760,7 +805,7 @@ const APPS = [
           ['wallet', '钱包', '余额 ¥' + SJ.walletBalance().toFixed(2) + ' · 外卖和购物都从这儿扣', 'wallet'],
           ['palette', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],
           ['people', '通讯录', `${SJ.state.characters.length} 个角色`, 'contacts'],
-          ['gear', '设置', 'AI 接口 / 生图 / 存档', 'settings']
+          ['gear', '设置', '接口 / 生图 / 存档', 'settings']
         ].forEach(([ic, title, sub, app]) => {
           box.append(SJ.el('div', {
             class: 'row',
@@ -824,7 +869,7 @@ const APPS = [
       function momentNew() {
         const cs = SJ.state.characters;
         const items = [{
-          icon: '🙋', label: '我自己发一条', hint: '写点你自己的，不用等 AI',
+          icon: '🙋', label: '我自己发一条', hint: '写点你自己的，不用等它',
           run: () => momentMine()
         }, {
           icon: '✨', label: '让最近聊过的人发一条', hint: '按你们最近的对话写',
@@ -921,9 +966,9 @@ const APPS = [
                 const b = ev.target;
                 b.disabled = true; b.textContent = '画着呢…';
                 try { m.img = await SJ.genImage(`配图，画的是这个场景：${m.text}\n风格：柔和的日系插画，莫兰迪配色，方形构图`); SJ.save(); momentsView(); }
-                catch (e) { toast(e.message || '没画出来'); b.disabled = false; b.textContent = '让 AI 配张图'; }
+                catch (e) { toast(e.message || '没画出来'); b.disabled = false; b.textContent = '配张图'; }
               }
-            }, '让 AI 配张图'));
+            }, '配张图'));
           }
           /* 点赞 / 评论 */
           const likes = m.likes.map(charName).filter(Boolean);
@@ -1013,7 +1058,7 @@ const APPS = [
         const sumBtn = SJ.el('button', { class: 'btn ghost' }, '手动总结这段对话');
         sumBtn.addEventListener('click', async () => {
           sumBtn.disabled = true; sumBtn.textContent = '总结中…';
-          tip.style.color = ''; tip.textContent = '模型正在把这段对话浓缩成记忆…';
+          tip.style.color = ''; tip.textContent = '正在把这段聊天记进心里…';
           try {
             const n = await SJ.memorizeNow(c);
             tip.textContent = n ? `记住了 ${n} 件事` : '没有新的内容可记（重复的会自动跳过）';
@@ -1962,7 +2007,7 @@ const APPS = [
            自己收的图长按删掉 —— 每格挂一个删除按钮太吵，这又不是「管理」页。 */
         function pickImage() {
           let mask = null;
-          const close = () => { if (mask) mask.remove(); };
+          const close = () => { if (mask) dismiss(mask); };
           const grid = SJ.el('div', { class: 'sticker-grid' });
           const send = s => {
             close();
@@ -2043,7 +2088,7 @@ const APPS = [
             if (v > 200000) { toast('一次别超过 20 万'); amt.focus(); return; }
             const msg = String(note.value || '').trim().slice(0, 30);
             const text = (isT ? `[转账 ¥${v.toFixed(2)}]` : `[红包 ¥${v.toFixed(2)}]`) + (msg ? ' ' + msg : '');
-            if (mask) mask.remove();
+            if (mask) dismiss(mask);
             sendMedia({ kind, amount: v, note: msg, text });
           };
           const form = SJ.el('div', { class: 'money-form' }, [
@@ -2161,6 +2206,7 @@ const APPS = [
     id: 'notes',
     name: '备忘录',
     icon: 'note',
+    art: '1F4DD',
     color: 'linear-gradient(150deg,#f0dcbb,#dcbf93)',
     render(root, close) {
       function listView() {
@@ -2230,6 +2276,7 @@ const APPS = [
     id: 'clock',
     name: '时钟',
     icon: 'clock',
+    art: '23F0',
     color: 'linear-gradient(150deg,#d5cfe0,#b3aac4)',
     render(root, close) {
       let tab = 'clock';
@@ -2308,6 +2355,7 @@ const APPS = [
     id: 'calendar',
     name: '日历',
     icon: 'calendar',
+    art: '1F4C5',
     color: '#b08d7a',
     render(root, close, openWith) {
       const p2 = n => String(n).padStart(2, '0');
@@ -2428,6 +2476,7 @@ const APPS = [
     id: 'worldbook',
     name: '世界书',
     icon: 'book',
+    art: '1F4D6',
     color: 'linear-gradient(150deg,#ccd7e8,#9db0cd)',
     render(root, close) {
       const pickHead = SJ.el('div', { class: 'hint', style: { padding: '2px 6px 12px' } }, '这张卡属于谁？');
@@ -2444,7 +2493,7 @@ const APPS = [
             SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
             SJ.save(); homeView();
           }),
-          SJ.el('div', { class: 'hint' }, '聊到关键词，卡的正文才喂给模型 —— 不聊就不占 token。优先级越大越靠后注入，模型越当回事。')
+          SJ.el('div', { class: 'hint' }, '聊到关键词，卡里的正文才会生效 —— 没聊到就不占额度。数字越大越靠后塞进去，她越当回事。')
         ]));
 
         if (!SJ.state.worldbook.length) {
@@ -2471,7 +2520,7 @@ const APPS = [
 
         /* 上下文预算：这两个数决定每次发给模型多少东西，直接影响花费 */
         box.append(SJ.el('div', { class: 'group-title' }, '上下文'));
-        box.append(numRow('原文窗口', '最多带最近几条原话发给模型', 'historyKeep', 4, 200));
+        box.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
         box.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
         root.append(box);
       }
@@ -2500,7 +2549,7 @@ const APPS = [
 
         const title = SJ.el('input', { class: 'field', placeholder: '卡的名字（只给你自己看）', value: e.title });
         const keys = SJ.el('input', { class: 'field', placeholder: '关键词，逗号隔开：手机, 来历, 你怎么在这', value: (e.keys || []).join(', ') });
-        const content = SJ.el('textarea', { class: 'field area', placeholder: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。' }, e.content);
+        const content = SJ.el('textarea', { class: 'field area', placeholder: '聊到关键词时，把这段塞给她看。写设定、写前情、写规矩都行。' }, e.content);
         const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
 
         const owner = SJ.el('div', { class: 'row-time' });
@@ -2552,7 +2601,7 @@ const APPS = [
           SJ.el('div', { class: 'row' }, [
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, '优先级'),
-              SJ.el('div', { class: 'row-sub' }, '数字越大越靠后注入，模型越当回事。默认 100')
+              SJ.el('div', { class: 'row-sub' }, '数字越大越靠后塞进去，她越当回事。默认 100')
             ]),
             order
           ]),
@@ -2573,6 +2622,7 @@ const APPS = [
     id: 'delivery',
     name: '外卖',
     icon: 'bowl',
+    art: '1F35C',
     color: 'linear-gradient(150deg,#f6d9a6,#dfa85c)',
     render(root) {
       let busy = false;
@@ -2750,7 +2800,7 @@ const APPS = [
         body.push(chips);
 
         if (busy) {
-          body.push(SJ.el('div', { class: 'empty big' }, '正在给你张罗商家…\n（AI 现编，头一次慢几秒）'));
+          body.push(SJ.el('div', { class: 'empty big' }, '商家正在火速赶来…\n（头一回来会慢几秒，先别急）'));
           return void page('home', '外卖', body, {
             right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
           });
@@ -2761,7 +2811,7 @@ const APPS = [
           body.push(SJ.el('div', { class: 'pad' }, [
             SJ.el('button', { class: 'btn', onclick: () => regen() }, '生成一批商家'),
             SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
-              '商家和菜是 AI 现编的，每点一次都不一样。需要先在「设置 → AI 接口」里配好接口和模型。')
+              '每一次的商家和菜色都不一样。想让它真的开张，先去「设置」里配好接口和模型。')
           ]));
           return void page('home', '外卖', body, {
             right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
@@ -2930,7 +2980,7 @@ const APPS = [
         const rows = [
           { t: '我的订单', s: os.length ? os.length + ' 单' : '还没有', go: ordersView },
           { t: '到店自取', s: '看哪家近', go: pickupView },
-          { t: '换一批商家', s: 'AI 现编', go: () => regen() }
+          { t: '换一批商家', s: '换个口味', go: () => regen() }
         ];
         const list = SJ.el('div', { class: 'list' });
         rows.forEach(r => list.append(SJ.el('div', { class: 'row', onclick: r.go }, [
@@ -3004,6 +3054,7 @@ const APPS = [
     id: 'mall',
     name: '桃桃商城',
     icon: 'bag',
+    art: '1F6CD',
     color: 'linear-gradient(150deg,#f7c9d4,#e08aa4)',
     render(root) {
       let busy = false;
@@ -3136,7 +3187,7 @@ const APPS = [
 
         const all = mg().goods;
         if (!all.length) {
-          box.append(SJ.el('div', { class: 'empty big' }, '还没有商品\n点右上角 ⟳ 让 AI 进一批货'));
+          box.append(SJ.el('div', { class: 'empty big' }, '货架还空着\n点右上角的 ⟳ 让桃桃去进一批货'));
         } else {
           /* 热销榜：固定按「月售」的数字排 —— 不能跟着用户的排序选择走，
              这里就是「卖得最好的几个」，和排序无关。 */
@@ -3386,7 +3437,7 @@ const APPS = [
             SJ.el('div', { class: 'row-ico', html: svg('sparkle', 19) }),
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, '换一批商品'),
-              SJ.el('div', { class: 'row-sub' }, '让 AI 重新进一批货')
+              SJ.el('div', { class: 'row-sub' }, '让桃桃重新进一批货')
             ]),
             SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
           ])
@@ -3441,6 +3492,7 @@ const APPS = [
     id: 'music',
     name: '音乐',
     icon: 'music',
+    art: '1F3A7',
     color: 'linear-gradient(150deg,#cfd8e8,#94a6c4)',
     render(root) {
       /* 播放器挂在视图外面：从列表切到导入页再切回来，歌不会断 */
@@ -3542,6 +3594,7 @@ const APPS = [
     id: 'calc',
     name: '计算器',
     icon: 'calc',
+    art: '1F9EE',
     color: 'linear-gradient(150deg,#ccdccb,#a6bfa5)',
     render(root, close) {
       let expr = '';
@@ -3581,6 +3634,7 @@ const APPS = [
     id: 'gallery',
     name: '相册',
     icon: 'photo',
+    art: '1F5BC',
     color: 'linear-gradient(150deg,#f0cdc2,#d9a99c)',
     render(root, close) {
       root.append(navBar('相册'));
@@ -3593,6 +3647,7 @@ const APPS = [
     id: 'look',
     name: '外观',
     icon: 'palette',
+    art: '1F3A8',
     color: 'linear-gradient(150deg,#e3d3e8,#b196bf)',
     render(root, close) {
       /* 改密码。这里是玩具锁不是保险箱：可以改、可以关，绝不搞"输错就清空数据"。 */
@@ -3757,6 +3812,10 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
+        /* CC BY-SA 4.0 要求署名。图标是 OpenMoji（github.com/hfg-gmuend/openmoji），
+           不是自己画的 —— 这行别删，删了就等于把署名义务一起删了。 */
+        box.append(SJ.el('div', { class: 'hint' },
+          '桌面图标来自 OpenMoji（CC BY-SA 4.0）— openmoji.org'));
         box.append(SJ.el('div', { class: 'row', onclick: () => {
           window.sheet([[0.8, '小'], [1, '正常'], [1.15, '大'], [1.3, '特大']].map(([v, n]) => ({
             icon: '🕘',
@@ -3845,6 +3904,7 @@ const APPS = [
     id: 'storage',
     name: '存储',
     icon: 'photo',
+    art: '1F4E6',
     hide: true,             // 不上桌面，只从「设置 → 存储」进来（app.js 的 appOrder 认这个标记）
     color: 'linear-gradient(150deg,#e3e6ea,#a9b1ba)',
     render(root, close) {
@@ -3952,6 +4012,7 @@ const APPS = [
     id: 'settings',
     name: '设置',
     icon: 'gear',
+    art: '2699',
     color: 'linear-gradient(150deg,#dcdedd,#b6bbbe)',
     render(root, close) {
       function main() {
@@ -3986,7 +4047,7 @@ const APPS = [
         ]));
 
         /* AI 接口 */
-        box.append(SJ.el('div', { class: 'group-title' }, 'AI 接口（可选，留空走本地演示）'));
+        box.append(SJ.el('div', { class: 'group-title' }, '接口（选填，不填也能玩）'));
         const modelSel = SJ.el('select', {
           class: 'field',
           onchange: () => { SJ.state.settings.apiModel = modelSel.value; SJ.save(); }
@@ -4001,7 +4062,7 @@ const APPS = [
 
         const modelTip = SJ.el('div', { class: 'hint' }, models.length
           ? `已取到 ${models.length} 个模型，点「测试连接」确认能通`
-          : '先点「拉取模型列表」选一个能聊天的模型，再点「测试连接」');
+          : '先点「拉取模型列表」挑一个会聊天的，再点「测试连接」');
         const pullBtn = SJ.el('button', {
           class: 'btn ghost',
           onclick: async () => {
@@ -4044,7 +4105,7 @@ const APPS = [
            单填的意义是聊天用一个模型、出图换一个更会画的。 */
         box.append(SJ.el('div', { class: 'group-title' }, '生图接口（留空跟随上面）'));
         const imgTip = SJ.el('div', { class: 'hint' },
-          SJ.imgModel() ? '当前用：' + SJ.imgModel() : '还没配，AI 画头像 / 朋友圈配图会提示去配');
+          SJ.imgModel() ? '当前用：' + SJ.imgModel() : '还没配，画头像 / 朋友圈配图时会提醒你');
         const imgTest = SJ.el('button', {
           class: 'btn ghost',
           onclick: async () => {
@@ -4210,6 +4271,7 @@ const APPS = [
 
 window.APPS = APPS;
 window.ICONSVG = svg;
+window.APPICON = appIcon;   // 桌面格子用：彩色文件图标
 window.navBar = navBar;
 window.confirmBox = confirmBox;
 window.sheet = sheet;   // app.js 的桌面插件面板要用

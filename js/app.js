@@ -148,8 +148,10 @@ function appOrder() {
 function iconNode(app, { small = false } = {}) {
   return SJ.el('button', { class: 'icon' + (small ? ' small' : ''), onclick: () => openApp(app.id) }, [
     /* 图标 36、块 60：图形撑到 60% 才不空。以前 30（50%）四周留一大圈白，
-       这是「简陋」最直观的一条。 */
-    SJ.el('span', { class: 'icon-art', html: window.ICONSVG(app.icon, small ? 27 : 36), style: { background: app.color } }),
+       这是「简陋」最直观的一条。
+       用 APPICON 而不是 ICONSVG：桌面格子走彩色文件图标，
+       单色描边 svg 留给 App 内部的导航/按钮。 */
+    SJ.el('span', { class: 'icon-art', html: window.APPICON(app, small ? 27 : 36), style: { background: app.color } }),
     SJ.el('span', { class: 'icon-name' }, app.name)
   ]);
 }
@@ -621,7 +623,7 @@ function paintLockQuick() {
       class: 'qk', title: app.name,
       onclick: () => { pendingApp = app.id; unlock(); }
     }, [
-      SJ.el('span', { class: 'qk-art', html: window.ICONSVG(app.icon, 21), style: { background: app.color } }),
+      SJ.el('span', { class: 'qk-art', html: window.APPICON(app, 21), style: { background: app.color } }),
       SJ.el('span', { class: 'qk-name' }, app.name)
     ]));
   });

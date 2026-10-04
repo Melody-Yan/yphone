@@ -419,7 +419,7 @@ ok('通讯录能打开，右上角有 ＋', !!findBtn(ncv, '＋'));
 findBtn(ncv, '＋').click();
 let ev = S.SHELL.stack[S.SHELL.stack.length - 1].node;
 const P_NAME = '名字', P_DESC = '一句话简介（可留空）',
-      P_PERSONA = '人设 / 性格 / 说话方式 —— 这段会当系统提示词发给模型',
+      P_PERSONA = '人设 / 性格 / 说话方式 —— 你写什么，她就像什么',
       P_GREET = '开场白：他第一句会说什么？（可留空）';
 ok('编辑页有名字/头像/简介/人设/开场白',
   !!(findIn(ev, P_NAME) && findIn(ev, P_DESC) && findIn(ev, P_PERSONA) && findIn(ev, P_GREET)));
@@ -1348,7 +1348,7 @@ console.log('\n[23] 世界书 App');
 const WB_PH = {
   title: '卡的名字（只给你自己看）',
   keys: '关键词，逗号隔开：手机, 来历, 你怎么在这',
-  body: '命中了关键词就注入给模型的正文。写设定、写前情、写规矩都行。'
+  body: '聊到关键词时，把这段塞给她看。写设定、写前情、写规矩都行。'
 };
 const groupTitles = node => walk(node).filter(n => n._class.has('group-title')).map(n => n.textContent);
 const rowTitles = node => walk(node).filter(n => n._class.has('row-title')).map(n => n.textContent);
@@ -1803,7 +1803,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     tabOf(wx, '朋友圈')._class.has('on') && !tabOf(wx, '消息')._class.has('on'));
   ok('朋友圈能看到那条动态和作者名', walk(wx).some(n => n._class.has('mo-text') && /剪了头发/.test(n.textContent)) &&
     walk(wx).some(n => n._class.has('mo-name') && n.textContent === cA.name));
-  ok('没配图时给的是「让 AI 配张图」按钮', !!walk(wx).find(n => n._class.has('mo-make')));
+  ok('没配图时给的是「配张图」按钮', !!walk(wx).find(n => n._class.has('mo-make')));
   fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content:
     '![img](data:image/png;base64,' + 'D'.repeat(120) + ')' } }] }));
   walk(wx).find(n => n._class.has('mo-make')).click();

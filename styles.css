@@ -280,7 +280,10 @@ html, body {
 #phone.dark-wall #dots i.on { background: rgba(255,255,255,.9); }
 #phone.dark-wall #homebar { background: rgba(255,255,255,.85); }
 #phone.dark-wall #lock-time, #phone.dark-wall #lock-date, #phone.dark-wall #lock-hint { color: #fff; }
-#phone.dark-wall .pk { color: #fff; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.16); }
+/* ⚠️ 必须限定在 #lock-pad 里。.pk/.pad-dots 是和别的数字盘共用的类名，
+   不限定的话「深色壁纸下把锁屏键盘刷成白字」这条会跟着类名跑到支付弹窗上，
+   而支付弹窗是白底 → 白字白底，整个键盘看不见（真出过这个 bug）。 */
+#phone.dark-wall #lock-pad .pk { color: #fff; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.16); }
 
 /* ══ App 视图栈 ══ */
 #stack { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
@@ -822,7 +825,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 #phone.lock-dark .lw-more,
 #phone.lock-dark .qk-name { color: #fff; }
 #phone.lock-dark .lw-card { background: rgba(0, 0, 0, .22); }
-#phone.lock-dark .pad-dots { color: #fff; }
+#phone.lock-dark #lock-pad .pad-dots { color: #fff; }
 
 /* ══════════════════════════════════════════════════════
    桌面插件：跟 .widget 共用磨砂玻璃底，这里只补内容排版
@@ -1110,6 +1113,11 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   border-radius: 20px; box-shadow: var(--shadow-s);
 }
 .order-card.done { opacity: .72; }
+/* 从礼物卡点进来的那一单：描个边，一眼看见是它 */
+.order-card.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* 礼物单：给个浅浅的暖色，和花钱买的单区分开 */
+.order-card.gift-order { background: linear-gradient(180deg, #fff9ef, var(--panel) 70%); }
+.od-addr { margin-top: 9px; font-size: 12px; color: var(--fg-dim); line-height: 1.5; }
 .od-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .od-shop { font-size: 15px; font-weight: 500; color: var(--fg); }
 .od-amt { font-size: 14px; color: var(--accent); flex: 0 0 auto; }
@@ -1703,7 +1711,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
     inset 0 1px 0 rgba(255, 255, 255, .6);
 }
 /* 锁屏按钮压在照片上：底再厚一点，别让照片的花纹从玻璃里透出来 */
-#phone.lock-dark .pk { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .3); }
+#phone.lock-dark #lock-pad .pk { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .3); }
 
 /* ── App 打开时，状态栏和小白条压在 .app-view 那张暖白纸上 ──
    深色壁纸下它们是白的，放在桌面/锁屏上没问题，一进 App 就是白字压白纸。
@@ -1774,6 +1782,65 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .pk-ico { font-size: 24px; line-height: 1; }
 .pk-note { font-size: 13.5px; font-weight: 600; }
 .pk-tip { font-size: 11.5px; opacity: .78; margin-top: 2px; }
+
+/* ── 礼物卡 ──
+   和红包一样是个「东西」不是一句话，所以自己一套底色，不跟着普通气泡走 */
+.bubble.gift {
+  display: flex; align-items: center; gap: 11px; cursor: pointer;
+  padding: 12px 14px; min-width: 176px;
+  background: linear-gradient(135deg, #fff3e0, #ffe6d0);
+  border: 1px solid #f0d9bd; color: #7a5a3c;
+}
+.bubble.gift.ta { border-bottom-left-radius: 6px; }
+.bubble.gift.me { border-bottom-right-radius: 6px; }
+.gift-ico { font-size: 27px; line-height: 1; flex: 0 0 auto; }
+.gift-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gift-name { font-size: 14px; font-weight: 600; }
+.gift-sub { font-size: 11.5px; opacity: .8; }
+/* 深色壁纸下这张卡得自己带够对比度，别指望底下的气泡样式 */
+#phone.dark-wall .bubble.gift { background: linear-gradient(135deg, #4a3f33, #3d332a); border-color: #5a4c3c; color: #f0e2d0; }
+
+/* ── 收货地址 ── */
+.addr-form .field-wrap { margin-bottom: 10px; }
+.addr-book .sheet-head { margin-bottom: 10px; }
+.addr-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 13px; margin-bottom: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+}
+/* 选中那条描个边 —— 不然「点了有什么变化」完全看不出来 */
+.addr-row.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.addr-main { flex: 1 1 auto; min-width: 0; }
+.addr-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 4px; }
+.addr-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+.addr-phone { font-size: 12.5px; color: var(--fg-dim); }
+.addr-tag, .addr-def {
+  font-size: 11px; padding: 1px 7px; border-radius: 8px;
+  background: var(--paper-2); color: var(--fg-dim); border: 1px solid var(--line);
+}
+.addr-def { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.addr-detail { font-size: 13px; color: var(--fg); line-height: 1.5; word-break: break-all; }
+.addr-acts { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.addr-act {
+  font-size: 12px; padding: 4px 10px; border-radius: 10px;
+  background: var(--paper-2); color: var(--fg-dim);
+  border: 1px solid var(--line); cursor: pointer; font-family: inherit;
+}
+.addr-act.danger { color: #c0736a; }
+.addr-add { margin-top: 6px; }
+/* 结算页上的地址条 */
+.addr-bar {
+  display: flex; align-items: center; gap: 11px;
+  margin: 0 16px 12px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; cursor: pointer;
+}
+.addr-bar.empty { border-style: dashed; }
+.addr-bar-ico { font-size: 19px; flex: 0 0 auto; }
+.addr-bar-main { flex: 1 1 auto; min-width: 0; }
+.addr-bar-t { font-size: 12px; color: var(--fg-dim); margin-bottom: 3px; }
+.addr-bar-s { font-size: 13.5px; color: var(--fg); line-height: 1.5; white-space: pre-line; word-break: break-all; }
+.addr-bar-arrow { color: #c4bcb1; flex: 0 0 auto; display: flex; }
 
 /* ── 位置 ── */
 .bubble.loc { padding: 0; overflow: hidden; width: 200px; cursor: pointer; }

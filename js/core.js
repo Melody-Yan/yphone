@@ -204,8 +204,11 @@ const DEFAULTS = {
   delivery: {
     shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
     cart: [],            // [{id,shopId,name,price,n}, ...]（一次只能点一家）
-    orders: []           // [{id,shopName,items:[{name,n}],total,ts}, ...]
+    orders: [],          // [{id,shopName,items:[{name,n}],total,ts,addr}, ...]
+    addr: ''             // 当前选中的收货地址 id（见 addresses）
   },
+  /* 收货地址簿。外卖和商城共用一本 —— 分开两本的话同一个家要填两遍 */
+  addresses: [],         // [{id,name,phone,detail,tag,def}, ...]
   /* 音乐：歌单靠粘贴链接导入 */
   music: {
     tracks: [],          // [{id,name,artist,url}, ...]
@@ -215,7 +218,7 @@ const DEFAULTS = {
   mall: {
     goods: [],           // [{id,name,cat,sub,price,oldPrice,emoji,desc,sales,brand,tags:[],hot}]
     cart: [],            // [{id,goodsId,name,price,n}]
-    orders: [],          // [{id,items:[{name,n}],total,ts}]
+    orders: [],          // [{id,items:[{name,n}],total,ts,addr}]
     fav: []              // 收藏的商品 id
   },
   /* 钱包：微信里的钱。外卖和商城的每一笔都从这儿走 —— 余额只有一个真相来源，
@@ -235,7 +238,7 @@ const SCHEMA = {
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
-  mall: 'object', wallet: 'object'
+  mall: 'object', wallet: 'object', addresses: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -322,7 +325,8 @@ function migrate(saved) {
   out.delivery = {
     shops: normalizeShops(dl.shops),
     cart: normalizeCart(dl.cart),
-    orders: normalizeOrders(dl.orders)
+    orders: normalizeOrders(dl.orders),
+    addr: String(dl.addr || '')
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
   out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
@@ -334,6 +338,11 @@ function migrate(saved) {
     orders: normalizeMallOrders(ml.orders),
     fav: (Array.isArray(ml.fav) ? ml.fav : []).map(x => String(x).slice(0, 40)).slice(0, 200)
   };
+  /* 地址簿：导入存档的信任边界，逐条归一。
+     addr 指向的那条要是没了（用户删了/导入的存档没有），就当没选 ——
+     不能留一个指向空气的 id，结算页会显示空白。 */
+  out.addresses = normalizeAddresses(out.addresses);
+  if (out.delivery.addr && !out.addresses.some(a => a.id === out.delivery.addr)) out.delivery.addr = '';
   /* 钱包：钱是最不能信任导入的一项，余额和流水逐条归一。
      注意读的是 saved.wallet（用户存档里的），不是 out.wallet —— out 在函数开头就被
      clone(DEFAULTS) 填满了，永远不是 undefined，拿它判断「老存档」会永远为真（或永远为假）。
@@ -1467,6 +1476,13 @@ function normalizeOrders(raw) {
       n: Math.max(1, Math.min(99, Number((x && x.n) || 1)))
     })),
     total: Math.max(0, Math.round(Number(o.total) || 0)),
+    addr: String(o.addr || '').slice(0, 160),
+    /* 礼物单：谁是送的、谁是收的。两个 id 都空 = 普通订单 */
+    gift: !!o.gift,
+    kind: o.kind === '外卖' || o.kind === '礼物' ? o.kind : '',
+    from: String(o.from || ''),
+    to: String(o.to || ''),
+    emoji: String(o.emoji || '').slice(0, 8),
     ts: Number(o.ts) || 0
   }));
 }
@@ -1492,6 +1508,148 @@ function orderStage(o, now) {
   const t = now == null ? virtualNow().getTime() : now;
   const i = Math.floor((t - (Number(o && o.ts) || 0)) / ORDER_STEP_MS);
   return Math.max(0, Math.min(ORDER_STAGES.length - 1, i));
+}
+
+/* ── 收货地址 ──
+   外卖和商城共用一本。没填地址也能下单（地址是可选信息，不是门槛）——
+   硬性要求填地址只会让人第一次点外卖就卡住。 */
+const ADDR_MAX = 20;
+function normalizeAddresses(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(a => a && typeof a === 'object')
+    .slice(0, 20)                       // 字面量：normalizeAddresses 会被 migrate 调到，别引用 ADDR_MAX
+    .map((a, i) => ({
+      id: String(a.id || ('ad-' + i)),
+      name: String(a.name || '').slice(0, NAME_MAX),
+      phone: String(a.phone || '').slice(0, 20),
+      detail: String(a.detail || '').slice(0, 120),
+      tag: String(a.tag || '').slice(0, 6),
+      def: !!a.def
+    }))
+    /* 一条地址至少得有个详细地址，否则是空气条目 */
+    .filter(a => a.detail);
+}
+function addressList() { return state.addresses; }
+/* 当前选中的那条。没选过（或指向的已删）就退回默认，再没有就第一条，全空返回 null。 */
+function addressNow() {
+  const list = state.addresses;
+  if (!list.length) return null;
+  return list.find(a => a.id === state.delivery.addr)
+      || list.find(a => a.def)
+      || list[0];
+}
+/* 加了第一条就自动选中：不然用户填完地址，结算页还是「还没填」。 */
+function addressSave(patch) {
+  const p = patch || {};
+  const detail = String(p.detail || '').trim();
+  if (!detail) return null;
+  let a = p.id ? state.addresses.find(x => x.id === p.id) : null;
+  if (!a) {
+    a = { id: uid(), name: '', phone: '', detail: '', tag: '', def: false };
+    state.addresses.push(a);
+  }
+  a.name = String(p.name || '').trim().slice(0, NAME_MAX);
+  a.phone = String(p.phone || '').trim().slice(0, 20);
+  a.detail = detail.slice(0, 120);
+  a.tag = String(p.tag || '').trim().slice(0, 6);
+  /* 第一条自动当默认 */
+  if (state.addresses.length === 1) a.def = true;
+  if (!state.delivery.addr) state.delivery.addr = a.id;
+  save();
+  return a;
+}
+/* 删地址。删的正好是当前选中的就换一条，一条都没有了就清空选中。 */
+function addressRemove(id) {
+  state.addresses = state.addresses.filter(a => a.id !== id);
+  if (!state.addresses.some(a => a.def) && state.addresses.length) state.addresses[0].def = true;
+  if (state.delivery.addr === id || !state.addresses.some(a => a.id === state.delivery.addr)) {
+    state.delivery.addr = state.addresses.length ? (state.addresses.find(a => a.def) || state.addresses[0]).id : '';
+  }
+  save();
+  return state.addresses;
+}
+function addressPick(id) {
+  if (!state.addresses.some(a => a.id === id)) return null;
+  state.delivery.addr = id;
+  save();
+  return addressNow();
+}
+function addressSetDefault(id) {
+  const a = state.addresses.find(x => x.id === id);
+  if (!a) return null;
+  state.addresses.forEach(x => { x.def = x.id === id; });
+  state.delivery.addr = id;
+  save();
+  return a;
+}
+/* 订单上存一条地址快照。存 id 不行 —— 用户改了地址，历史订单会跟着变，
+   而「当时送到哪儿」是既成事实，不该被后来的编辑改写。 */
+function addressSnapshot() {
+  const a = addressNow();
+  if (!a) return '';
+  return [a.name, a.phone, a.detail].filter(Boolean).join(' · ').slice(0, 160);
+}
+
+/* ── 送礼 ──
+   两个方向：角色送给用户（不用用户掏钱），用户送给角色（用户掏钱）。
+   礼物必须落在真实的订单上 —— 只发一张卡片不动订单，等于演了个空壳，
+   去「我的订单」一看什么都没有，比不做还假。
+   送什么由这台手机现挑：模型不知道我们现生成的店名菜名，让它编只会对不上。 */
+const GIFT_FOOD_FALLBACK = ['一碗热汤面', '一份炸鸡', '一杯奶茶', '一盒草莓'];
+const GIFT_THING_FALLBACK = ['一条围巾', '一个保温杯', '一盒巧克力', '一个抱枕'];
+
+/* 从外卖店里挑一道菜。没有店就先挑个兜底的 —— 总不能因为没进货就不送。 */
+function pickGiftFood() {
+  const shops = (state.delivery && state.delivery.shops) || [];
+  const withDish = shops.filter(s => s.dishes && s.dishes.length);
+  if (withDish.length) {
+    const s = withDish[Math.floor(Math.random() * withDish.length)];
+    const hot = s.dishes.filter(d => d.hot);
+    const pool = hot.length ? hot : s.dishes;
+    const d = pool[Math.floor(Math.random() * pool.length)];
+    return { shopName: s.name, name: d.name, price: Math.max(1, Number(d.price) || 20), emoji: d.emoji || s.emoji || '🍜' };
+  }
+  const n = GIFT_FOOD_FALLBACK[Math.floor(Math.random() * GIFT_FOOD_FALLBACK.length)];
+  return { shopName: '楼下那家', name: n, price: 20 + Math.floor(Math.random() * 30), emoji: '🍜' };
+}
+function pickGiftThing() {
+  const goods = (state.mall && state.mall.goods) || [];
+  if (goods.length) {
+    const g = goods[Math.floor(Math.random() * goods.length)];
+    return { name: g.name, price: Math.max(1, Number(g.price) || 50), emoji: g.emoji || '🎁' };
+  }
+  const n = GIFT_THING_FALLBACK[Math.floor(Math.random() * GIFT_THING_FALLBACK.length)];
+  return { name: n, price: 60 + Math.floor(Math.random() * 200), emoji: '🎁' };
+}
+
+/* 造一单礼物。kind = '外卖' | '礼物'。
+   from 是送礼的角色 id（'' = 用户自己送），to 是收礼的角色 id（'' = 用户收）。
+   角色送的订单不动钱包 —— 那是他掏的钱，不是用户花的。 */
+function giftMake(kind, fromId, toId) {
+  const food = kind === '外卖';
+  const item = food ? pickGiftFood() : pickGiftThing();
+  const o = {
+    id: uid(),
+    gift: true,
+    kind,
+    from: String(fromId || ''),
+    to: String(toId || ''),
+    emoji: item.emoji,
+    shopName: food ? item.shopName : '桃桃商城',
+    items: [{ name: item.name, n: 1 }],
+    total: item.price,
+    addr: addressSnapshot(),
+    ts: virtualNow().getTime()
+  };
+  if (food) {
+    state.delivery.orders.unshift(o);
+    state.delivery.orders = state.delivery.orders.slice(0, 30);
+  } else {
+    state.mall.orders.unshift(o);
+    state.mall.orders = state.mall.orders.slice(0, 40);
+  }
+  save();
+  return o;
 }
 
 function setShops(list) {
@@ -1539,6 +1697,7 @@ function placeOrder() {
     shopName: shop ? shop.name : '外卖',
     items: d.cart.map(x => ({ name: x.name, n: x.n })),
     total,
+    addr: addressSnapshot(),   // 存当时的地址文字，不存 id（见 addressSnapshot 注释）
     ts: virtualNow().getTime()   // 用虚拟时间，订单进度才跟这台手机上的钟一致
   };
   d.orders.unshift(o);
@@ -1694,6 +1853,12 @@ function normalizeMallOrders(raw) {
       n: Math.max(1, Math.min(99, Number((x && x.n) || 1)))
     })),
     total: Math.max(0, Math.round(Number(o.total) || 0)),
+    addr: String(o.addr || '').slice(0, 160),
+    gift: !!o.gift,
+    kind: o.kind === '外卖' || o.kind === '礼物' ? o.kind : '',
+    from: String(o.from || ''),
+    to: String(o.to || ''),
+    emoji: String(o.emoji || '').slice(0, 8),
     ts: Number(o.ts) || 0
   }));
 }
@@ -1750,6 +1915,7 @@ function mallPlaceOrder() {
     id: uid(),
     items: picked.map(x => ({ name: x.name, n: x.n })),
     total,
+    addr: addressSnapshot(),
     ts: virtualNow().getTime()
   };
   m.orders.unshift(o);
@@ -2358,6 +2524,10 @@ const VOICE_OPEN = '[[v]]', VOICE_CLOSE = '[[/v]]';
 const VOICE_RE = /^\s*\[\[v\]\]([\s\S]*?)\[\[\/v\]\]\s*$/;
 /* 红包：[[rp:52:拿去买奶茶]] */
 const RPKT_RE = /^\s*\[\[rp:([\d.]+)(?::([^[\]]*))?\]\]\s*$/;
+/* 礼物：[[gift:外卖]] / [[gift:礼物]]。
+   角色只声明「我给他点了个外卖」，具体送了什么由这台手机现挑 ——
+   模型不可能知道我们现生成的店名和菜名，让它编只会编出对不上的东西。 */
+const GIFT_RE = /^\s*\[\[gift:(外卖|礼物)\]\]\s*$/;
 
 function voiceOn() { return state.settings.voice !== false; }
 function hasSpeech() { return typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined'; }
@@ -2373,9 +2543,14 @@ function redpacketOf(chunk) {
   const m = RPKT_RE.exec(String(chunk || ''));
   return m ? { amount: Math.max(0, Number(m[1]) || 0), note: (m[2] || '').trim() } : null;
 }
+/* 礼物标记：'外卖' 或 '礼物' */
+function giftOf(chunk) {
+  const m = GIFT_RE.exec(String(chunk || ''));
+  return m ? m[1] : '';
+}
 /* 语音关掉时别把方括号原样摆在用户脸上 */
 function stripMarks(s) {
-  return String(s || '').replace(/\[\[\/?v\]\]/g, '').replace(/\[\[rp:[\d.]*(?::[^[\]]*)?\]\]/g, '').trim();
+  return String(s || '').replace(/\[\[\/?v\]\]/g, '').replace(/\[\[rp:[\d.]*(?::[^[\]]*)?\]\]/g, '').replace(/\[\[gift:(?:外卖|礼物)\]\]/g, '').trim();
 }
 /* 语音条显示几秒。TTS 实际时长拿不到（各浏览器回调时机不一），按字数估一个够用的 */
 function voiceDur(text) { return Math.max(1, Math.round(String(text || '').length * 0.22)); }
@@ -2537,6 +2712,18 @@ function buildSystem(char, history) {
     lines.push(`例如：${VOICE_OPEN}我到家了${VOICE_CLOSE}`);
     lines.push('- 包起来的那条要是能念出口的整句话，别在里面塞动作、旁白或者方括号。');
     lines.push('- 一次别发超过两条语音，语音说多了很烦人。大部分时候还是打字。');
+  }
+
+  /* 送礼：只在对方确实填了收货地址时才教它 —— 没地址的人收到「我给你点了外卖」
+     会扑空，那比不送还差。所以这个能力跟着地址走。 */
+  if (state.addresses && state.addresses.length) {
+    lines.push('', '# 你可以给他点外卖 / 买东西');
+    lines.push('想给他送点吃的，就单独发一条：[[gift:外卖]]');
+    lines.push('想给他买件东西（快递过去），就单独发一条：[[gift:礼物]]');
+    lines.push('- 这一条只写标记，什么都别加。送什么由系统按他的口味现挑，你不用编菜名或商品名。');
+    lines.push('- 前面或后面照常打字，把话说清楚（「给你点了份夜宵」之类）。');
+    lines.push('- 别老送。他帮了你、你惦记他、过节、他想吃什么 —— 有由头才送。无缘无故连送几单很假。');
+    lines.push('- 你送的东西不花他的钱，是你自己掏的。');
   }
 
   /* 今天有安排就先说，免得对方问「你在干嘛」时才想起来 */
@@ -2838,6 +3025,11 @@ window.SJ = {
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,
+  /* 送礼：角色送用户 / 用户送角色，都落在真实订单上 */
+  giftMake, giftOf, pickGiftFood, pickGiftThing,
+  /* 收货地址：外卖和商城共用一本 */
+  ADDR_MAX, normalizeAddresses, addressList, addressNow, addressSave, addressRemove,
+  addressPick, addressSetDefault, addressSnapshot,
   /* 桃桃商城 */
   MALL_CATS, MALL_CAT_IDS, MALL_STAGES, MALL_STEP_MS, mallStage,
   normalizeGoods, setGoods, mallGoods, mallAddToCart, mallCartAdd, mallPick,

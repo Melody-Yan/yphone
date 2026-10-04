@@ -3794,6 +3794,301 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   ok('没有写成挡不住的 `light`（实测挡不住，等于没写）',
     !/color-scheme:\s*light\s*[;}]/.test(css) && !/content="light"/.test(idx));
 }
+
+/* ══════════════════════════════════════════════════════════
+   [40] 收货地址 / 自定义想要什么 / 礼物来往
+   ══════════════════════════════════════════════════════════ */
+{
+  let App = sandbox.SJ;
+  const base = () => ({
+    characters: [{ id: 'c1', name: '林小满', persona: '温柔', avatar: '🌸' }],
+    chats: { c1: [] },
+    settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' },
+    wallet: { balance: 5000, log: [] },
+    delivery: { shops: [], cart: [], orders: [], addr: '' },
+    mall: { goods: [], cart: [], orders: [], fav: [] },
+    addresses: []
+  });
+  const fresh = extra => {
+    store.set('xiaoshouji.v1', JSON.stringify(Object.assign(base(), extra || {})));
+    boot(); App = sandbox.SJ;
+  };
+
+  /* ── 1. 地址簿 ── */
+  fresh();
+  ok('新存档 addresses 是空数组（老存档不会被它炸掉）', Array.isArray(App.state.addresses) && !App.state.addresses.length);
+  ok('没地址时 addressNow() 返回 null，不是 undefined 炸掉', App.addressNow() === null);
+
+  const a1 = App.addressSave({ name: '我', phone: '13800000000', detail: '幸福小区 3 栋 502', tag: '家' });
+  ok('存第一条地址成功', !!a1 && a1.detail === '幸福小区 3 栋 502', a1 && a1.detail);
+  ok('第一条自动成为默认（不用手动设）', a1.def === true);
+  ok('存了第一条就自动选中（结算页不会还显示「没填」）',
+    App.state.delivery.addr === a1.id && App.addressNow().id === a1.id);
+  ok('地址快照拼成给人看的文字', App.addressSnapshot() === '我 · 13800000000 · 幸福小区 3 栋 502',
+    App.addressSnapshot());
+
+  const a2 = App.addressSave({ name: '公司', detail: '写字楼 A 座 1801', tag: '公司' });
+  ok('第二条地址不会抢走默认', a2.def === false && App.addressNow().id === a1.id);
+  App.addressPick(a2.id);
+  ok('选另一条立刻生效', App.addressNow().id === a2.id);
+  App.addressSetDefault(a1.id);
+  ok('设默认同时也会选中它', App.addressNow().id === a1.id && a1.def === true && a2.def === false);
+
+  ok('空详细地址不许存（空气条目）', App.addressSave({ name: '没地址', detail: '   ' }) === null
+    && App.state.addresses.length === 2);
+  ok('地址没有上限 20 条之外的溢出', App.normalizeAddresses(new Array(40).fill(0).map((_, i) => ({ detail: 'd' + i }))).length === 20);
+
+  /* 删掉当前选中的那条 → 必须自动换一条，不能留一个指向空气的 id */
+  App.addressRemove(a1.id);
+  ok('删掉选中的地址后自动换到剩下那条',
+    App.state.addresses.length === 1 && App.state.delivery.addr === a2.id,
+    App.state.delivery.addr);
+  App.addressRemove(a2.id);
+  ok('删光了就清空选中，不留下悬空 id',
+    !App.state.addresses.length && App.state.delivery.addr === '');
+  ok('删光了 addressSnapshot() 是空串（订单上不写脏地址）', App.addressSnapshot() === '');
+
+  /* migrate：导入一个 addr 指向不存在地址的存档 → 必须清掉那个 id */
+  fresh({ addresses: [{ id: 'x1', detail: '某地' }], delivery: { shops: [], cart: [], orders: [], addr: '不存在的id' } });
+  ok('存档里 addr 指向不存在的地址时被清掉', App.state.delivery.addr === '');
+
+  /* ── 2. 订单带地址快照 ── */
+  fresh();
+  App.addressSave({ name: '我', phone: '139', detail: '老地址 1 号' });
+  App.setShops([{ id: 's1', name: '面馆', dishes: [{ id: 'd1', name: '牛肉面', price: 30, emoji: '🍜' }] }]);
+  App.addToCart('s1', { id: 'd1', name: '牛肉面', price: 30 });
+  const od = App.placeOrder();
+  ok('外卖订单存下了当时的地址', !!od && od.addr === '我 · 139 · 老地址 1 号', od && od.addr);
+  /* 改了地址，历史订单不该跟着变 —— 送哪儿是既成事实 */
+  App.addressSave({ id: App.addressList()[0].id, name: '我', phone: '139', detail: '新地址 2 号' });
+  ok('改了地址后，历史订单上的地址不变（快照不是引用）',
+    App.state.delivery.orders[0].addr === '我 · 139 · 老地址 1 号',
+    App.state.delivery.orders[0].addr);
+
+  /* ── 3. 礼物：两个方向都落真订单 ── */
+  fresh();
+  App.addressSave({ detail: '我家 1 号' });
+  /* 角色送给用户（TA 掏钱，不动我的钱包） */
+  const before = App.walletBalance();
+  const og = App.giftMake('外卖', 'c1', '');
+  ok('角色送的外卖落进了外卖订单', App.state.delivery.orders.some(o => o.id === og.id));
+  ok('角色送的单标了 gift + from + to', og.gift === true && og.from === 'c1' && og.to === '');
+  ok('角色送礼不扣用户的钱', App.walletBalance() === before, App.walletBalance() + ' vs ' + before);
+  ok('礼物单也带上收货地址', og.addr === '我家 1 号', og.addr);
+  ok('礼物单有具体的东西和价格', !!og.items[0].name && og.total > 0, og.items[0].name + ' ¥' + og.total);
+
+  /* 用户送给角色（走钱包、要支付密码） */
+  const og2 = App.giftMake('礼物', '', 'c1');
+  ok('用户送的礼物落进了商城订单', App.state.mall.orders.some(o => o.id === og2.id));
+  ok('用户送的单记了收礼人 to', og2.to === 'c1' && og2.from === '' && og2.gift === true);
+
+  /* 没有店没有货时也要能送（走兜底），不许因为「没进货」就送不出去 */
+  fresh();
+  const og3 = App.giftMake('外卖', 'c1', '');
+  const og4 = App.giftMake('礼物', 'c1', '');
+  ok('没进货时外卖礼物走兜底也能成单', og3.items[0].name.length > 0 && og3.total > 0, og3.items[0].name);
+  ok('没进货时礼物走兜底也能成单', og4.items[0].name.length > 0 && og4.total > 0, og4.items[0].name);
+
+  /* 礼物标记的解析 */
+  ok('giftOf 认得出外卖标记', App.giftOf('[[gift:外卖]]') === '外卖');
+  ok('giftOf 认得出礼物标记', App.giftOf('[[gift:礼物]]') === '礼物');
+  ok('giftOf 不吃普通文字', App.giftOf('给你点了份外卖') === '');
+  ok('giftOf 不吃别的标记', App.giftOf('[[rp:5:拿去买奶茶]]') === '');
+  ok('stripMarks 会把礼物标记摘干净（关掉功能也不露方括号）',
+    App.stripMarks('给你点了 [[gift:外卖]]').trim() === '给你点了',
+    App.stripMarks('给你点了 [[gift:外卖]]'));
+
+  /* ── 4. 提示词：没地址就不教它送礼 ── */
+  const charm = App.state.characters[0];
+  ok('没填地址时，提示词里不提送礼（免得它送了个扑空的）',
+    App.buildSystem(charm, []).indexOf('[[gift:') < 0);
+  App.addressSave({ detail: '我家 2 号' });
+  const p2 = App.buildSystem(App.state.characters[0], []);
+  ok('填了地址之后才教它送礼', p2.indexOf('[[gift:外卖]]') >= 0 && p2.indexOf('[[gift:礼物]]') >= 0);
+
+  /* ── 5. 自定义想要什么：外卖按原话生成 ── */
+  const seen = [];
+  fetchImpl = (url, opts) => {
+    const body = JSON.parse(opts.body);
+    seen.push(body.messages.map(m => m.content).join('\n'));
+    const shops = [{ name: '潮汕牛肉火锅', kind: '火锅', emoji: '🍲', dishes: [
+      { id: 'x', name: '吊龙', desc: '现切', price: 48, emoji: '🥩', hot: true }] }];
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ shops }) } }] }));
+  };
+  fresh({ settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' } });
+  const dlApp = openFresh('delivery');
+  walk(dlApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  walk(dlApp).find(n => n._class.has('row') && n.textContent.includes('想吃点什么')).click();
+  /* 面板里那个 textarea + 「就这些」按钮 */
+  const ta = walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop();
+  ok('「想吃点什么」弹出了输入面板', !!ta);
+  ta.value = '潮汕牛肉火锅';
+  /* askText 的提交键是普通 .btn，不是 .sheet-item，clickSheet 够不着 */
+  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  await waitFor(() => App.state.delivery.shops.length > 0, 3000);
+  ok('用户说的话原样进了提示词', seen.some(s => s.includes('潮汕牛肉火锅')), (seen[0] || '').slice(-60));
+  ok('生成出来的店换上了', App.state.delivery.shops[0].name === '潮汕牛肉火锅');
+
+  /* ── 6. 自定义想要什么：商城按原话进货，且不冲掉原有的 ── */
+  const seen2 = [];
+  fetchImpl = (url, opts) => {
+    const body = JSON.parse(opts.body);
+    seen2.push(body.messages.map(m => m.content).join('\n'));
+    const goods = [{ name: '露营折叠桌', cat: 'home', sub: '户外', price: 269, oldPrice: 0,
+      emoji: '🏕', desc: '铝合金', sales: '月销100+', brand: '山野', tags: ['包邮'], hot: true }];
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ goods }) } }] }));
+  };
+  fresh({ mall: { goods: [{ id: 'keep', name: '原来的一件', cat: 'home', price: 9 }], cart: [], orders: [], fav: [] } });
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  const mallApp = openFresh('mall');
+  walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  walk(mallApp).find(n => n._class.has('row') && n.textContent.includes('想要点什么')).click();
+  const mta = walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop();
+  ok('商城「想要点什么」也弹出了输入面板', !!mta);
+  mta.value = '露营的折叠桌';
+  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  await waitFor(() => App.mallGoods().some(g => g.name === '露营折叠桌'), 3000);
+  ok('用户说的话原样进了进货提示词', seen2.some(s => s.includes('露营的折叠桌')), (seen2[0] || '').slice(-60));
+  ok('按需进的货上了架', App.mallGoods().some(g => g.name === '露营折叠桌'));
+  ok('原货架上的东西没被冲掉（是「还想要」不是「换成」）',
+    App.mallGoods().some(g => g.id === 'keep'));
+
+  /* 生成失败要说清楚，不能静默 */
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '{"goods":[]}' } }] }));
+  const mallApp2 = openFresh('mall');
+  walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('想要点什么')).click();
+  walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop().value = '不存在的东西';
+  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  await waitFor(() => toasts().length > 0, 3000);
+  ok('按需进货失败时给提示，且不清空原有货架',
+    App.mallGoods().some(g => g.id === 'keep'), toasts());
+
+  fetchImpl = null;
+
+  /* ── 7. 地址存完之后，底下的结算页要跟着刷新 ──
+     回归：以前 addressForm 的 onDone 只重建地址簿本身，
+     底下那一行还写着「还没填」，看着像没生效（真浏览器冒烟才发现的）。 */
+  fresh();
+  App.setShops([{ id: 's1', name: '面馆', dishes: [{ id: 'd1', name: '牛肉面', price: 30, emoji: '🍜' }] }]);
+  App.addToCart('s1', { id: 'd1', name: '牛肉面', price: 30 });
+  const dlApp2 = openFresh('delivery');
+  walk(dlApp2).find(n => n._class.has('cart-bar')).click();   /* 外卖的购物车是底部 bar */
+  const barBefore = walk(byId.stack).find(n => n._class.has('addr-bar'));
+  ok('结算页有地址行，且此时是「还没填」',
+    !!barBefore && barBefore.textContent.includes('点这里加一个'), barBefore && barBefore.textContent);
+  barBefore.click();
+  walk(byId.phone).find(n => n._class.has('addr-add')).click();
+  /* 表单挂在 .addr-form 那个 .pad 下，input 本身才有 .field。取最后 4 个 = 刚弹出的那组 */
+  const ins = walk(byId.phone).filter(n => n._class.has('field') && !n._class.has('area')).slice(-4);
+  ok('地址表单有 4 个输入框（收货人/电话/详细地址/标签）', ins.length === 4, ins.length + ' 个');
+  ins[0].value = '我';
+  ins[1].value = '13800000000';
+  ins[2].value = '幸福小区 3 栋 502';
+  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '保存').click();
+  /* 底下的结算页必须已经重画 —— 断言的是页面上真实那一行，不是 state */
+  const barAfter = walk(byId.stack).find(n => n._class.has('addr-bar'));
+  ok('存完地址，底下的结算页立刻显示「送到这里」（不用退出重进）',
+    !!barAfter && barAfter.textContent.includes('送到这里') && barAfter.textContent.includes('幸福小区'),
+    barAfter && barAfter.textContent);
+}
+
+/* ══════════════════════════════════════════════════════════
+   [41] 礼物落单必须「只落一次」+ 聊天里送礼的入口
+   ══════════════════════════════════════════════════════════ */
+{
+  let App = sandbox.SJ;
+  const S = sandbox.SJ;
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'g1', name: '阿桃', persona: '爱做饭', avatar: '🍑' }],
+    chats: { g1: [{ me: true, text: '在吗', ts: 1 }] },
+    settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' },
+    wallet: { balance: 900, log: [] },
+    delivery: { shops: [{ id: 's1', name: '小面馆', dishes: [
+      { id: 'd1', name: '红烧牛肉面', price: 32, emoji: '🍜', hot: true }] }], cart: [], orders: [], addr: '' },
+    mall: { goods: [], cart: [], orders: [], fav: [] },
+    addresses: [{ id: 'ad1', name: '我', detail: '幸福小区 1 号', def: true }]
+  }));
+  boot(); App = sandbox.SJ;
+
+  /* 让角色「说」一条带礼物标记的回复。应答里混着话和标记，模仿真实模型的写法。 */
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: {
+    content: '给你点了份夜宵，别熬夜了。%%[[gift:外卖]]'
+  } }] }));
+
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  /* 关掉「已读不回」：那是 18% 概率不接话，会让这条用例变成掷骰子 */
+  App.state.settings.readIgnore = false;
+
+  const chat = openFresh('chat', 'g1');
+  /* 第一次点发送 = 把输入框的话发出去；第二次才 = 求回复 */
+  const ta = walk(chat).find(n => n._class.has('chat-input'));
+  if (ta) ta.value = '谢谢';
+  walk(chat).find(n => n._class.has('chat-send')).click();
+  walk(chat).find(n => n._class.has('chat-send')).click();
+  await waitFor(() => App.messages('g1').some(m => m.kind === 'gift'), 4000);
+
+  const gifts = App.messages('g1').filter(m => m.kind === 'gift');
+  ok('角色发的礼物标记落成了一条 kind=gift 的消息', gifts.length === 1, gifts.length + ' 条');
+  ok('礼物消息记下了是哪一单', !!gifts[0].orderId && !!App.state.delivery.orders.some(o => o.id === gifts[0].orderId));
+  ok('礼物消息记下了送的是什么和 emoji', !!gifts[0].gname && !!gifts[0].emoji, gifts[0].gname);
+  ok('标记没有残留成文字（stripMarks 生效）',
+    !App.messages('g1').some(m => /\[\[gift/.test(m.text || '')));
+  ok('角色送礼不动用户的钱', App.walletBalance() === 900, String(App.walletBalance()));
+
+  /* ⚠️ 最关键的一条：重画不能凭空多出订单。
+     chunkNode 每次重画都会跑；如果礼物标记在那儿落单，重画一次就多一单。 */
+  const before = App.state.delivery.orders.length;
+  for (let i = 0; i < 5; i++) { sandbox.SHELL.closeTop(true); openFresh('chat', 'g1'); }
+  ok('反复重画聊天页不会凭空多出订单（礼物只在生成时落一次）',
+    App.state.delivery.orders.length === before,
+    before + ' → ' + App.state.delivery.orders.length);
+
+  /* 礼物卡画出来了，点它能进外卖订单页 */
+  const chat2 = openFresh('chat', 'g1');
+  const gcard = walk(chat2).find(n => n._class.has('gift'));
+  ok('礼物画成了一张礼物卡', !!gcard);
+  ok('卡片上写着送的是什么', !!gcard && gcard.textContent.includes(gifts[0].gname), gcard && gcard.textContent);
+  gcard.click();
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('order-card')), 3000);
+  ok('点礼物卡进的是订单页，而且能看到那一单',
+    walk(byId.stack).some(n => n._class.has('order-card') && n.textContent.includes('小面馆')));
+
+  /* ── 「＋」里能亲手给 TA 点外卖 ── */
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+  App.state.settings.payPass = '';   /* 先不设密码，走通主路径 */
+  const walletBefore = App.walletBalance();
+  const chat3 = openFresh('chat', 'g1');
+  walk(chat3).find(n => n._class.has('chat-plus')).click();
+  ok('「＋」里有「给 TA 点外卖」', sheetLabels().includes('给 TA 点外卖'), sheetLabels().join(','));
+  ok('「＋」里有「给 TA 买礼物」', sheetLabels().includes('给 TA 买礼物'));
+  clickSheet('给 TA 点外卖');
+  await waitFor(() => App.state.delivery.orders.some(o => o.from === '' && o.to === 'g1'), 3000);
+  const mine = App.state.delivery.orders.find(o => o.to === 'g1');
+  ok('给 TA 点外卖落了一单，收礼人是我指定的人', !!mine && mine.to === 'g1' && mine.from === '');
+  ok('这单扣了我的钱', App.walletBalance() < walletBefore, walletBefore + ' → ' + App.walletBalance());
+  ok('这单也发了一张礼物卡给我自己看',
+    App.messages('g1').some(m => m.me && m.kind === 'gift' && m.orderId === mine.id));
+
+  /* 余额不够时不许下单、不许扣钱 */
+  const poor = App.walletBalance();
+  /* ⚠️ 必须用 App.walletOut，不能用块顶部那个 S —— boot() 会重建 sandbox.SJ，
+      S 是旧的，扣的是另一个 state 对象，钱根本不会少。 */
+  App.walletOut(poor, '清空', '测试');   /* 把钱花光 */
+  ok('测试前提：钱确实花光了', App.walletBalance() === 0, String(App.walletBalance()));
+  const t3 = openFresh('chat', 'g1');
+  walk(t3).find(n => n._class.has('chat-plus')).click();
+  clickSheet('给 TA 点外卖');
+  ok('余额不够时给提示、不落单',
+    toasts().includes('零钱不够') && App.state.delivery.orders.filter(o => o.to === 'g1').length === 1,
+    toasts().split('|').slice(-2).join('|'));
+
+  fetchImpl = null;
+}
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

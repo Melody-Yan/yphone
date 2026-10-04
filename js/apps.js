@@ -142,6 +142,126 @@ function confirmBox(text, onOk) {
   document.getElementById('phone').append(mask);
 }
 
+/* 一句话输入面板。「想吃什么 / 想要什么」都走它 —— 与其做一套筛选 UI，
+   不如让用户直接说一句，交给模型去理解。 */
+function askText(title, placeholder, hint, onSubmit) {
+  let mask = null;
+  const input = SJ.el('textarea', { class: 'field area sm', placeholder: placeholder || '' });
+  const go = () => {
+    const v = input.value.trim();
+    if (!v) { toast('先说一句想点什么'); input.focus(); return; }
+    if (mask) dismiss(mask);
+    onSubmit(v);
+  };
+  const box = SJ.el('div', { class: 'pad' }, [
+    SJ.el('div', { class: 'sheet-head' }, title),
+    input,
+    hint ? SJ.el('div', { class: 'hint' }, hint) : null,
+    SJ.el('button', { class: 'btn', onclick: go }, '就这些')
+  ].filter(Boolean));
+  mask = sheet([], box);
+  setTimeout(() => { if (input.focus) input.focus(); }, 60);
+}
+
+/* ── 收货地址（外卖和商城共用）──
+   表单和列表都写在这儿，两个 App 各调一次，不各写一份。
+   地址是可选信息：一条都没有时结算页显示「还没填 · 点这里添加」，不挡下单。 */
+function addressForm(existing, onDone) {
+  const a = existing || {};
+  const f = (label, key, ph, extra) => {
+    const i = SJ.el('input', Object.assign({
+      class: 'field', placeholder: ph, value: a[key] || ''
+    }, extra || {}));
+    return { i, node: SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, label), i]) };
+  };
+  const name = f('收货人', 'name', '怎么称呼');
+  const phone = f('电话', 'phone', '手机号', { inputmode: 'tel' });
+  const detail = f('详细地址', 'detail', '小区 / 楼栋 / 门牌号');
+  const tag = f('标签', 'tag', '家 / 公司 / 学校（可留空）');
+  let mask = null;
+  const go = () => {
+    if (!detail.i.value.trim()) { toast('详细地址总得填一下'); detail.i.focus(); return; }
+    SJ.addressSave({
+      id: a.id, name: name.i.value, phone: phone.i.value,
+      detail: detail.i.value, tag: tag.i.value
+    });
+    if (mask) dismiss(mask);
+    toast(existing ? '地址改好了' : '地址存好了');
+    onDone();
+  };
+  const box = SJ.el('div', { class: 'pad addr-form' }, [
+    SJ.el('div', { class: 'sheet-head' }, existing ? '改地址' : '添加地址'),
+    name.node, phone.node, detail.node, tag.node,
+    SJ.el('button', { class: 'btn', onclick: go }, '保存')
+  ]);
+  mask = sheet([], box);
+  setTimeout(() => { if (name.i.focus) name.i.focus(); }, 60);
+}
+
+/* 地址列表：弹一层底部面板，不占视图栈、也不用调用方交出自己的 root。
+   选了/改了就地重画这一层，底下的结算页不受影响。 */
+function addressBook(onChange) {
+  let mask = null;
+  const build = () => {
+    if (mask) dismiss(mask);
+    const all = SJ.addressList();
+    const cur = SJ.addressNow();
+    /* 新增/改完/删完都要把底下的结算页也刷新 —— 否则地址存了，
+       那行还写着「还没填」，看着像没生效 */
+    const refresh = () => { build(); if (onChange) onChange(); };
+    const body = SJ.el('div', { class: 'pad addr-book' });
+    body.append(SJ.el('div', { class: 'sheet-head' }, '收货地址'));
+    if (!all.length) {
+      body.append(SJ.el('div', { class: 'empty' }, '还没有地址\n加一个，结算时会自动带上'));
+    } else {
+      all.forEach(a => {
+        const on = cur && cur.id === a.id;
+        body.append(SJ.el('div', { class: 'addr-row' + (on ? ' on' : ''), onclick: () => { SJ.addressPick(a.id); refresh(); } }, [
+          SJ.el('div', { class: 'addr-main' }, [
+            SJ.el('div', { class: 'addr-top' }, [
+              SJ.el('span', { class: 'addr-name' }, a.name || '未填收货人'),
+              a.phone ? SJ.el('span', { class: 'addr-phone' }, a.phone) : null,
+              a.tag ? SJ.el('span', { class: 'addr-tag' }, a.tag) : null,
+              a.def ? SJ.el('span', { class: 'addr-def' }, '默认') : null
+            ].filter(Boolean)),
+            SJ.el('div', { class: 'addr-detail' }, a.detail)
+          ]),
+          SJ.el('div', { class: 'addr-acts' }, [
+            SJ.el('button', { class: 'addr-act', onclick: ev => { ev.stopPropagation(); addressForm(a, refresh); } }, '改'),
+            SJ.el('button', {
+              class: 'addr-act danger',
+              onclick: ev => {
+                ev.stopPropagation();
+                confirmBox('删掉这条地址？', () => { SJ.addressRemove(a.id); refresh(); });
+              }
+            }, '删')
+          ])
+        ]));
+      });
+    }
+    body.append(SJ.el('button', { class: 'btn ghost addr-add', onclick: () => addressForm(null, refresh) },
+      '＋ 添加地址'));
+    mask = sheet([], body);
+  };
+  build();
+}
+
+/* 结算页上的那一行地址：显示选中的，点开换。没有地址就提示加一个（不挡下单）。 */
+function addressBar(onChange) {
+  const a = SJ.addressNow();
+  const sub = a
+    ? [a.name, a.phone, a.tag].filter(Boolean).join(' · ') + (a.name || a.phone || a.tag ? '\n' : '') + a.detail
+    : '还没填收货地址 · 点这里加一个';
+  return SJ.el('div', { class: 'addr-bar' + (a ? '' : ' empty'), onclick: () => addressBook(onChange) }, [
+    SJ.el('span', { class: 'addr-bar-ico' }, '📍'),
+    SJ.el('div', { class: 'addr-bar-main' }, [
+      SJ.el('div', { class: 'addr-bar-t' }, a ? '送到这里' : '收货地址'),
+      SJ.el('div', { class: 'addr-bar-s' }, sub)
+    ]),
+    SJ.el('span', { class: 'addr-bar-arrow', html: svg('right', 16) })
+  ]);
+}
+
 /* 支付密码弹窗。设了密码才会弹；没设就直接放行 —— 钱不能被一把没人设过的锁挡住。
    数字盘复用锁屏那套 .pad-* 结构，手感和长相都一致，不用再写一份。
    onOk 只有输对了才调，且是立刻调（不跟着淡出动画等），别让人以为点了没反应。 */
@@ -1779,6 +1899,26 @@ const APPS = [
           return b;
         }
 
+        /* 礼物卡：一条真订单的入口。点开看订单，不是只弹个提示 ——
+           收到东西却查不到单，比没送还怪。 */
+        function giftBubble(m) {
+          const food = m.gkind === '外卖';
+          const o = m.orderId ? giftOrderOf(m.orderId) : null;
+          const b = SJ.el('div', { class: 'bubble ' + (m.me ? 'me' : 'ta') + ' gift' }, [
+            SJ.el('div', { class: 'gift-ico' }, m.emoji || (food ? '🍜' : '🎁')),
+            SJ.el('div', { class: 'gift-body' }, [
+              SJ.el('div', { class: 'gift-name' }, m.gname || (food ? '一份外卖' : '一件礼物')),
+              SJ.el('div', { class: 'gift-sub' }, m.me ? '已送出 · 点开看订单' : '点开看订单')
+            ])
+          ]);
+          b.addEventListener('click', () => {
+            if (!o) return toast('这单太久远了，详情已经看不到了');
+            window.SHELL.openApp(food ? 'delivery' : 'mall', { orderId: o.id });
+          });
+          row(b, m.me);
+          return b;
+        }
+
         /* 红包：点开才算领到，领取状态跟着消息一起存 */
         function packetBubble(m) {
           const amt = Number(m.amount || 0);
@@ -1855,20 +1995,33 @@ const APPS = [
           if (m.kind === 'transfer') return transferBubble(m);
           if (m.kind === 'packet') return packetBubble(m);
           if (m.kind === 'location') return locationBubble(m);
+          if (m.kind === 'gift') return giftBubble(m);
           if (m.kind === 'card') return cardBubble(m);
           if (m.kind === 'call') return callBubble(m);
+          if (m.kind === 'gift') return giftBubble(m);
           if (m.kind === 'voice') return voiceBubble(m, m.me);
           if (m.me) return bubble(SJ.stripMarks(m.text) || m.text, true, m.quote);
           SJ.splitReply(m.text).forEach(t => chunkNode(t, false));
         }
 
-        /* 对面发来的一段 → 它可能是语音、红包，也可能只是句人话 */
+        /* 对面发来的一段 → 它可能是语音、红包，也可能只是句人话。
+           ⚠️ 礼物标记不在这儿落单：chunkNode 每次重画都会被调到，
+           在这儿建订单等于每重画一次就凭空多出一单。落单在 askAndShow 里做一次。 */
         function chunkNode(t, me, auto) {
           const v = SJ.voiceOf(t);
           if (v) return voiceBubble({ kind: 'voice', text: v, dur: SJ.voiceDur(v) }, me, auto);
           const rp = SJ.redpacketOf(t);
           if (rp) return packetBubble({ kind: 'packet', amount: rp.amount, note: rp.note, me });
           return bubble(SJ.stripMarks(t), me);
+        }
+
+        /* 礼物卡上记 orderId，点开能查到具体那一单。
+           找不到（订单被顶出上限了）就返回 null，卡片退化成只显示名字。
+           ⚠️ 直接从 SJ.state 读，别用各 App 里的 dl()/mg() —— 那两个是各自的闭包局部量。 */
+        function giftOrderOf(oid) {
+          const d = SJ.state.delivery, m = SJ.state.mall;
+          return (d.orders || []).find(x => x.id === oid)
+              || (m.orders || []).find(x => x.id === oid) || null;
         }
         function redraw() {
           list.innerHTML = '';
@@ -1998,13 +2151,36 @@ const APPS = [
           /* 群聊：一段回答里常常是好几个人各说一句（「名字：内容%%名字：内容」），
              在这儿拆成一条条落盘，每条记上 who —— 之后重画就不用再猜谁说的了。 */
           const parts = G ? SJ.parseGroupReply(G, answer) : [{ who: '', text: answer }];
+          /* 礼物标记在这儿落单 —— 只有一次，不是每次重画。
+             模型不一定乖乖把标记单独放一行（经常写成「给你点了份外卖 [[gift:外卖]]」），
+             所以按「整段里出现几次」扫，而不是只认整段就是标记那一种。
+             群聊不发礼物：群里没有「这一个角色」，落单不知道该记谁送的。 */
+          const giftParts = [];
+          const GIFT_MARK = /\[\[gift:(外卖|礼物)\]\]/g;
+          if (!G) parts.forEach(p => {
+            let m;
+            GIFT_MARK.lastIndex = 0;
+            while ((m = GIFT_MARK.exec(p.text))) {
+              const o = SJ.giftMake(m[1], id, '');
+              giftParts.push({
+                kind: 'gift', gkind: m[1], gname: o.items[0].name,
+                emoji: o.emoji, orderId: o.id
+              });
+            }
+            if (/\[\[gift:(?:外卖|礼物)\]\]/.test(p.text)) {
+              p.text = p.text.replace(/\[\[gift:(?:外卖|礼物)\]\]/g, '').trim();
+            }
+          });
+          /* 卡片另起一条落盘：和文字气泡分开，顺序也自然（说完话，东西跟上） */
+          giftParts.forEach(gp => parts.push({ who: '', text: '', gift: gp }));
           /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
              旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
           const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
           if (isRedo) { SJ.addAlt(redo, answer); regen = null; }
           else {
             regen = null;
-            parts.forEach(p => SJ.pushMessage(id, false, p.text, p.who ? { who: p.who } : {}));
+            parts.forEach(p => SJ.pushMessage(id, false, p.text, Object.assign(
+              p.who ? { who: p.who } : {}, p.gift || {})));
           }
           tip.remove();
           markRead();       // 她开口了 = 读过我那条了
@@ -2017,11 +2193,20 @@ const APPS = [
           for (const p of parts) {
             curWho = p.who || '';
             const t = p.text;
+            /* 礼物摘掉标记后可能就没文字了（整个标记独占一段）—— 别画空气泡 */
+            if (!t && !p.gift) continue;
             const v = SJ.voiceOf(t);
             if (v || SJ.redpacketOf(t)) {
               /* 语音和红包不是打出来的 —— 等一个停顿直接出现 */
               await wait(typingDelay(v || t));
               chunkNode(t, false, true);
+              continue;
+            }
+            if (p.gift) {
+              /* 礼物不是打出来的：顿一下卡片才出现，像骑手刚接单 */
+              await wait(typingDelay('嗯'));
+              giftBubble(p.gift);
+              list.scrollTop = list.scrollHeight;
               continue;
             }
             const b = bubble('', false);
@@ -2263,6 +2448,33 @@ const APPS = [
           })));
         }
 
+        /* ── 给 TA 点外卖 / 买礼物 ──
+           用户掏钱（走支付密码和余额），落一单真的订单，再往聊天里发一张礼物卡。
+           订单上的 to 记收礼的角色，订单列表里能一眼看出来是送给谁的。 */
+        function giftToChar(kind) {
+          const food = kind === '外卖';
+          const total = food ? SJ.pickGiftFood().price : SJ.pickGiftThing().price;
+          if (!SJ.walletEnough(total)) {
+            return toast('零钱不够，还差 ' + (total - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
+          }
+          payPad('请输入支付密码', '¥' + total, () => {
+            /* 钱先扣了再落单：walletPay 失败就不该有订单（和外卖/商城同一条规矩） */
+            if (!SJ.walletPay(total, food ? '给' + c.name + '点外卖' : '给' + c.name + '买礼物', c.name)) {
+              return toast('零钱不够了');
+            }
+            const o = SJ.giftMake(kind, '', c.id);
+            const m = SJ.pushMessage(id, true, '',
+              { kind: 'gift', gkind: kind, gname: o.items[0].name, emoji: o.emoji, orderId: o.id });
+            renderMsg(m[m.length - 1]);
+            newReadTag(lastRow);
+            syncSend();
+            beep('out');
+            toast(food ? '外卖送出去了' : '礼物送出去了');
+          });
+        }
+        const giftFood = () => giftToChar('外卖');
+        const giftThing = () => giftToChar('礼物');
+
         plus.addEventListener('click', () => sheet([
           { icon: '↻', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
           { icon: '🖼', label: '发表情 / 图片', hint: '表情库 / 相册', run: pickImage },
@@ -2270,6 +2482,8 @@ const APPS = [
           { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
           { icon: '🧧', label: '发红包', run: askPacket },
           { icon: '¥', label: '转账', run: askTransfer },
+          { icon: '🍜', label: '给 TA 点外卖', hint: '你请客，直接送到 TA 那儿', run: giftFood },
+          { icon: '🎁', label: '给 TA 买礼物', hint: '下单快递过去', run: giftThing },
           { icon: '📍', label: '发位置', run: askLocation },
           { icon: '👤', label: '发名片', run: pickCard },
           { icon: '（）', label: '发个动作 / 旁白', hint: '用括号包起来', run: sendAside },
@@ -2714,7 +2928,7 @@ const APPS = [
     icon: 'bowl',
     art: '1F35C',
     color: 'linear-gradient(150deg,#f6d9a6,#dfa85c)',
-    render(root) {
+    render(root, close, arg) {
       let busy = false;
       const dl = () => SJ.state.delivery;
 
@@ -2806,6 +3020,14 @@ const APPS = [
         }
         busy = false;
         listView();
+      }
+
+      /* 「想吃点什么」：一句话描述，交给模型理解。
+         比让用户从 8 个固定口味里挑准得多 —— 想吃「楼下那家潮汕牛肉火锅」也能说。 */
+      function wishView() {
+        askText('想吃点什么？', '比如：潮汕牛肉火锅、减脂轻食、深夜的关东煮',
+          '随便说，桃桃照这个上一批店。会替换掉现在这批商家。',
+          v => regen(v));
       }
 
       function cartBar() {
@@ -3011,6 +3233,8 @@ const APPS = [
           SJ.el('span', { class: 'cart-line' }, '¥' + x.price * x.n)
         ])));
         root.append(list);
+        /* 送到哪儿：结算页是最后能改地址的地方，必须摆在这儿 */
+        root.append(addressBar(() => cartView()));
         root.append(SJ.el('div', { class: 'pad' }, [
           SJ.el('div', { class: 'hint' }, (shopName ? shopName + ' · ' : '') + SJ.cartCount() + ' 件'),
           SJ.el('button', { class: 'btn', onclick: checkout }, '去结算 ¥' + SJ.cartTotal()),
@@ -3069,8 +3293,10 @@ const APPS = [
         ]));
         const rows = [
           { t: '我的订单', s: os.length ? os.length + ' 单' : '还没有', go: ordersView },
+          { t: '收货地址', s: SJ.addressList().length ? SJ.addressList().length + ' 个 · ' + (SJ.addressNow() ? SJ.addressNow().detail : '') : '还没填，点这里加一个', go: () => addressBook(() => meView()) },
           { t: '到店自取', s: '看哪家近', go: pickupView },
-          { t: '换一批商家', s: '换个口味', go: () => regen() }
+          { t: '想吃点什么', s: '说一句，让桃桃照这个口味上一批', go: () => wishView() },
+          { t: '换一批商家', s: '随机换个口味', go: () => regen() }
         ];
         const list = SJ.el('div', { class: 'list' });
         rows.forEach(r => list.append(SJ.el('div', { class: 'row', onclick: r.go }, [
@@ -3102,7 +3328,7 @@ const APPS = [
       /* 订单进度是按「下单到现在过了多久」现算的，所以这里每 5 秒重画一次。
          存档里不存进度：存了就得有定时器到处改存档，关掉 App 再进来还会断。 */
       let tick = null;
-      function ordersView() {
+      function ordersView(focusId) {
         const body = [];
         const orders = dl().orders;
         if (!orders.length) {
@@ -3110,13 +3336,15 @@ const APPS = [
           return void page('order', '我的订单', body, { cart: false });
         }
         const list = SJ.el('div', { class: 'list' });
-        orders.forEach(o => {
+        /* 从礼物卡点进来的那一单排最前面 —— 不排的话用户得自己在几十单里找 */
+        const sorted = focusId ? orders.slice().sort((a, b) => (b.id === focusId) - (a.id === focusId)) : orders;
+        sorted.forEach(o => {
           const i = SJ.orderStage(o);
           const done = i >= SJ.ORDER_STAGES.length - 1;
-          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') });
+          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') + (o.id === focusId ? ' focus' : '') + (o.gift ? ' gift-order' : '') });
           card.append(SJ.el('div', { class: 'od-head' }, [
-            SJ.el('div', { class: 'od-shop' }, o.shopName),
-            SJ.el('div', { class: 'od-amt' }, '¥' + o.total)
+            SJ.el('div', { class: 'od-shop' }, (o.gift ? (o.emoji || '🎁') + ' ' : '') + o.shopName),
+            SJ.el('div', { class: 'od-amt' }, o.gift ? '礼物' : '¥' + o.total)
           ]));
           /* 时间轴：走过的点亮，没到的灰着 */
           const steps = SJ.el('div', { class: 'od-steps' });
@@ -3128,17 +3356,20 @@ const APPS = [
           ])));
           card.append(steps);
           card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          if (o.addr) card.append(SJ.el('div', { class: 'od-addr' }, '📍 ' + o.addr));
           list.append(card);
         });
         body.push(list);
         page('order', '我的订单', body, { cart: false });
         /* 进度是按时间现算的，没送到就每 5 秒重画一次 */
         if (dl().orders.some(o => SJ.orderStage(o) < SJ.ORDER_STAGES.length - 1)) {
-          tick = setInterval(() => { if (root.isConnected !== false) ordersView(); }, 5000);
+          tick = setInterval(() => { if (root.isConnected !== false) ordersView(focusId); }, 5000);
         }
       }
 
-      listView();
+      /* 从礼物卡点进来：直接落到那笔订单上，不让人自己再翻一遍 */
+      if (arg && arg.orderId) ordersView(arg.orderId);
+      else listView();
     }
   },
 
@@ -3149,7 +3380,7 @@ const APPS = [
     icon: 'bag',
     art: '1F6CD',
     color: 'linear-gradient(150deg,#f7c9d4,#e08aa4)',
-    render(root) {
+    render(root, close, arg) {
       let busy = false;
       /* 当前筛选：分类 id + 二级子类 + 关键词。三个都空就是「全部」。 */
       let cat = '';
@@ -3447,6 +3678,7 @@ const APPS = [
         const total = SJ.mallTotal();
         const pickedN = cart.filter(x => x.picked !== false).reduce((s, x) => s + x.n, 0);
         page('cart', '购物车', [
+          addressBar(() => cartView()),
           list,
           SJ.el('div', { class: 'cart-bar mall-cart-bar' }, [
             SJ.el('span', { class: 'cart-ico' }, '🛒'),
@@ -3472,19 +3704,21 @@ const APPS = [
       }
 
       /* ── 订单 ── */
-      function ordersView() {
+      function ordersView(focusId) {
         const os = mg().orders;
         if (!os.length) {
           return void page('me', '我的订单', [SJ.el('div', { class: 'empty big done' }, '还没有订单')]);
         }
         const list = SJ.el('div', { class: 'list' });
-        os.forEach(o => {
+        /* 从礼物卡点进来的那一单排最前面 */
+        const sorted = focusId ? os.slice().sort((a, b) => (b.id === focusId) - (a.id === focusId)) : os;
+        sorted.forEach(o => {
           const i = SJ.mallStage(o);
           const done = i >= SJ.MALL_STAGES.length - 1;
-          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') });
+          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') + (o.id === focusId ? ' focus' : '') + (o.gift ? ' gift-order' : '') });
           card.append(SJ.el('div', { class: 'od-head' }, [
-            SJ.el('div', { class: 'od-shop' }, done ? '已签收' : SJ.MALL_STAGES[i]),
-            SJ.el('div', { class: 'od-amt' }, '¥' + o.total)
+            SJ.el('div', { class: 'od-shop' }, (o.gift ? (o.emoji || '🎁') + ' ' : '') + (done ? '已签收' : SJ.MALL_STAGES[i])),
+            SJ.el('div', { class: 'od-amt' }, o.gift ? '礼物' : '¥' + o.total)
           ]));
           const steps = SJ.el('div', { class: 'od-steps' });
           SJ.MALL_STAGES.forEach((s, k) => steps.append(SJ.el('div', {
@@ -3492,12 +3726,13 @@ const APPS = [
           }, [SJ.el('span', { class: 'od-dot' }), SJ.el('span', { class: 'od-lab' }, s)])));
           card.append(steps);
           card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          if (o.addr) card.append(SJ.el('div', { class: 'od-addr' }, '📍 ' + o.addr));
           list.append(card);
         });
         page('me', '我的订单', [list]);
         /* 和外卖一样：没签收就每 5 秒重画，进度是按虚拟时间现算的 */
         if (os.some(o => SJ.mallStage(o) < SJ.MALL_STAGES.length - 1)) {
-          setInterval(() => { if (root.isConnected !== false) ordersView(); }, 5000);
+          setInterval(() => { if (root.isConnected !== false) ordersView(focusId); }, 5000);
         }
       }
 
@@ -3537,6 +3772,24 @@ const APPS = [
             ]),
             SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
           ]),
+          SJ.el('div', { class: 'row', onclick: () => addressBook(() => meView()) }, [
+            SJ.el('div', { class: 'row-ico', html: svg('pin', 19) }),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '收货地址'),
+              SJ.el('div', { class: 'row-sub' }, SJ.addressList().length
+                ? SJ.addressList().length + ' 个 · ' + (SJ.addressNow() ? SJ.addressNow().detail : '')
+                : '还没填，点这里加一个')
+            ]),
+            SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+          ]),
+          SJ.el('div', { class: 'row', onclick: () => wishView() }, [
+            SJ.el('div', { class: 'row-ico', html: svg('sparkle', 19) }),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '想要点什么'),
+              SJ.el('div', { class: 'row-sub' }, '说一句，让桃桃专门去进这几样')
+            ]),
+            SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+          ]),
           SJ.el('div', { class: 'row', onclick: () => regen() }, [
             SJ.el('div', { class: 'row-ico', html: svg('sparkle', 19) }),
             SJ.el('div', { class: 'row-main' }, [
@@ -3572,6 +3825,52 @@ const APPS = [
         const text = await SJ.askOnce(GEN_SYS, genUser(cats));
         return SJ.normalizeGoods(SJ.parseJSONLoose(text));
       }
+      /* 「想要点什么」：用户说一句，照原话进货。
+         分类还是落到固定的 8 大类里（不然筛选按钮点不出东西），
+         但商品本身完全按用户说的来 —— 想要「露营用的折叠桌」就能有。 */
+      const WISH_SYS = '你是一个电商平台的商品数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
+      function wishUser(text) {
+        return '用户想要这些商品：' + text + '\n' +
+          '请生成 6 件最贴合的电商商品。\n' +
+          'JSON 格式：\n' +
+          '{"goods":[{"name":"商品名","cat":"分类 id","sub":"二级子类","price":199,"oldPrice":299,' +
+          '"emoji":"一个代表商品的 emoji","desc":"一句话卖点","sales":"月销2000+","brand":"品牌名",' +
+          '"tags":["包邮","7天无理由"],"hot":true}]}\n' +
+          'cat 只能取这些 id：' + MALL_CATS.map(c => c.id).join('、') + '，' +
+          '（' + MALL_CATS.map(c => c.id + '=' + c.name).join('，') + '）' +
+          '按商品实际类别选最贴的那个 id。\n' +
+          '要求：name 要具体（「法式碎花连衣裙」而不是「裙子」），12 字以内；' +
+          'sub 写它真实对应的细分类；价格是人民币整数（19~2999）；' +
+          'oldPrice 是原价（比 price 高 10%~40%），没有就写 0；desc 写材质/功效/场景，18 字以内；' +
+          'sales 写成「月销2000+」这种；brand 编一个像样的牌子名；' +
+          'tags 从「包邮」「7天无理由」「正品」「顺丰」「当日发」「假一赔十」里挑 1~3 个；' +
+          'emoji 要和商品对得上。商品要和用户说的东西直接相关，别跑题。';
+      }
+      async function wishGen(text) {
+        if (busy) return;
+        busy = true;
+        homeView();
+        try {
+          const got = SJ.normalizeGoods(SJ.parseJSONLoose(await SJ.askOnce(WISH_SYS, wishUser(text))));
+          if (!got.length) throw new Error('这次没找到贴合的东西，换个说法再试');
+          /* 想要的和现有的并在一起，不覆盖 —— 用户说的是「还想要这几样」，
+             把他货架上原有的东西清掉是另一回事。同名的换掉，免得重复。 */
+          const names = {};
+          got.forEach(g => { names[g.name] = 1; });
+          const keep = mg().goods.filter(g => !names[g.name]);
+          SJ.setGoods(keep.concat(got));
+          toast('按你说的上了 ' + got.length + ' 件');
+        } catch (e) {
+          toast((e && e.message) || '生成失败');
+        }
+        busy = false;
+        meView();
+      }
+      function wishView() {
+        askText('想要点什么？', '比如：露营的折叠桌、送妈妈的丝巾、百元内的蓝牙耳机',
+          '说什么都行，桃桃照这个进货。原来货架上的东西都留着。',
+          v => wishGen(v));
+      }
       async function regen() {
         if (busy) return;
         busy = true;
@@ -3605,7 +3904,9 @@ const APPS = [
         homeView();
       }
 
-      homeView();
+      /* 从礼物卡点进来：直接落到那笔订单上 */
+      if (arg && arg.orderId) ordersView(arg.orderId);
+      else homeView();
     }
   },
 

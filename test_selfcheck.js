@@ -3994,7 +3994,10 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.addToCart('s1', { id: 'd1', name: '牛肉面', price: 30 });
   const dlApp2 = openFresh('delivery');
   walk(dlApp2).find(n => n._class.has('cart-bar')).click();   /* 外卖的购物车是底部 bar */
-  const barBefore = walk(byId.stack).find(n => n._class.has('addr-bar'));
+  /* ⚠️ 结算页现在有两行 .addr-bar：上面是「送给谁」，下面是「送到哪儿」。
+      必须排除 .giftee，否则会抓到送礼那一行。 */
+  const addrBar = () => walk(byId.stack).find(n => n._class.has('addr-bar') && !n._class.has('giftee'));
+  const barBefore = addrBar();
   ok('结算页有地址行，且此时是「还没填」',
     !!barBefore && barBefore.textContent.includes('点这里加一个'), barBefore && barBefore.textContent);
   barBefore.click();
@@ -4007,7 +4010,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   ins[2].value = '幸福小区 3 栋 502';
   walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '保存').click();
   /* 底下的结算页必须已经重画 —— 断言的是页面上真实那一行，不是 state */
-  const barAfter = walk(byId.stack).find(n => n._class.has('addr-bar'));
+  const barAfter = addrBar();
   ok('存完地址，底下的结算页立刻显示「送到这里」（不用退出重进）',
     !!barAfter && barAfter.textContent.includes('送到这里') && barAfter.textContent.includes('幸福小区'),
     barAfter && barAfter.textContent);
@@ -4076,34 +4079,150 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   ok('点礼物卡进的是订单页，而且能看到那一单',
     walk(byId.stack).some(n => n._class.has('order-card') && n.textContent.includes('小面馆')));
 
-  /* ── 「＋」里能亲手给 TA 点外卖 ── */
+  /* ── 「＋」里的「给 TA 点外卖」：打开外卖，把收礼人预置好，不是替他随机抽一件 ── */
   while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
   App.state.settings.payPass = '';   /* 先不设密码，走通主路径 */
-  const walletBefore = App.walletBalance();
+  const ordersBefore = App.state.delivery.orders.length;
   const chat3 = openFresh('chat', 'g1');
   walk(chat3).find(n => n._class.has('chat-plus')).click();
   ok('「＋」里有「给 TA 点外卖」', sheetLabels().includes('给 TA 点外卖'), sheetLabels().join(','));
   ok('「＋」里有「给 TA 买礼物」', sheetLabels().includes('给 TA 买礼物'));
   clickSheet('给 TA 点外卖');
-  await waitFor(() => App.state.delivery.orders.some(o => o.from === '' && o.to === 'g1'), 3000);
-  const mine = App.state.delivery.orders.find(o => o.to === 'g1');
-  ok('给 TA 点外卖落了一单，收礼人是我指定的人', !!mine && mine.to === 'g1' && mine.from === '');
+  await waitFor(() => sandbox.SHELL.stack.length, 3000);
+  ok('点「给 TA 点外卖」打开的是外卖 App（不是替我瞎买一件）',
+    !!walk(byId.stack).find(n => n._class.has('cart-bar') || n.textContent === '外卖'),
+    'stack=' + sandbox.SHELL.stack.length);
+  ok('收礼人已经预置成 g1', App.giftToId() === 'g1', App.giftToId());
+  ok('没有凭空多出一张订单', App.state.delivery.orders.length === ordersBefore,
+    ordersBefore + ' → ' + App.state.delivery.orders.length);
+
+  /* 自己挑一样东西，走到结算页 —— 那儿才有「送给谁」。
+     ⚠️ 必须先把东西放进购物车再打开 App：购物车那条 bar 是渲染时按当时的内容画的，
+     先开页面后加货，页面上根本不会有这条 bar。 */
+  const shop = App.state.delivery.shops.find(s => s.dishes && s.dishes.length);
+  ok('测试前提：有店可以点', !!shop, '没有店');
+  App.addToCart(shop.id, shop.dishes[0]);
+  App.giftToSet('g1');
+  App.save();
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+  sandbox.SHELL.openApp('delivery', { giftTo: 'g1', fromChat: 'g1' });
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
+  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('giftee')), 3000);
+  const gbar = walk(byId.stack).find(n => n._class.has('giftee'));
+  ok('结算页有「送给谁」那一行', !!gbar, '没找到 .addr-bar.giftee');
+  ok('那一行写着送给谁', !!gbar && gbar.textContent.includes('这一单送给'), gbar && gbar.textContent);
+  if (gbar) {
+    gbar.click();
+    await waitFor(() => walk(byId.phone).some(n => n._class.has('addr-book')), 2000);
+    const pickRows = walk(byId.phone).filter(n => n._class.has('addr-row'));
+    ok('选人面板里有「我自己收」+ 每个角色', pickRows.length >= 2, String(pickRows.length));
+    const meRow = pickRows.find(n => n.textContent.includes('我自己收'));
+    ok('有「我自己收」这一项', !!meRow);
+    meRow.click();
+    await waitFor(() => App.giftToId() === '', 2000);
+    ok('选了「我自己收」后收礼人清空', App.giftToId() === '', App.giftToId());
+    /* ⚠️ 这里不能用 SHELL.closeTop() 收面板 —— 选人面板挂在 #phone 上，不在
+       视图栈里，closeTop 关掉的是底下那个外卖 App，结算页会跟着一起没。
+       面板留在那儿不影响后面的点击（垫片是按节点直接派发事件的）。 */
+  }
+
+  /* 选回 g1，付款 —— 全程走真实 UI。
+     ⚠️ 外卖结算页的按钮是普通 .btn「去结算 ¥N」；.cart-go 只存在于首页那条购物车 bar 上。 */
+  App.giftToSet('g1');
+  const walletBefore = App.walletBalance();
+  const go = walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算'));
+  ok('结算按钮在', !!go, walk(byId.stack).map(n => String(n.textContent).slice(0, 20)).join('|'));
+  if (go) {
+    go.click();
+    await waitFor(() => App.state.delivery.orders.some(o => o.to === 'g1' && o.from === ''), 3000);
+  }
+  const mine = App.state.delivery.orders.find(o => o.to === 'g1' && o.from === '');
+  ok('自己挑的这一单落了，收礼人是 g1 且标成礼物', !!mine && mine.gift === true && mine.kind === '外卖', JSON.stringify(mine && { gift: mine.gift, kind: mine.kind, to: mine.to }));
   ok('这单扣了我的钱', App.walletBalance() < walletBefore, walletBefore + ' → ' + App.walletBalance());
-  ok('这单也发了一张礼物卡给我自己看',
-    App.messages('g1').some(m => m.me && m.kind === 'gift' && m.orderId === mine.id));
+  ok('送完收礼人自动复位，下一单不再变成礼物', App.giftToId() === '', App.giftToId());
+  ok('这单往聊天里补了一张礼物卡',
+    !!mine && App.messages('g1').some(m => m.me && m.kind === 'gift' && m.orderId === mine.id),
+    JSON.stringify(App.messages('g1').filter(m => m.kind === 'gift').map(m => m.orderId)));
+
+  /* 在 App 里直接下单（不是从聊天进来）不该往聊天里塞卡片 */
+  const msgN = App.messages('g1').length;
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+  App.addToCart(shop.id, shop.dishes[0]);
+  App.save();
+  sandbox.SHELL.openApp('delivery');
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
+  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')), 3000);
+  walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')).click();
+  await waitFor(() => App.state.delivery.orders.length > ordersBefore + 1, 3000);
+  ok('不是从聊天进来的单，不会凭空往聊天里发消息', App.messages('g1').length === msgN,
+    msgN + ' → ' + App.messages('g1').length);
 
   /* 余额不够时不许下单、不许扣钱 */
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
   const poor = App.walletBalance();
   /* ⚠️ 必须用 App.walletOut，不能用块顶部那个 S —— boot() 会重建 sandbox.SJ，
       S 是旧的，扣的是另一个 state 对象，钱根本不会少。 */
   App.walletOut(poor, '清空', '测试');   /* 把钱花光 */
   ok('测试前提：钱确实花光了', App.walletBalance() === 0, String(App.walletBalance()));
-  const t3 = openFresh('chat', 'g1');
-  walk(t3).find(n => n._class.has('chat-plus')).click();
-  clickSheet('给 TA 点外卖');
+  const orderN = App.state.delivery.orders.length;
+  App.addToCart(shop.id, shop.dishes[0]);
+  App.giftToSet('g1');
+  App.save();
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+  sandbox.SHELL.openApp('delivery');
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
+  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  await waitFor(() => walk(byId.stack).some(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')), 3000);
+  walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')).click();
+  await waitFor(() => toasts().includes('零钱不够'), 2000);
   ok('余额不够时给提示、不落单',
-    toasts().includes('零钱不够') && App.state.delivery.orders.filter(o => o.to === 'g1').length === 1,
-    toasts().split('|').slice(-2).join('|'));
+    toasts().includes('零钱不够') && App.state.delivery.orders.length === orderN,
+    toasts().split('|').slice(-2).join('|') + ' / 单数 ' + orderN + ' → ' + App.state.delivery.orders.length);
+  ok('余额不够时钱没有被扣成负数', App.walletBalance() === 0, String(App.walletBalance()));
+
+  /* 商城那边同样的礼物路径 */
+  while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+  App.walletIn(500, '充值', '测试');
+  App.setGoods([{ id: 'gd1', name: '围巾', price: 66, emoji: '🧣', cat: 'clothes' }]);
+  const goods = App.state.mall.goods;
+  ok('测试前提：商城有货', goods.length > 0, String(goods.length));
+  if (goods.length) {
+    App.mallClearCart();
+    App.mallAddToCart(goods[0]);
+    App.giftToSet('g1');
+    App.save();
+    while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
+    /* 从聊天进来才补卡片 —— 这里必须带 fromChat，否则测的是「不该发卡」那条路 */
+    sandbox.SHELL.openApp('mall', { giftTo: 'g1', fromChat: 'g1' });
+    /* 商城是从首页进的，购物车在底部页签里（外卖那边才是首页底部的 .cart-bar） */
+    await waitFor(() => walk(byId.stack).some(n => n._class.has('wt')), 3000);
+    const cartTab = walk(byId.stack).filter(n => n._class.has('wt')).find(n => String(n.textContent).includes('购物车'));
+    ok('商城有购物车页签', !!cartTab, walk(byId.stack).filter(n => n._class.has('wt')).map(n => n.textContent).join(','));
+    if (cartTab) cartTab.click();
+    await waitFor(() => walk(byId.stack).some(n => n._class.has('giftee')), 3000);
+    const mgBar = walk(byId.stack).find(n => n._class.has('giftee'));
+    ok('商城结算页也有「送给谁」', !!mgBar, '没找到 .addr-bar.giftee');
+    const mo = walk(byId.stack).find(n => n._class.has('cart-go'));
+    if (mo) {
+      mo.click();
+      await waitFor(() => App.state.mall.orders.some(o => o.to === 'g1'), 3000);
+      const mo2 = App.state.mall.orders.find(o => o.to === 'g1');
+      ok('商城礼物单落了，标成 kind 礼物', !!mo2 && mo2.gift === true && mo2.kind === '礼物',
+        JSON.stringify(mo2 && { gift: mo2.gift, kind: mo2.kind }));
+      ok('商城礼物单也往聊天里补了卡片',
+        !!mo2 && App.messages('g1').some(m => m.me && m.kind === 'gift' && m.orderId === mo2.id));
+    }
+  }
+
+  /* 收礼人指向一个不存在的角色 → migrate 时清掉，不会发到一个空白人身上 */
+  const bad = JSON.parse(store.get('xiaoshouji.v1'));
+  bad.delivery = bad.delivery || {};
+  bad.delivery.to = '已经不存在的角色';
+  store.set('xiaoshouji.v1', JSON.stringify(bad));
+  boot(); App = sandbox.SJ;
+  ok('收礼人指向不存在的角色时被清成「我自己收」', App.giftToId() === '', App.giftToId());
 
   fetchImpl = null;
 }

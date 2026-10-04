@@ -246,6 +246,47 @@ function addressBook(onChange) {
   build();
 }
 
+/* 「这一单送给谁」。默认是「我自己收」，想送人就点开选一个角色。
+   外卖和商城共用 —— 用户在这两个 App 里正常挑东西，结算时多这一步而已。 */
+function giftToBar(onChange) {
+  const who = SJ.giftToChar();
+  return SJ.el('div', { class: 'addr-bar giftee' + (who ? ' on' : ''), onclick: () => giftToPick(onChange) }, [
+    SJ.el('span', { class: 'addr-bar-ico' }, who ? '🎁' : '🙋'),
+    SJ.el('div', { class: 'addr-bar-main' }, [
+      SJ.el('div', { class: 'addr-bar-t' }, who ? '这一单送给' : '这一单'),
+      SJ.el('div', { class: 'addr-bar-s' }, who ? who.name + ' · 点一下可以换' : '我自己收 · 想送人就点这里')
+    ]),
+    SJ.el('span', { class: 'addr-bar-arrow', html: svg('right', 16) })
+  ]);
+}
+
+function giftToPick(onChange) {
+  const chars = SJ.state.characters;
+  if (!chars.length) return toast('通讯录里还没有人，先去加一个');
+  let mask = null;
+  const build = () => {
+    if (mask) dismiss(mask);
+    const cur = SJ.giftToId();
+    const body = SJ.el('div', { class: 'pad addr-book' });
+    body.append(SJ.el('div', { class: 'sheet-head' }, '这一单送给谁'));
+    const rowOf = (label, sub, id, on, ico) => SJ.el('div', {
+      class: 'addr-row' + (on ? ' on' : ''),
+      onclick: () => { SJ.giftToSet(id); build(); if (onChange) onChange(); }
+    }, [
+      SJ.el('div', { class: 'addr-main' }, [
+        SJ.el('div', { class: 'addr-top' }, [SJ.el('span', { class: 'addr-name' }, ico + ' ' + label)]),
+        SJ.el('div', { class: 'addr-detail' }, sub)
+      ])
+    ]);
+    body.append(rowOf('我自己收', '和平时一样，送到自己填的地址', '', !cur, '🙋'));
+    chars.forEach(c => body.append(rowOf(
+      c.name, (c.relation || '通讯录里的人') + ' · 送到 TA 那儿', c.id, cur === c.id, '🎁')));
+    body.append(SJ.el('div', { class: 'hint' }, '送给别人的单会记在「我的订单」里，标着送给谁。'));
+    mask = sheet([], body);
+  };
+  build();
+}
+
 /* 结算页上的那一行地址：显示选中的，点开换。没有地址就提示加一个（不挡下单）。 */
 function addressBar(onChange) {
   const a = SJ.addressNow();
@@ -261,6 +302,27 @@ function addressBar(onChange) {
     SJ.el('span', { class: 'addr-bar-arrow', html: svg('right', 16) })
   ]);
 }
+
+/* 订单卡上的一行「送给谁」。外卖和商城的订单都要 —— 不写的话，
+   送出去的单和自己买的单在列表里长得一模一样。 */
+function appendGiftTo(card, o) {
+  if (!o || !o.gift) return;
+  const c = (SJ.state.characters || []).find(x => x.id === o.to);
+  card.append(SJ.el('div', { class: 'od-gift' }, '🎁 送给 ' + (c ? c.name : '一位已经删掉的人')));
+}
+
+/* 礼物单付完之后，往那个角色的聊天里补一张礼物卡。
+   这条消息是「我送出去的」，所以 me:true。
+   订单没有 fromChat（用户在 App 里直接下单、不是从聊天进来的）就不发卡 —— 
+   凭空往聊天里塞一条用户没打算发的消息更奇怪。 */
+function giftCardAfterOrder(o, chatId) {
+  if (!o || !o.gift || !o.to || !chatId) return;
+  SJ.pushMessage(chatId, true, '', {
+    kind: 'gift', gkind: o.kind || '礼物', gname: o.items[0].name,
+    emoji: o.emoji || '🎁', orderId: o.id
+  });
+}
+
 
 /* 支付密码弹窗。设了密码才会弹；没设就直接放行 —— 钱不能被一把没人设过的锁挡住。
    数字盘复用锁屏那套 .pad-* 结构，手感和长相都一致，不用再写一份。
@@ -2449,31 +2511,16 @@ const APPS = [
         }
 
         /* ── 给 TA 点外卖 / 买礼物 ──
-           用户掏钱（走支付密码和余额），落一单真的订单，再往聊天里发一张礼物卡。
-           订单上的 to 记收礼的角色，订单列表里能一眼看出来是送给谁的。 */
-        function giftToChar(kind) {
-          const food = kind === '外卖';
-          const total = food ? SJ.pickGiftFood().price : SJ.pickGiftThing().price;
-          if (!SJ.walletEnough(total)) {
-            return toast('零钱不够，还差 ' + (total - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
-          }
-          payPad('请输入支付密码', '¥' + total, () => {
-            /* 钱先扣了再落单：walletPay 失败就不该有订单（和外卖/商城同一条规矩） */
-            if (!SJ.walletPay(total, food ? '给' + c.name + '点外卖' : '给' + c.name + '买礼物', c.name)) {
-              return toast('零钱不够了');
-            }
-            const o = SJ.giftMake(kind, '', c.id);
-            const m = SJ.pushMessage(id, true, '',
-              { kind: 'gift', gkind: kind, gname: o.items[0].name, emoji: o.emoji, orderId: o.id });
-            renderMsg(m[m.length - 1]);
-            newReadTag(lastRow);
-            syncSend();
-            beep('out');
-            toast(food ? '外卖送出去了' : '礼物送出去了');
-          });
+           不在这儿替你随机抽一件然后直接扣钱 —— 那不叫「给 TA 买」，叫抽奖。
+           改成：把收礼人预置好，跳到外卖/商城让你自己挑。
+           挑完在结算页付钱，落一单真的订单，聊天里自动补一张礼物卡。 */
+        function giftVia(kind) {
+          SJ.giftToSet(c.id);
+          window.SHELL.openApp(kind === '外卖' ? 'delivery' : 'mall', { giftTo: c.id, fromChat: id });
+          toast('挑好了去结算，这单算给 ' + c.name + ' 的');
         }
-        const giftFood = () => giftToChar('外卖');
-        const giftThing = () => giftToChar('礼物');
+        const giftFood = () => giftVia('外卖');
+        const giftThing = () => giftVia('礼物');
 
         plus.addEventListener('click', () => sheet([
           { icon: '↻', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
@@ -2482,8 +2529,8 @@ const APPS = [
           { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
           { icon: '🧧', label: '发红包', run: askPacket },
           { icon: '¥', label: '转账', run: askTransfer },
-          { icon: '🍜', label: '给 TA 点外卖', hint: '你请客，直接送到 TA 那儿', run: giftFood },
-          { icon: '🎁', label: '给 TA 买礼物', hint: '下单快递过去', run: giftThing },
+          { icon: '🍜', label: '给 TA 点外卖', hint: '去外卖里自己挑，结算时算 TA 的', run: giftFood },
+          { icon: '🎁', label: '给 TA 买礼物', hint: '去桃桃商城自己挑', run: giftThing },
           { icon: '📍', label: '发位置', run: askLocation },
           { icon: '👤', label: '发名片', run: pickCard },
           { icon: '（）', label: '发个动作 / 旁白', hint: '用括号包起来', run: sendAside },
@@ -2931,6 +2978,11 @@ const APPS = [
     render(root, close, arg) {
       let busy = false;
       const dl = () => SJ.state.delivery;
+      /* 从聊天「给 TA 点外卖」进来的话，付完款要往那个聊天里回一张礼物卡 */
+      const fromChat = (arg && arg.fromChat) || '';
+      /* 收礼人在聊天那边已经预置好了（SJ.giftToSet），这里兜一下底：
+         万一结算页顶上的「送给谁」被改过又退回来，仍以参数为准。 */
+      if (arg && arg.giftTo) SJ.giftToSet(arg.giftTo);
 
       /* 封面底色按店铺下标轮着来。不让 AI 给 CSS —— 它给的渐变十次有八次是乱的。 */
       const SHOP_BG = [
@@ -3233,7 +3285,8 @@ const APPS = [
           SJ.el('span', { class: 'cart-line' }, '¥' + x.price * x.n)
         ])));
         root.append(list);
-        /* 送到哪儿：结算页是最后能改地址的地方，必须摆在这儿 */
+        /* 送给谁 + 送到哪儿：结算页是最后能改这两样的地方，都得摆在这儿 */
+        root.append(giftToBar(() => cartView()));
         root.append(addressBar(() => cartView()));
         root.append(SJ.el('div', { class: 'pad' }, [
           SJ.el('div', { class: 'hint' }, (shopName ? shopName + ' · ' : '') + SJ.cartCount() + ' 件'),
@@ -3319,9 +3372,11 @@ const APPS = [
         }
         /* 付钱前先过支付密码。没设密码时 payPad 会直接放行 */
         payPad('请输入支付密码', '¥' + total, () => {
-          if (!SJ.placeOrder()) return;
-          toast('下单成功，骑手正在赶来');
-          ordersView();
+          const o = SJ.placeOrder();
+          if (!o) return;
+          giftCardAfterOrder(o, fromChat);
+          toast(o.gift ? '送出去了，骑手正在赶去 TA 那儿' : '下单成功，骑手正在赶来');
+          ordersView(o.id);
         });
       }
 
@@ -3356,6 +3411,7 @@ const APPS = [
           ])));
           card.append(steps);
           card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          appendGiftTo(card, o);
           if (o.addr) card.append(SJ.el('div', { class: 'od-addr' }, '📍 ' + o.addr));
           list.append(card);
         });
@@ -3382,6 +3438,9 @@ const APPS = [
     color: 'linear-gradient(150deg,#f7c9d4,#e08aa4)',
     render(root, close, arg) {
       let busy = false;
+      /* 从聊天「给 TA 买礼物」进来的话，付完款要往那个聊天里回一张礼物卡 */
+      const fromChat = (arg && arg.fromChat) || '';
+      if (arg && arg.giftTo) SJ.giftToSet(arg.giftTo);
       /* 当前筛选：分类 id + 二级子类 + 关键词。三个都空就是「全部」。 */
       let cat = '';
       let sub = '';
@@ -3678,6 +3737,7 @@ const APPS = [
         const total = SJ.mallTotal();
         const pickedN = cart.filter(x => x.picked !== false).reduce((s, x) => s + x.n, 0);
         page('cart', '购物车', [
+          giftToBar(() => cartView()),
           addressBar(() => cartView()),
           list,
           SJ.el('div', { class: 'cart-bar mall-cart-bar' }, [
@@ -3693,9 +3753,11 @@ const APPS = [
                   return toast('零钱不够，还差 ' + (need - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
                 }
                 payPad('请输入支付密码', '¥' + need, () => {
-                  SJ.mallPlaceOrder();
-                  toast('下单成功，桃桃正在打包');
-                  ordersView();
+                  const o = SJ.mallPlaceOrder();
+                  if (!o) return toast('没选到商品');
+                  giftCardAfterOrder(o, fromChat);
+                  toast(o.gift ? '买好了，正往 TA 那儿寄' : '下单成功，桃桃正在打包');
+                  ordersView(o.id);
                 });
               }
             }, '结算')
@@ -3726,6 +3788,7 @@ const APPS = [
           }, [SJ.el('span', { class: 'od-dot' }), SJ.el('span', { class: 'od-lab' }, s)])));
           card.append(steps);
           card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          appendGiftTo(card, o);
           if (o.addr) card.append(SJ.el('div', { class: 'od-addr' }, '📍 ' + o.addr));
           list.append(card);
         });

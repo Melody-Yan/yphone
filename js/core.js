@@ -204,8 +204,9 @@ const DEFAULTS = {
   delivery: {
     shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
     cart: [],            // [{id,shopId,name,price,n}, ...]（一次只能点一家）
-    orders: [],          // [{id,shopName,items:[{name,n}],total,ts,addr}, ...]
-    addr: ''             // 当前选中的收货地址 id（见 addresses）
+    orders: [],          // [{id,shopName,items:[{name,n}],total,ts,addr,to}, ...]
+    addr: '',            // 当前选中的收货地址 id（见 addresses）
+    to: ''               // 这一单送给哪个角色（'' = 自己收）。外卖和商城共用
   },
   /* 收货地址簿。外卖和商城共用一本 —— 分开两本的话同一个家要填两遍 */
   addresses: [],         // [{id,name,phone,detail,tag,def}, ...]
@@ -326,7 +327,8 @@ function migrate(saved) {
     shops: normalizeShops(dl.shops),
     cart: normalizeCart(dl.cart),
     orders: normalizeOrders(dl.orders),
-    addr: String(dl.addr || '')
+    addr: String(dl.addr || ''),
+    to: String(dl.to || '')
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
   out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
@@ -359,6 +361,10 @@ function migrate(saved) {
   // 角色也是导入边界：以前这里根本没归过，一个 "{name:123}" 就能让后面到处炸
   out.characters = (Array.isArray(out.characters) ? out.characters : [])
     .map((c, i) => normalizeCharacter(c, i)).filter(Boolean);
+  /* 送货对象指向一个不存在的角色（导入的脏存档、角色被删了）就当自己收 ——
+     不然结算页会显示一个空白收礼人，单子也发不出去。这里必须读 out，不能用
+     giftToFix()：那个读的是全局 state，migrate 跑的时候 state 还没赋上。 */
+  if (out.delivery.to && !out.characters.some(c => c.id === out.delivery.to)) out.delivery.to = '';
   out.moments = normalizeMoments(out.moments);
   /* 通话记录：同样是对外接口，逐通归一。lines 里的东西不外发，但会画到屏幕上，
      长度还是要掐住，否则一条 4 万字的记录能把聊天页撑死。 */
@@ -1652,6 +1658,32 @@ function giftMake(kind, fromId, toId) {
   return o;
 }
 
+/* ── 这一单送给谁 ──
+   外卖和商城共用一个「收礼人」选择。'' = 自己收（就是普通下单）。
+   用户在外卖/商城里正常挑东西，只是结算时多一步选人 —— 不再替他随机抽一件。 */
+function giftToId() { return String(state.delivery.to || ''); }
+function giftToChar() {
+  const id = giftToId();
+  return id ? state.characters.find(c => c.id === id) || null : null;
+}
+function giftToSet(id) {
+  const v = String(id || '');
+  state.delivery.to = (v && state.characters.some(c => c.id === v)) ? v : '';
+  save();
+  return state.delivery.to;
+}
+/* 掉到一个不存在的角色上（角色被删了）就当自己收。
+   注意：migrate 里不能用这个 —— 它读全局 state，那时 state 还没赋值。
+   migrate 自己内联了同一段判断。 */
+function giftToFix() {
+  const id = giftToId();
+  if (id && !state.characters.some(c => c.id === id)) {
+    state.delivery.to = '';
+    save();
+  }
+  return state.delivery.to;
+}
+
 function setShops(list) {
   state.delivery.shops = normalizeShops(list);
   state.delivery.cart = [];   // 换了一批店，购物车里的菜就没出处了
@@ -1688,9 +1720,13 @@ function placeOrder() {
   if (!d.cart.length) return null;
   const shop = d.shops.find(s => s.id === d.cart[0].shopId);
   const total = cartTotal();
+  /* 送礼单：钱还是从钱包出，但订单上记「送给谁」，不用它的 emoji 当成礼物样式 */
+  const to = giftToId();
+  const who = giftToChar();
   /* 钱从钱包走。余额不够就整单不下 —— 返回 null，调用方提示去充值。
      顺序很要紧：先扣钱成功再落订单，中途失败不会出现「有订单没扣钱」。 */
-  const pay = walletPay(total, shop ? shop.name : '外卖', '外卖订单');
+  const pay = walletPay(total, shop ? shop.name : '外卖',
+    to ? '点给' + (who ? who.name : 'TA') : '外卖订单');
   if (!pay) return null;
   const o = {
     id: uid(),
@@ -1698,11 +1734,17 @@ function placeOrder() {
     items: d.cart.map(x => ({ name: x.name, n: x.n })),
     total,
     addr: addressSnapshot(),   // 存当时的地址文字，不存 id（见 addressSnapshot 注释）
-    ts: virtualNow().getTime()   // 用虚拟时间，订单进度才跟这台手机上的钟一致
+    ts: virtualNow().getTime(),   // 用虚拟时间，订单进度才跟这台手机上的钟一致
+    gift: !!to,
+    kind: to ? '外卖' : '',
+    from: '',
+    to,
+    emoji: to ? (((shop || {}).emoji) || '🍜') : ''
   };
   d.orders.unshift(o);
   d.orders = d.orders.slice(0, 30);
   d.cart = [];
+  d.to = '';   // 送完就复位，免得下一单莫名其妙也成了礼物
   save();
   return o;
 }
@@ -1908,19 +1950,28 @@ function mallPlaceOrder() {
   const picked = m.cart.filter(x => x.picked !== false);
   if (!picked.length) return null;
   const total = picked.reduce((s, x) => s + x.price * x.n, 0);
+  const to = giftToId();
+  const who = giftToChar();
   /* 和外卖同一条规矩：先扣钱、再落单，钱不够整单不成立 */
-  const pay = walletPay(total, '桃桃商城', picked.length + ' 件商品');
+  const pay = walletPay(total, '桃桃商城',
+    to ? '买给' + (who ? who.name : 'TA') : picked.length + ' 件商品');
   if (!pay) return null;
   const o = {
     id: uid(),
     items: picked.map(x => ({ name: x.name, n: x.n })),
     total,
     addr: addressSnapshot(),
-    ts: virtualNow().getTime()
+    ts: virtualNow().getTime(),
+    gift: !!to,
+    kind: to ? '礼物' : '',
+    from: '',
+    to,
+    emoji: to ? (picked[0].emoji || '🎁') : ''
   };
   m.orders.unshift(o);
   m.orders = m.orders.slice(0, 40);
   m.cart = m.cart.filter(x => x.picked === false);   // 没勾的留在购物车里
+  state.delivery.to = '';   // 送完复位，别让下一单也跟着变礼物
   save();
   return o;
 }
@@ -3027,6 +3078,8 @@ window.SJ = {
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,
   /* 送礼：角色送用户 / 用户送角色，都落在真实订单上 */
   giftMake, giftOf, pickGiftFood, pickGiftThing,
+  /* 这一单选给谁（外卖和商城共用） */
+  giftToId, giftToChar, giftToSet, giftToFix,
   /* 收货地址：外卖和商城共用一本 */
   ADDR_MAX, normalizeAddresses, addressList, addressNow, addressSave, addressRemove,
   addressPick, addressSetDefault, addressSnapshot,

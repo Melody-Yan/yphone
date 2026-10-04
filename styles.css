@@ -537,7 +537,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 密码键盘 */
 #lock-pad { display: flex; flex-direction: column; align-items: center; gap: 20px; margin-bottom: 60px; }
 #lock-pad[hidden] { display: none; }   /* ID 的 display 会盖掉 UA 的 [hidden]，得自己写一条 */
-.pad-dots { font-size: 19px; letter-spacing: 13px; height: 22px; }
+/* 圆点行。letter-spacing 会在**最后一个**圆点后面也留一份间距，
+   所以居中时可见墨迹会比盒子中心偏左 ls/2 —— padding-left 用同样的值把
+   参考中心往右推 ls/2，正好抵掉。锁屏那边也一样受益。 */
+.pad-dots { font-size: 19px; letter-spacing: 13px; height: 22px; text-align: center; padding-left: 13px; }
 .pad-grid { display: grid; grid-template-columns: repeat(3, 74px); gap: 14px; }
 .pk {
   width: 74px; height: 74px; border-radius: 50%;
@@ -596,7 +599,14 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .pay-title { font-size: 15px; font-weight: 600; }
 .pay-amt { margin-top: 6px; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
 .pay-pad .pad-dots { margin: 14px 0 4px; color: var(--fg); }
-.pay-pad .pad-grid { grid-template-columns: repeat(3, 68px); gap: 10px; margin: 0 auto 8px; }
+.pay-pad .pad-grid {
+  grid-template-columns: repeat(3, 68px); gap: 10px; margin: 0 auto 8px;
+  /* ⚠️ 必须显式居中。.pad-grid 是块级网格，宽度会撑满 296px 的弹窗，
+     可三列只有 3×68+2×10=224px —— 默认 justify-content:start 就把整盘挤到左边，
+     实测偏 36px（=(296-224)/2），看着就是「框是歪的」。
+     锁屏那边没这毛病，因为 #lock-pad 是 flex 列 + align-items:center。 */
+  justify-content: center;
+}
 .pay-pad .pk {
   width: 68px; height: 54px; border-radius: 14px;
   border: 1px solid var(--line); background: var(--paper-2);
@@ -1841,6 +1851,14 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .addr-bar-t { font-size: 12px; color: var(--fg-dim); margin-bottom: 3px; }
 .addr-bar-s { font-size: 13.5px; color: var(--fg); line-height: 1.5; white-space: pre-line; word-break: break-all; }
 .addr-bar-arrow { color: #c4bcb1; flex: 0 0 auto; display: flex; }
+/* 「送给谁」那条：选了人之后描边和底色都变一下，不然跟自己收长得一样
+   （这个色是从 .wallet 那套暖金借的，不新开色板） */
+.addr-bar.giftee.on { border-color: #e2c489; background: #fdf6e9; }
+#phone.dark-wall .addr-bar.giftee.on { border-color: #6d5c3c; background: rgba(226, 196, 137, .14); }
+.addr-bar.giftee.on .addr-bar-t { color: #b08a3e; }
+/* 订单卡上的一行「送给谁」 */
+.od-gift { margin-top: 8px; font-size: 12px; color: #b08a3e; line-height: 1.5; }
+#phone.dark-wall .od-gift { color: #e2c489; }
 
 /* ── 位置 ── */
 .bubble.loc { padding: 0; overflow: hidden; width: 200px; cursor: pointer; }

@@ -2466,7 +2466,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
 
   /* 通话记录页 */
   openFresh('chat', cc.id);
-  top().find(n => n._class.has('av-tap')).click();          // 点头像 → 聊天设置
+  top().find(n => n.attrs && n.attrs.title === '聊天设置').click();   // 齿轮 → 聊天设置
   top().find(n => n._class.has('row') && n.textContent.includes('语音与通话')).click();
   const callRow = top().find(n => n._class.has('row') && n.textContent.includes('通话记录'));
   ok('聊天设置 → 语音与通话里有「通话记录」入口', !!callRow);
@@ -3127,6 +3127,118 @@ console.log('\n[37] 转账 / 红包自己填');
     && top().some(n => n._class.has('pk-note') && n.textContent === '给你买水'));
 
   sandbox.SHELL.closeAll();
+}
+
+/* 38. 消息时间 / 通话摘要 / 拉黑 / 网易云导入 */
+console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
+{
+  const App = sandbox.SJ;
+  const top = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+  const lab = root => walk(root).filter(n => n._class.has('msg-time'));
+  const sep = root => walk(root).filter(n => n._class.has('chat-time-sep'));
+  const confirmYes = () => {
+    const box = walk(byId.phone).find(x => x._class.has('confirm'));
+    const b = box && findBtn(box, '确定');
+    if (b) b.click();
+  };
+
+  /* ── 1. 时间：每条挂钟点，隔满一分钟插一条 ── */
+  const tc = App.makeCharacter({ name: '时间角色', greeting: '' });
+  App.saveCharacter(tc);
+  const base = Date.now();
+  App.pushMessage(tc.id, false, '第一句');
+  App.pushMessage(tc.id, false, '第二句');
+  App.pushMessage(tc.id, false, '第三句');
+  const th = App.messages(tc.id);
+  th[0].ts = base - 3600e3;    // 一小时前
+  th[1].ts = base - 30e3;      // 和上一条隔了 59 分半 → 中间该有时间
+  th[2].ts = base - 5e3;       // 和上一条只隔 25 秒 → 算同一轮
+  const tchat = openFresh('chat', tc.id);
+  ok('隔满一分钟的两条中间插了一条时间', sep(tchat).length === 1, String(sep(tchat).length));
+  ok('只有一轮的最后一条才挂时间（中间那条的撤掉了）', lab(tchat).length === 2, String(lab(tchat).length));
+  const lastLab = lab(tchat)[lab(tchat).length - 1];
+  ok('时间画成钟点，不是时间戳', /[:：]/.test(lastLab.textContent), lastLab.textContent);
+  ok('最后一条下面挂的就是这条消息的时间',
+    lastLab.textContent === App.fmtTime(new Date(th[2].ts)),
+    lastLab.textContent + ' vs ' + App.fmtTime(new Date(th[2].ts)));
+
+  const tc2 = App.makeCharacter({ name: '连发角色', greeting: '' });
+  App.saveCharacter(tc2);
+  App.pushMessage(tc2.id, true, '嗯');
+  App.pushMessage(tc2.id, true, '嗯嗯');
+  App.pushMessage(tc2.id, true, '嗯嗯嗯');
+  App.messages(tc2.id).forEach((m, i) => { m.ts = base - (30 - i * 10) * 1000; });
+  const t2chat = openFresh('chat', tc2.id);
+  ok('同一轮里连说三句，一条分隔条都没有', sep(t2chat).length === 0, String(sep(t2chat).length));
+  ok('同一轮里连说三句，只有最后一条有时间', lab(t2chat).length === 1, String(lab(t2chat).length));
+
+  /* ── 2. 通话摘要气泡 ── */
+  const kc = App.makeCharacter({ name: '通话摘要角色', greeting: '' });
+  App.saveCharacter(kc);
+  const kchat = openFresh('chat', kc.id);
+  walk(kchat).find(n => n.attrs && n.attrs.title === '语音通话').click();
+  findIn(kchat, '打字也能接话…').value = '听得见吗';
+  walk(kchat).find(n => n._class.has('call-say')).click();
+  walk(kchat).find(n => n._class.has('call-hang')).click();
+  const brief = App.messages(kc.id).filter(m => m.kind === 'call');
+  ok('挂断后聊天里落了一条通话摘要', brief.length === 1, String(brief.length));
+  ok('摘要带着时长和那条记录的 id',
+    !!brief[0] && typeof brief[0].secs === 'number' && !!brief[0].callId, JSON.stringify(brief[0] || {}));
+  ok('整场对白仍然没有混进聊天', !App.messages(kc.id).some(m => m.text === '听得见吗'));
+  const cb = walk(kchat).find(n => n._class.has('call-summary'));
+  ok('聊天里画出了通话摘要气泡', !!cb);
+  ok('气泡上写着通话时长', !!cb && /秒/.test(cb.textContent), cb ? cb.textContent : 'none');
+  cb.click();
+  ok('点摘要气泡进的是通话记录页', top().some(n => n.textContent === '通话记录'));
+
+  /* ── 3. 拉黑：从聊天页挪进设置，而且可逆 ── */
+  const bk = App.makeCharacter({ name: '拉黑对象', greeting: '' });
+  App.saveCharacter(bk);
+  App.pushMessage(bk.id, false, '在的');
+  ok('默认没被拉黑', App.isBlocked(bk.id) === false);
+  ok('拉黑前在会话列表里', App.chatList().some(r => r.c.id === bk.id));
+  const bkChat = openFresh('chat', bk.id);
+  ok('聊天页右上角已经没有「清空」了',
+    !walk(bkChat).some(n => n.tagName === 'BUTTON' && n.textContent.trim() === '清空'));
+  walk(bkChat).find(n => n.attrs && n.attrs.title === '聊天设置').click();
+  const bkBtn = top().find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '拉黑');
+  ok('「拉黑」挪进了聊天设置', !!bkBtn);
+  bkBtn.click();
+  ok('点拉黑先弹确认框', !!walk(byId.phone).find(x => x._class.has('confirm')));
+  confirmYes();
+  ok('确认后真的拉黑了', App.isBlocked(bk.id) === true);
+  ok('拉黑后会话列表里就没有他了', !App.chatList().some(r => r.c.id === bk.id));
+  ok('拉黑不删聊天记录', App.messages(bk.id).length === 1);
+  const bkChat2 = openFresh('chat', bk.id);
+  walk(bkChat2).find(n => n.attrs && n.attrs.title === '聊天设置').click();
+  const unBtn = top().find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '解除拉黑');
+  ok('拉黑后按钮变成「解除拉黑」', !!unBtn);
+  unBtn.click(); confirmYes();
+  ok('解除拉黑后回到会话列表', App.isBlocked(bk.id) === false && App.chatList().some(r => r.c.id === bk.id));
+  ok('解除后聊天记录还在', App.messages(bk.id).length === 1);
+
+  /* ── 4. 网易云：放不出来的页面链接不许进歌单 ── */
+  const ne = App.parseNetEasePlaylist([
+    '分享周杰伦的单曲《晴天》: https://music.163.com/song?id=186016 (来自@网易云音乐)',
+    '分享歌单《华语流行》: https://y.music.163.com/m/playlist?id=123456',
+    '晴天 - 周杰伦 | https://cdn.test/qing.mp3'
+  ].join('\n'));
+  ok('网易云的页面链接不会进歌单（浏览器放不出来）',
+    ne.length === 1 && ne[0].url === 'https://cdn.test/qing.mp3', JSON.stringify(ne));
+  ok('能播的直链照旧解析出来', ne[0].name === '晴天' && ne[0].artist === '周杰伦', JSON.stringify(ne[0]));
+  ok('空文本不给炸', App.parseNetEasePlaylist('').length === 0 && App.parseNetEasePlaylist(null).length === 0);
+
+  /* ── 5. 拉黑要能过存档这一关 ── */
+  sandbox.SHELL.closeAll();
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'bk1', name: '被拉黑的人', blocked: true },
+      { id: 'bk2', name: '正常人', blocked: false }]
+  }));
+  boot();
+  ok('拉黑状态存进存档再读回来还在',
+    sandbox.SJ.isBlocked('bk1') === true && sandbox.SJ.isBlocked('bk2') === false);
+  ok('读回来以后被拉黑的不在会话列表', !sandbox.SJ.chatList().some(r => r.c.id === 'bk1'));
+  ok('读回来以后正常的人还在', sandbox.SJ.chatList().some(r => r.c.id === 'bk2'));
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

@@ -818,6 +818,7 @@ function normalizeCharacter(c, i) {
     relation: String(c.relation || '').slice(0, 60),
     myRelation: String(c.myRelation || '').slice(0, 60),
     allowRelation: !!c.allowRelation,
+    blocked: c.blocked === true,
     chatBg: avatarSrc(c.chatBg),         // 这个人的聊天背景，空 = 跟全局
     lastTalk: Number(c.lastTalk) || 0,   // 真实时间戳：你们最后一次说话
     proactiveAt: Number(c.proactiveAt) || 0, // 上次主动找你是什么时候（防刷屏）
@@ -1054,11 +1055,23 @@ function pickSpeaker(g, skipId) {
   return state.characters.find(c => c.id === list[Math.floor(Math.random() * list.length)]) || null;
 }
 
+function setBlocked(id, blocked) {
+  const c = state.characters.find(x => x.id === id);
+  if (!c) return false;
+  c.blocked = !!blocked;
+  saveCharacter(c);
+  return c.blocked;
+}
+function isBlocked(id) {
+  const c = state.characters.find(x => x.id === id);
+  return !!(c && c.blocked);
+}
+
 /* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
    没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面。
-   群和人混在一起排 —— 微信本来就是这样。 */
+   群和人混在一起排 —— 微信本来就是这样。被拉黑的人不出现在会话列表，但数据保留。 */
 function chatList() {
-  const rows = state.characters.map(c => ({ c: c, last: lastMessage(c.id), n: (state.chats[c.id] || []).length }))
+  const rows = state.characters.filter(c => !c.blocked).map(c => ({ c: c, last: lastMessage(c.id), n: (state.chats[c.id] || []).length }))
     .concat(groups().map(g => { const f = groupFace(g); return { c: f, g: g, last: lastMessage(g.id), n: (state.chats[g.id] || []).length }; }));
   return rows.sort((a, b) => {
     if (!!a.last !== !!b.last) return a.last ? -1 : 1;
@@ -1539,6 +1552,13 @@ function parsePlaylist(text) {
   return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
 }
 
+function parseNetEasePlaylist(text) {
+  /* 网易云的页面链接（song / playlist / album）在浏览器里根本放不出来：接口跨域、要登录，
+     官方那条 media/outer 外链也已经改成 302 到 /404 了（实测）。所以这里只留能播的
+     http(s) 直链，页面链接一律丢掉 —— 歌单里多一堆点了没反应的条目，比少几首更糟。 */
+  return parsePlaylist(text).filter(t => !/music\.163\.com/i.test(t.url));
+}
+
 /* ══════════════════════════════════════════════════════
    L1.9 外观（自己上传的壁纸）
    ══════════════════════════════════════════════════════ */
@@ -1750,6 +1770,7 @@ function proactiveCandidates() {
   const need = Math.max(5, Number(s.idleMin) || 180);
   const now = Date.now();
   return state.characters
+    .filter(c => !c.blocked)
     .filter(c => (state.chats[c.id] || []).length)
     .filter(c => (now - lastTalkAt(c)) / 60000 >= need)
     .filter(c => (now - (Number(c.proactiveAt) || 0)) / 60000 >= need)
@@ -2492,6 +2513,7 @@ window.SJ = {
   $, $$, el, uid, fmtTime, fmtDate, fmtAgo,
   virtualNow, advanceTime, onTime,
   makeCharacter, saveCharacter, deleteCharacter,
+  setBlocked, isBlocked,
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
   callsOf, pushCall, deleteCall, clearCalls, callLog,
   chatBgOf, setChatBg,
@@ -2517,7 +2539,7 @@ window.SJ = {
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,
-  parsePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
+  parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */
   WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,

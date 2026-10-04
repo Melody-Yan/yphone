@@ -829,6 +829,12 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .chat-list .msg > .bubble { align-self: auto; max-width: 74%; }
 .chat-list .msg > .bubble.transfer,
 .chat-list .msg > .bubble.media { max-width: 78%; }
+.chat-list .msg { position: relative; }
+.msg-time { font-size: 10.5px; color: var(--fg-dim); opacity: .72; margin: -7px 7px 0; align-self: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chat-time-sep { align-self: center; margin: 2px auto; font-size: 11px; color: var(--fg-dim); opacity: .78; font-variant-numeric: tabular-nums; }
+.call-summary { display: flex; align-items: center; gap: 9px; min-width: 180px; cursor: pointer; }
+.call-summary-ico { font-size: 21px; }
+.call-summary-sub { margin-top: 3px; font-size: 11.5px; opacity: .72; }
 
 /* ══════════════════════════════════════════════════════
    口味横滑条

@@ -1096,6 +1096,10 @@ const APPS = [
             class: 'btn danger',
             onclick: () => confirmBox(`清空和「${c.name}」的聊天记录？记忆卡片还在。`, () => { SJ.clearChat(id); chatView(id); })
           }, '清空聊天记录'),
+           SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox(c.blocked ? `解除「${c.name}」的拉黑？` : `拉黑「${c.name}」？聊天记录会保留。`, () => { SJ.setBlocked(id, !c.blocked); listView(); })
+          }, c.blocked ? '解除拉黑' : '拉黑'),
           SJ.el('button', {
             class: 'btn danger',
             onclick: () => confirmBox(`把「${c.name}」从通讯录里删掉？聊天记录和记忆会一起没。`, () => {
@@ -1144,7 +1148,9 @@ const APPS = [
           SJ.stopSpeak();
           if (callTimer) { clearInterval(callTimer); callTimer = null; }
           if (lines.length) {
-            SJ.pushCall(cid, secs, lines);
+            const rec = SJ.pushCall(cid, secs, lines);
+            /* 聊天里只落一条摘要；整场对白仍然只进 state.calls，不淹聊天 */
+            SJ.pushMessage(cid, true, '[通话]', { kind: 'call', secs: rec.secs, callId: rec.id });
             toast('通话 ' + mmss(secs) + '，已记到「通话记录」');
           }
           chatView(cid);
@@ -1270,10 +1276,6 @@ const APPS = [
           left: SJ.el('button', { class: 'nav-btn', title: '聊天设置', html: svg('gear', 17), onclick: () => chatSettings(id) }),
           right: SJ.el('div', { class: 'nav-right' }, [
             G ? null : SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) }, '📞'),
-            SJ.el('button', {
-              class: 'nav-btn',
-              onclick: () => confirmBox(`清空和「${c.name}」的聊天记录？`, () => { SJ.clearChat(id); chatView(id); })
-            }, '清空')
           ])
         }));
         const list = SJ.el('div', { class: 'chat-list' });
@@ -1341,6 +1343,10 @@ const APPS = [
         /* 正在画的那条群消息是谁说的。用 `正在画` 而不是给每个气泡加参数 ——
            渲染是按顺序同步跑的，一个变量就够，bubble/voice/packet 那些一行都不用改。 */
         let curWho = '';
+        /* 时间走同一套路子：renderMsg 记下正在画的那条的时间，row 负责画。
+           每条先挂上自己的时间，等看清楚了下一轮有没有真的来 —— 没来就撤掉，
+           这样「一轮的最后一条下面才有时间」在实时追加时也成立。 */
+        let curTs = 0, lastTs = 0, lastTimeEl = null;
         function row(inner, me, src) {
           const speaker = (!me && G && curWho) ? SJ.memberOf(G, curWho) : null;
           const face = speaker || c;
@@ -1351,7 +1357,23 @@ const APPS = [
             speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
           ]);
+          /* 隔满一分钟：中间插一条时间（跨天了就连日期一起给），上一轮的时间留着 */
+          if (curTs && lastTs && curTs - lastTs >= 60000) {
+            const d = new Date(curTs);
+            const day = new Date(lastTs).toDateString() === d.toDateString() ? '' : SJ.fmtDate(d) + ' ';
+            list.append(SJ.el('div', { class: 'chat-time-sep' }, day + SJ.fmtTime(d)));
+            lastTimeEl = null;
+          } else if (curTs && lastTimeEl) {
+            /* 这一轮还没结束：刚画的那条不是最后一条，时间不该留在它下面 */
+            lastTimeEl.remove();
+            lastTimeEl = null;
+          }
           list.append(r);
+          if (curTs) {
+            lastTimeEl = SJ.el('div', { class: 'msg-time' }, SJ.fmtTime(new Date(curTs)));
+            list.append(lastTimeEl);
+            lastTs = curTs;
+          }
           list.scrollTop = list.scrollHeight;
           lastRow = r;
           const m = src || { me: !!me, name: me ? '我' : face.name, text: (inner && inner.textContent) || '' };
@@ -1481,6 +1503,20 @@ const APPS = [
           return b;
         }
 
+        /* 通话摘要：聊天里只留这一条，点开才是整场对白 */
+        function callBubble(m) {
+          const b = SJ.el('div', { class: 'bubble ' + (m.me ? 'me' : 'ta') + ' call-summary' }, [
+            SJ.el('div', { class: 'call-summary-ico' }, '📞'),
+            SJ.el('div', {}, [
+              SJ.el('div', {}, mmssOf(m.secs)),
+              SJ.el('div', { class: 'call-summary-sub' }, '通话结束 · 点开看记录')
+            ])
+          ]);
+          b.addEventListener('click', () => callListView(c.id));
+          row(b, m.me);
+          return b;
+        }
+
         function cardBubble(m) {
           const who = charOf(m.charId);
           const b = SJ.el('div', { class: 'bubble ' + (m.me ? 'me' : 'ta') + ' card' }, [
@@ -1501,12 +1537,14 @@ const APPS = [
         /* 一条存档消息 → 屏幕上的一坨气泡（对面的长回复会被拆成好几条） */
         function renderMsg(m) {
           curWho = m.who || '';
+          curTs = Number(m.ts) || 0;
           if (m.kind === 'img') return imgBubble(m);
           if (m.kind === 'video') return videoBubble(m);
           if (m.kind === 'transfer') return transferBubble(m);
           if (m.kind === 'packet') return packetBubble(m);
           if (m.kind === 'location') return locationBubble(m);
           if (m.kind === 'card') return cardBubble(m);
+          if (m.kind === 'call') return callBubble(m);
           if (m.kind === 'voice') return voiceBubble(m, m.me);
           if (m.me) return bubble(SJ.stripMarks(m.text) || m.text, true, m.quote);
           SJ.splitReply(m.text).forEach(t => chunkNode(t, false));
@@ -1523,6 +1561,7 @@ const APPS = [
         function redraw() {
           list.innerHTML = '';
           readTag = null;
+          lastTs = 0; lastTimeEl = null;
           const h = SJ.messages(id);
           /* 我最后一条消息是哪条 —— 「已读 / 未读」挂在它下面 */
           let lastMine = -1;
@@ -2616,7 +2655,7 @@ const APPS = [
           root.append(SJ.el('div', { class: 'pad' }, [
             SJ.el('button', { class: 'btn', onclick: importView }, '粘贴歌单导入'),
             SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
-              '每行一首：「歌名 - 歌手 | 音频直链」。这里只存链接，歌本身还在你自己的服务器/网盘上。')
+              '每行一首：「歌名 - 歌手 | 音频直链」。网易云的歌单/歌曲页面链接浏览器放不出来（接口跨域、要登录），这里只留能播的 mp3 这类直链。')
           ]));
           return;
         }
@@ -2673,7 +2712,7 @@ const APPS = [
           SJ.el('button', { class: 'btn', onclick: doImport }, '导入')
         ]));
         function doImport() {
-          const list = SJ.parsePlaylist(ta.value);
+          const list = SJ.parseNetEasePlaylist(ta.value);
           if (!list.length) return toast('没找到能用的链接');
           const n = SJ.musicAdd(list);
           toast(n ? '导入了 ' + n + ' 首' : '这些歌都已经在列表里了');

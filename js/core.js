@@ -905,6 +905,9 @@ function deleteCharacter(id) {
   delete state.chats[id];
   delete state.memories[id];
   delete state.calls[id];
+  /* 删掉的正好是当前选中的收礼人时，结算页会挂着一个空白收礼人 —— 顺手清掉。
+     不清的话要等下次刷新（migrate 里那段）才好，中间这段时间下单会发给一个不存在的人。 */
+  if (state.delivery.to === id) state.delivery.to = '';
   /* 从所有群里把他摘掉。剩下不到两个人的群不算群（一个人自言自语没意义），一起散掉；
      群里他说的那些话留着 —— 别人的对话不该因为少了个人就断片。 */
   groups().forEach(g => { g.members = g.members.filter(x => x !== id); });
@@ -1672,18 +1675,6 @@ function giftToSet(id) {
   save();
   return state.delivery.to;
 }
-/* 掉到一个不存在的角色上（角色被删了）就当自己收。
-   注意：migrate 里不能用这个 —— 它读全局 state，那时 state 还没赋值。
-   migrate 自己内联了同一段判断。 */
-function giftToFix() {
-  const id = giftToId();
-  if (id && !state.characters.some(c => c.id === id)) {
-    state.delivery.to = '';
-    save();
-  }
-  return state.delivery.to;
-}
-
 function setShops(list) {
   state.delivery.shops = normalizeShops(list);
   state.delivery.cart = [];   // 换了一批店，购物车里的菜就没出处了
@@ -3079,7 +3070,7 @@ window.SJ = {
   /* 送礼：角色送用户 / 用户送角色，都落在真实订单上 */
   giftMake, giftOf, pickGiftFood, pickGiftThing,
   /* 这一单选给谁（外卖和商城共用） */
-  giftToId, giftToChar, giftToSet, giftToFix,
+  giftToId, giftToChar, giftToSet,
   /* 收货地址：外卖和商城共用一本 */
   ADDR_MAX, normalizeAddresses, addressList, addressNow, addressSave, addressRemove,
   addressPick, addressSetDefault, addressSnapshot,

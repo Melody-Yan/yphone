@@ -4022,7 +4022,9 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
 {
   let App = sandbox.SJ;
   const S = sandbox.SJ;
-  store.set('xiaoshouji.v1', JSON.stringify({
+  /* 存档种子。抽成函数是因为后面有几处要把存档「写回原样」再 boot() ——
+     比如删角色的用例真把 g1 删掉了，下一段还得再用一次。 */
+  const makeFixture = () => ({
     characters: [{ id: 'g1', name: '阿桃', persona: '爱做饭', avatar: '🍑' }],
     chats: { g1: [{ me: true, text: '在吗', ts: 1 }] },
     settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' },
@@ -4031,7 +4033,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
       { id: 'd1', name: '红烧牛肉面', price: 32, emoji: '🍜', hot: true }] }], cart: [], orders: [], addr: '' },
     mall: { goods: [], cart: [], orders: [], fav: [] },
     addresses: [{ id: 'ad1', name: '我', detail: '幸福小区 1 号', def: true }]
-  }));
+  });
+  store.set('xiaoshouji.v1', JSON.stringify(makeFixture()));
   boot(); App = sandbox.SJ;
 
   /* 让角色「说」一条带礼物标记的回复。应答里混着话和标记，模仿真实模型的写法。 */
@@ -4223,6 +4226,27 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   store.set('xiaoshouji.v1', JSON.stringify(bad));
   boot(); App = sandbox.SJ;
   ok('收礼人指向不存在的角色时被清成「我自己收」', App.giftToId() === '', App.giftToId());
+
+  /* 删角色时要当场清掉收礼人 —— 不能等下次刷新，
+     中间这段时间下单会发给一个不存在的人 */
+  boot(); App = sandbox.SJ;
+  App.giftToSet('g1');
+  ok('测试前提：收礼人已选中 g1', App.giftToId() === 'g1', App.giftToId());
+  App.deleteCharacter('g1');
+  ok('删掉选中的那个角色，收礼人当场就清空了（不用等刷新）', App.giftToId() === '', App.giftToId());
+  ok('删角色后不再是「送给一个空白人」', App.giftToChar() === null, String(App.giftToChar()));
+
+  /* 删的是别人，就不该动收礼人。
+     ⚠️ 上一段真的把 g1 从存档里删掉了，这里必须先把存档写回原样 —— boot() 是从
+     store 重读的，不重置的话 g1 根本不存在，giftToSet('g1') 只会得到空串。 */
+  store.set('xiaoshouji.v1', JSON.stringify(makeFixture()));
+  boot(); App = sandbox.SJ;
+  ok('测试前提：重置后 g1 又在了', App.state.characters.some(c => c.id === 'g1'),
+    App.state.characters.map(c => c.id).join(','));
+  App.giftToSet('g1');
+  ok('测试前提：收礼人是 g1', App.giftToId() === 'g1', App.giftToId());
+  App.deleteCharacter('别人');
+  ok('删的是别的角色时不动收礼人', App.giftToId() === 'g1', App.giftToId());
 
   fetchImpl = null;
 }

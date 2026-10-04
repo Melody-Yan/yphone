@@ -104,6 +104,8 @@ const CALL_KEEP = 40;
 /* 自己收进表情库的图最多几张。表情都是小图（收的时候压到 240px），
    但也别让人一口气塞 200 张进去把 5MB 的 localStorage 吃光。 */
 const STICKER_MAX = 80;
+const GROUP_MAX = 40;          // 最多几个群
+const GROUP_MEMBER_MAX = 12;   // 一个群最多几个人（人越多模型越容易糊）
 
 /* 字体。只用系统自带的字体栈 —— 不带字体文件，中文字体动辄 5MB，
    塞进 Pages 静态站既慢又没必要。名字要够直白，用户在真机上试一眼就知道选哪个。 */
@@ -190,6 +192,9 @@ const DEFAULTS = {
   /* 通话记录：{ 角色id: [{id,at,secs,lines:[{me,text,ts}],archived}] }
      通话里说的话不进 chats —— 挂断以后聊天页不该被一整场对白淹掉。 */
   calls: {},
+  /* 群聊：[{id,name,emoji,avatarImg,members:[角色id],ts}, ...]
+     消息还是放 chats 里，key 用群 id；群消息多一个 who 字段记是谁说的。 */
+  groups: [],
   /* 表情包库：自己收进来的图（图片仓引用）。内置的那些 emoji 写在前端代码里，不进存档 */
   stickers: [],
   /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
@@ -211,7 +216,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
-  moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array'
+  moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -335,6 +340,31 @@ function migrate(saved) {
   out.stickers = Array.from(new Set(
     (Array.isArray(out.stickers) ? out.stickers : []).map(bgOk).filter(Boolean)
   )).slice(-STICKER_MAX);
+
+  /* 群聊：成员是角色 id 的集合。角色被删掉的就从群里摘掉 —— 留着会在渲染时找不到人。
+     一个都不剩的群没有意义，直接丢掉（但不清 chats，万一以后又能加回来）。 */
+  const charIds = {};
+  out.characters.forEach(c => { charIds[c.id] = 1; });
+  out.groups = (Array.isArray(out.groups) ? out.groups : [])
+    .filter(g => g && typeof g === 'object')
+    .map((g, i) => {
+      const members = [];
+      (Array.isArray(g.members) ? g.members : []).forEach(x => {
+        const id = String(x || '');
+        if (charIds[id] && members.indexOf(id) < 0) members.push(id);
+      });
+      return {
+        id: String(g.id || ('g' + i)),   // 老规矩：migrate 里不能用 uid()
+        name: String(g.name || '群聊').slice(0, NAME_MAX),
+        emoji: String(g.emoji || '👥').slice(0, 4),
+        avatarImg: bgOk(g.avatarImg),
+        chatBg: bgOk(g.chatBg),
+        members: members.slice(0, GROUP_MEMBER_MAX),
+        ts: Number(g.ts) || 0
+      };
+    })
+    .filter(g => g.members.length >= 2)
+    .slice(-GROUP_MAX);
 
   /* 壁纸从「整条 CSS」改成「id」。老存档存的是一整串渐变，按 CSS 找回内置编号；
      对不上（比如那张自己传的壁纸已经删了）就退回默认，别留一张白屏。 */
@@ -816,6 +846,11 @@ function deleteCharacter(id) {
   delete state.chats[id];
   delete state.memories[id];
   delete state.calls[id];
+  /* 从所有群里把他摘掉。剩下不到两个人的群不算群（一个人自言自语没意义），一起散掉；
+     群里他说的那些话留着 —— 别人的对话不该因为少了个人就断片。 */
+  groups().forEach(g => { g.members = g.members.filter(x => x !== id); });
+  const dead = groups().filter(g => g.members.length < 2).map(g => g.id);
+  dead.forEach(gid => { state.groups = state.groups.filter(g => g.id !== gid); delete state.chats[gid]; });
   save();
 }
 
@@ -893,6 +928,11 @@ function chatBgOf(char) {
 }
 function setChatBg(char, img) {
   const v = avatarSrc(img);
+  /* 群也能有自己的背景。群不是角色，得单独写回 groups 里那张 */
+  if (char && char.id && isGroup(char.id)) {
+    const g = groupOf(char.id);
+    if (g) { g.chatBg = v; save(); return v; }
+  }
   if (char) { char.chatBg = v; saveCharacter(char); }
   else { state.settings.chatBg = v; save(); }
   return v;
@@ -951,15 +991,81 @@ function pickAlt(msg, dir) {
   return msg.text;
 }
 
+/* ══════════════════════════════════════════════════════
+   L1.4 群聊
+   一个群 = 一组角色 id。消息还是走 chats（key 用群 id），
+   只是群消息多一个 who 字段记「这句是谁说的」。
+   下游一律通过 chatTarget(id) 拿「会话对象」—— 群会拿到一个合成的脸，
+   所以列表、头像、预览这些地方不用到处写 if。
+   ══════════════════════════════════════════════════════ */
+
+function groupOf(id) { return state.groups.find(g => g.id === id) || null; }
+function isGroup(id) { return !!groupOf(id); }
+function groups() { if (!Array.isArray(state.groups)) state.groups = []; return state.groups; }
+
+function makeGroup(patch = {}) {
+  const g = {
+    id: uid(), name: '', emoji: '👥', avatarImg: '',
+    members: [], ts: Date.now()
+  };
+  Object.assign(g, patch);
+  g.members = (Array.isArray(g.members) ? g.members : [])
+    .filter(id => state.characters.some(c => c.id === id))
+    .filter((id, i, a) => a.indexOf(id) === i)
+    .slice(0, GROUP_MEMBER_MAX);
+  g.ts = Date.now();
+  return g;
+}
+function saveGroup(g) {
+  if (!g) return null;
+  g.name = String(g.name || '').trim().slice(0, NAME_MAX) || '群聊';
+  g.emoji = String(g.emoji || '👥').slice(0, 4);
+  g.members = (Array.isArray(g.members) ? g.members : [])
+    .filter(id => state.characters.some(c => c.id === id))
+    .filter((id, i, a) => a.indexOf(id) === i)
+    .slice(0, GROUP_MEMBER_MAX);
+  const i = groups().findIndex(x => x.id === g.id);
+  if (i < 0) groups().push(g); else groups()[i] = g;
+  save();
+  return g;
+}
+function deleteGroup(id) {
+  state.groups = groups().filter(g => g.id !== id);
+  delete state.chats[id];
+  delete state.calls[id];
+  save();
+}
+/* 群在列表/头像位上用的「脸」。合成对象，不是真角色 —— 别写回 characters */
+function groupFace(g) {
+  return { id: g.id, name: g.name, avatar: g.emoji || '👥', avatarImg: g.avatarImg || '',
+           chatBg: g.chatBg || '', color: '#c6c2b8', group: true };
+}
+/* 会话对象：给 id 就还你「可渲染的脸」，是角色还是群都行 */
+function chatTarget(id) {
+  const g = groupOf(id);
+  if (g) return groupFace(g);
+  return state.characters.find(x => x.id === id) || null;
+}
+function memberOf(g, id) { return (g && g.members) ? (state.characters.find(c => c.id === id) || null) : null; }
+/* 群成员里挑一个说话的。weights 是「谁更可能接话」，现在按在群里的次序稍作倾斜 */
+function pickSpeaker(g, skipId) {
+  const list = (g && g.members ? g.members : []).filter(id => id !== skipId);
+  if (!list.length) return null;
+  return state.characters.find(c => c.id === list[Math.floor(Math.random() * list.length)]) || null;
+}
+
 /* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
-   没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面 */
+   没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面。
+   群和人混在一起排 —— 微信本来就是这样。 */
 function chatList() {
-  return state.characters
-    .map(c => ({ c, last: lastMessage(c.id), n: (state.chats[c.id] || []).length }))
-    .sort((a, b) => {
-      if (!!a.last !== !!b.last) return a.last ? -1 : 1;
-      return (b.last ? b.last.ts : b.c.ts) - (a.last ? a.last.ts : a.c.ts);
-    });
+  const rows = state.characters.map(c => ({ c: c, last: lastMessage(c.id), n: (state.chats[c.id] || []).length }))
+    .concat(groups().map(g => { const f = groupFace(g); return { c: f, g: g, last: lastMessage(g.id), n: (state.chats[g.id] || []).length }; }));
+  return rows.sort((a, b) => {
+    if (!!a.last !== !!b.last) return a.last ? -1 : 1;
+    const ta = a.last ? a.last.ts : (a.g ? a.g.ts : a.c.ts);
+    const tb = b.last ? b.last.ts : (b.g ? b.g.ts : b.c.ts);
+    return tb - ta;
+  });
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2109,8 +2215,113 @@ function buildSystem(char, history) {
   return lines.join('\n');
 }
 
+/* ══════════════════════════════════════════════════════
+   群聊：提示词 + 拆条。
+   一次接口调用里让两三个人接话（每人一条、以「名字：」开头），
+   比「一轮一个接口」便宜得多，也更像群里你一句我一句的样子。
+   ══════════════════════════════════════════════════════ */
+const GROUP_RULES = [
+  '这是一个微信群。群里不止一个人，这一轮**可能有好几个人同时说话**。',
+  '',
+  '# 输出格式（必须守住）',
+  '- 每一条群消息都以「名字：」开头，名字只能用上面成员列表里的。',
+  '- 人和人之间、同一个人的两条之间，都用 ' + SPLIT_MARK + ' 分隔。',
+  '- 一次最多 4 条。例如：小明：我刚到家' + SPLIT_MARK + '小红：这么晚' + SPLIT_MARK + '小明：加班',
+  '',
+  '# 内容',
+  '- 群里说话比私聊更短更随便，两三句、甚至一个「哈哈哈」就够了。',
+  '- 有人闲聊就顺着聊，不用每条都回应，也别几个人一起说同一件事。',
+  '- 不要替「我」说话，不要写旁白和动作，不要解释格式，不要 Markdown。',
+  '- 只输出消息本身。'
+].join('\n');
+
+const GROUP_ME = () => String(state.settings.userName || '').trim() || '我';
+
+/* 把消息历史摊成「名字：内容」的群聊记录 —— 群的上下文全靠它，
+   单靠 role:assistant 分不出是谁在说话。 */
+function groupLines(history) {
+  const me = GROUP_ME();
+  return (history || []).map(m => {
+    if (m.me) return me + '：' + String(m.text || '');
+    const c = m.who ? state.characters.find(x => x.id === m.who) : null;
+    return (c ? c.name : '某人') + '：' + String(m.text || '');
+  });
+}
+
+function buildGroupSystem(g, history) {
+  const now = virtualNow();
+  const lines = [ROLE_RULES, '', '---', ''];
+  /* 个人世界书是某个人的私聊设定，群里只认通用的（传 null） */
+  const wb = activeEntries(history, null);
+  if (wb.length) {
+    lines.push('# 世界设定（以下是已经成立的事实，直接当真）');
+    wb.forEach(e => lines.push(e.content));
+    lines.push('');
+  }
+  lines.push('# 这个群');
+  lines.push('群名：' + (g.name || '群聊'));
+  lines.push('成员（你只能演这些人）：');
+  g.members.forEach(id => {
+    const c = state.characters.find(x => x.id === id);
+    if (!c) return;
+    const one = String(c.persona || '').split('\n')[0].slice(0, 50) || String(c.desc || '').slice(0, 50);
+    lines.push('- ' + c.name + (c.relation ? '（跟我的关系：' + c.relation + '）' : '') + (one ? '：' + one : ''));
+  });
+  lines.push(`群里的人管我叫「${GROUP_ME()}」。`);
+  lines.push('');
+  lines.push(GROUP_RULES);
+  const ev = todayEvents();
+  if (ev.length) {
+    lines.push('', '# 你们今天各自的安排（有就自然带出来，没有别硬提）');
+    ev.forEach(e => lines.push('- ' + (e.time ? e.time + ' ' : '') + (e.title || '')));
+  }
+  lines.push('', `现在的时间是 ${fmtDate(now)} ${fmtTime(now, state.settings.clock24)}。`);
+  return lines.join('\n');
+}
+
+/* 把「名字：内容%%名字：内容」切成 [{who,text}]。
+   ponytail: 开头任意 ≤12 字的「X：」一律当成名字剥掉 —— 提示词保证了每段都有名字。
+   代价是「注意：明天要下雨」这种会丢掉「注意」两个字；真碰到了再加一层
+   「X 是否像人名」的判断，现在不值得。名字对不上群成员就随机归一个，
+   宁可归错人，也别让这条消息凭空消失。 */
+function parseGroupReply(g, raw) {
+  const names = g.members.map(id => state.characters.find(c => c.id === id)).filter(Boolean);
+  if (!names.length) return [];
+  const any = () => names[Math.floor(Math.random() * names.length)];
+  return splitReply(raw).map(t => {
+    let s = String(t || '').trim();
+    let who = null;
+    const m = s.match(/^([^：:\n%%]{1,12})\s*[：:]\s*/);
+    if (m) {
+      const nm = m[1].trim();
+      const hit = names.find(c => c.name === nm)
+        || names.find(c => nm && (c.name.indexOf(nm) === 0 || nm.indexOf(c.name) === 0));
+      who = hit || null;
+      s = s.slice(m[0].length);
+    }
+    return { who: (who || any()).id, text: s || '…' };
+  }).filter(x => x.text);
+}
+
+async function askGroup(g, history) {
+  const s = state.settings;
+  const all = history || [];
+  if (!apiRoot() || !s.apiKey) {
+    /* 没配接口也要能玩：挑一个人，用私聊那套本地演示文案顶上 */
+    const who = pickSpeaker(g, '');
+    const last = all.filter(m => m.me).pop();
+    return (who ? who.name : '群里的人') + '：（本地演示）我收到了：「' + (last ? last.text : '')
+      + '」。到「设置 → AI 接口」填上接口地址和 Key，群里就会真的有人接话。';
+  }
+  if (!s.apiModel) throw new Error('还没选模型：去「设置 → AI 接口」点一下「拉取模型列表」，选一个能聊天的模型再来');
+  const keep = Math.max(2, Number(s.historyKeep) || 40);
+  const usr = '【群里刚说的话】\n' + groupLines(all.slice(-keep)).join('\n') + '\n\n接着往下聊。';
+  return askOnce(buildGroupSystem(g, all), usr);
+}
+
 /* 让角色回一句话。没配 API 就走本地演示，保证离线也能玩。 */
 async function askCharacter(char, history) {
+  if (char && char.id && isGroup(char.id)) return askGroup(groupOf(char.id), history);
   const s = state.settings;
   const all = history || [];
   if (!apiRoot() || !s.apiKey) {
@@ -2264,6 +2475,10 @@ window.SJ = {
   chatBgOf, setChatBg,
   stickersOf, addSticker, removeSticker, STICKER_MAX,
   addAlt, pickAlt, ALT_MAX,
+  /* 群聊 */
+  groupOf, isGroup, groups, makeGroup, saveGroup, deleteGroup, groupFace, chatTarget,
+  memberOf, pickSpeaker, buildGroupSystem, parseGroupReply, groupLines,
+  GROUP_MAX, GROUP_MEMBER_MAX,
   proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,

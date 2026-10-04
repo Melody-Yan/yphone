@@ -1471,3 +1471,27 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .alt-btn:active { transform: scale(.9); }
 .alt-n { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+/* ══════════════════════════════════════════════════════
+   群聊
+   群里同一侧会出现好几个人，光看气泡分不出谁是谁，
+   所以在头像旁边多挂一行名字。单聊一个字节都不变。
+   ══════════════════════════════════════════════════════ */
+.chat-list .msg.grp .msg-box {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  max-width: 74%; min-width: 0;
+}
+/* .msg > .bubble 的 max-width 是直接子选择器，包了一层就落不到，
+   所以这里把宽度转交给 .msg-box，气泡自己铺满那一栏 */
+.chat-list .msg.grp .msg-box > .bubble { max-width: 100%; align-self: flex-start; }
+.chat-list .msg.grp .msg-who { font-size: 11px; color: var(--fg-dim); padding-left: 3px; }
+
+/* 群成员那行的「移出」，比 .row-x 那个小圆位宽一些，要放得下两个字 */
+.row-out {
+  flex: 0 0 auto; border: 0; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--fg-dim);
+  background: rgba(120, 112, 100, .1);
+}
+.row-out:active { color: var(--danger); background: rgba(196, 117, 107, .16); }
+
+/* 群成员列表：跟着 .pad 走，不要 .list 那层滚动和底部留白 */
+.mem-list { display: flex; flex-direction: column; }

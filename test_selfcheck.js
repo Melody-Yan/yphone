@@ -2738,6 +2738,196 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   sandbox.SHELL.closeAll();
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   [34] 群聊
+   群不是角色：消息还是 chats，但每条多一个 who；列表里它是一张合成的「脸」。
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[34] 群聊');
+{
+  boot();
+  const A = sandbox.SJ;
+  const top = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+  const rowHas = t => top().find(n => n._class.has('row') && n.textContent.includes(t));
+  const titles = () => top().filter(n => n._class.has('row-title')).map(n => n.textContent);
+  const okBtn = () => top().find(n => n._class.has('btn'));
+
+  const pa = A.makeCharacter({ name: '群甲' }); A.saveCharacter(pa);
+  const pb = A.makeCharacter({ name: '群乙' }); A.saveCharacter(pb);
+  const pc = A.makeCharacter({ name: '群丙' }); A.saveCharacter(pc);
+
+  /* ── 建群入口 ── */
+  let wx = openFresh('chat');
+  const gbtn = findBtn(wx, '👥');
+  ok('微信右上角有「发起群聊」', !!gbtn);
+  if (gbtn) gbtn.click();
+  /* 前面的用例在同一个 localStorage 里留了别的角色，所以只断言这三个人在里面 */
+  ok('选人页把三个角色都列出来了',
+    ['群甲', '群乙', '群丙'].every(n => titles().includes(n)), titles().join(','));
+  ok('一个都没选时按钮不带数字', (okBtn() || {}).textContent === '建群', (okBtn() || {}).textContent);
+  rowHas('群甲').click();
+  rowHas('群乙').click();
+  ok('选了两个人按钮跟着数', (okBtn() || {}).textContent === '建群（2）', (okBtn() || {}).textContent);
+  okBtn().click();
+
+  ok('群建出来了', A.groups().length === 1, String(A.groups().length));
+  const g = A.groups()[0];
+  ok('默认群名 = 成员名字拼起来', g.name === '群甲、群乙', g.name);
+  ok('群成员就是刚选的两个人', g.members.join(',') === [pa.id, pb.id].join(','), g.members.join(','));
+  ok('建完直接进了群设置页', top().some(n => n._class.has('row-title') && n.textContent === '群名称')
+    || top().some(n => n._class.has('field-wrap') && n.textContent.includes('群名称')),
+    top().filter(n => n._class.has('field-wrap')).map(n => n.textContent).join('|'));
+  const fwText = top().filter(n => n._class.has('field-wrap')).map(n => n.textContent).join('|');
+  const btns = top().filter(n => n._class.has('btn')).map(n => n.textContent);
+  ok('群设置里有群名称 / 群头像', fwText.includes('群名称') && fwText.includes('群头像'), fwText);
+  ok('群设置里写着群成员人数', top().some(n => n._class.has('group-title') && n.textContent.includes('群成员（2 人）')),
+    top().filter(n => n._class.has('group-title')).map(n => n.textContent).join(','));
+  ok('群设置里有加人 / 聊天背景 / 清空 / 解散',
+    titles().includes('加人') && titles().includes('聊天背景')
+    && btns.includes('清空聊天记录') && btns.includes('解散群聊'),
+    titles().join(',') + ' | ' + btns.join(','));
+
+  /* ── 移出 / 加人 ── */
+  let outBtn = top().find(n => n._class.has('row-out'));
+  ok('成员那行有「移出」', !!outBtn, outBtn ? outBtn.textContent : 'none');
+  if (outBtn) outBtn.click();
+  ok('只剩两个人时不让再移出（点了不动）', A.groupOf(g.id).members.length === 2, String(A.groupOf(g.id).members.length));
+
+  rowHas('加人').click();
+  ok('加人页把没进群的人也列出来', titles().includes('群丙'), titles().join(','));
+  rowHas('群丙').click();
+  okBtn().click();
+  ok('加完群里有三个人', A.groupOf(g.id).members.length === 3, String(A.groupOf(g.id).members.length));
+
+  /* ── 群里说话：一次接口让好几个人接话 ── */
+  const gid = g.id;
+  A.pushMessage(gid, true, '晚上吃啥');
+  const sys = A.buildGroupSystem(A.groupOf(gid), A.messages(gid));
+  ok('群提示词里带着群名', sys.includes('群甲、群乙'));
+  ok('群提示词把成员都列出来了', sys.includes('群甲') && sys.includes('群乙') && sys.includes('群丙'));
+  ok('群提示词要求每条以「名字：」开头', sys.includes('名字：'));
+  ok('群提示词说人和人之间用 %% 分', sys.includes('%%'));
+  ok('群提示词没把某一个人的私聊人设当成「你」',
+    !sys.includes('你演的是') && sys.includes('你只能演这些人'));
+
+  const pr = A.parseGroupReply(A.groupOf(gid), '群甲：一' + A.SPLIT_MARK + '群乙：二' + A.SPLIT_MARK + '陌生人：三');
+  ok('拆成三条', pr.length === 3, String(pr.length));
+  ok('名字对得上就归他', pr[0].who === pa.id && pr[1].who === pb.id, pr[0].who + '/' + pr[1].who);
+  ok('落盘的文字剥掉了「名字：」', pr[0].text === '一' && pr[1].text === '二', pr.map(x => x.text).join('|'));
+  ok('写了群外的人也不会整条丢掉', pr[2].text === '三' && A.groupOf(gid).members.includes(pr[2].who),
+    pr[2].text + '/' + pr[2].who);
+  ok('没写前缀也能归一个人', !!A.parseGroupReply(A.groupOf(gid), '随便说说')[0].who);
+
+  const gl = A.groupLines(A.messages(gid));
+  ok('群聊记录摊成「名字：内容」', gl.length === 1 && gl[0].indexOf('：晚上吃啥') > 0, gl.join(' | '));
+  ok('他的消息用他的角色名，不是「某人」',
+    A.groupLines([{ me: false, who: pa.id, text: '喂' }])[0].indexOf('群甲：') === 0,
+    A.groupLines([{ me: false, who: pa.id, text: '喂' }])[0]);
+
+  /* ── 真发一轮：一段回答里两个人接话 ── */
+  openFresh('chat', gid);
+  const inp = walk(byId.phone).find(n => n._class.has('chat-input'));
+  inp.value = '你们想吃什么';
+  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  await sleep(60);
+  const realAsk = A.askCharacter;
+  A.askCharacter = async () => '群甲：火锅' + A.SPLIT_MARK + '群乙：+1，我也想吃';
+  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  ok('一次回答里两个人各说一句', await waitFor(() => A.messages(gid).filter(m => !m.me).length === 2, 5000),
+    String(A.messages(gid).filter(m => !m.me).length));
+  await waitFor(() => !walk(byId.phone).some(x => x._class.has('typing')), 9000);
+  const ta = A.messages(gid).filter(m => !m.me);
+  ok('每条群消息都记着是谁说的', ta.length === 2 && !!ta[0].who && !!ta[1].who,
+    JSON.stringify(ta.map(m => [m.text, m.who])));
+  ok('两个 who 不是同一个人', ta[0].who !== ta[1].who);
+  ok('who 都是群成员', A.groupOf(gid).members.includes(ta[0].who) && A.groupOf(gid).members.includes(ta[1].who));
+  ok('文字里的「名字：」已经剥掉了', ta[0].text === '火锅' && ta[1].text === '+1，我也想吃',
+    JSON.stringify(ta.map(m => m.text)));
+  ok('落盘里真的存了 who 字段',
+    JSON.parse(store.get('xiaoshouji.v1')).chats[gid].filter(m => !m.me).every(m => !!m.who));
+
+  const vl = walk(byId.phone);
+  ok('群里同一侧的消息套了一层 .msg-box', vl.some(n => n._class.has('msg-box')));
+  ok('头像旁边挂着说话人的名字',
+    vl.filter(n => n._class.has('msg-who')).map(n => n.textContent).join(',') === '群甲,群乙',
+    vl.filter(n => n._class.has('msg-who')).map(n => n.textContent).join(','));
+  ok('群里不挂已读/未读', !vl.some(n => n._class.has('msg-read')));
+  ok('群里没有「打电话」按钮', !vl.some(n => n._class.has('nav-btn') && n.textContent === '📞'));
+  ok('群头像用的是群的 emoji/名字', vl.some(n => n._class.has('nav-title') && n.textContent === '群甲、群乙'));
+  A.askCharacter = realAsk;
+
+  /* ── 群设置：背景 / 清空 / 解散 ── */
+  wx = openFresh('chat');
+  const grow = walk(wx).find(n => n._class.has('row') && n.textContent.includes('群甲、群乙'));
+  ok('会话列表里有这个群', !!grow);
+  ok('群那条的预览写着是谁发的',
+    !!grow && /群甲：|群乙：/.test(grow.textContent), grow ? grow.textContent.slice(0, 40) : 'none');
+
+  const face = A.chatTarget(gid);
+  ok('chatTarget(群 id) 给的是合成脸', !!face && face.group === true && face.name === '群甲、群乙');
+  ok('chatTarget(角色 id) 还是角色本身', A.chatTarget(pa.id) === pa || A.chatTarget(pa.id).id === pa.id);
+  ok('chatList 里群排在聊过的人前面', A.chatList()[0].g && A.chatList()[0].c.id === gid,
+    JSON.stringify(A.chatList().map(r => r.c.name)));
+
+  const bg = A.setChatBg(face, 'data:image/png;base64,AAAA');
+  ok('群能单独设聊天背景', bg && A.groupOf(gid).chatBg === 'data:image/png;base64,AAAA', String(bg));
+  ok('设群背景不会写到角色身上', !pa.chatBg, String(pa.chatBg));
+  ok('群背景能读回来', A.chatBgOf(A.chatTarget(gid)) === 'data:image/png;base64,AAAA');
+  A.setChatBg(face, '');
+
+  /* ── 删角色要把他从群里摘掉 ── */
+  A.deleteCharacter(pc.id);
+  ok('删掉角色后他从群里消失了', A.groupOf(gid).members.indexOf(pc.id) < 0);
+  A.deleteCharacter(pa.id);
+  A.deleteCharacter(pb.id);
+  ok('群不足两个人就散掉', A.groupOf(gid) === null);
+  ok('散群之后聊天记录也不留', !A.state.chats[gid], JSON.stringify(Object.keys(A.state.chats)));
+
+  sandbox.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [35] 群聊：老存档与脏值
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[35] 群聊：老存档与脏值');
+{
+  boot();
+  const A = sandbox.SJ;
+  const m1 = A.makeCharacter({ name: '甲' }); A.saveCharacter(m1);
+  const m2 = A.makeCharacter({ name: '乙' }); A.saveCharacter(m2);
+  /* 直接往存档里塞一份脏的 groups，看 load() → migrate() 洗成什么样 */
+  const raw = JSON.parse(store.get('xiaoshouji.v1'));
+  raw.groups = [
+    { id: 'gg1', name: '正常群', members: [m1.id, m2.id, m1.id, '不存在的角色'], ts: 5 },
+    { id: 'gg2', name: '只剩一个', members: [m1.id] },
+    { id: 'gg3', members: [m1.id, m2.id] },
+    '脏字符串',
+    { id: 'gg4', name: '空群', members: [] }
+  ];
+  raw.chats.gg1 = [{ me: true, text: '我说' }, { me: false, text: '他说', who: m1.id }];
+  store.set('xiaoshouji.v1', JSON.stringify(raw));
+  const st = A.load();
+  ok('只剩一个人的群被丢掉', !st.groups.some(x => x.id === 'gg2'));
+  ok('没有成员的群被丢掉', !st.groups.some(x => x.id === 'gg4'));
+  ok('脏字符串项被丢掉', st.groups.every(x => x && typeof x === 'object'));
+  ok('缺名字的群补一个默认名', (st.groups.find(x => x.id === 'gg3') || {}).name === '群聊',
+    JSON.stringify((st.groups.find(x => x.id === 'gg3') || {}).name));
+  const g1 = st.groups.find(x => x.id === 'gg1');
+  ok('重复成员去重', g1 && g1.members.length === 2, g1 ? String(g1.members.length) : 'none');
+  ok('不存在的角色从成员里摘掉', g1 && g1.members.indexOf('不存在的角色') < 0);
+  ok('群里的消息还在', (st.chats.gg1 || []).length === 2);
+  ok('群消息的 who 能读回来', (st.chats.gg1 || [])[1].who === m1.id);
+  ok('群的 id 没有被打乱（老存档不能用 uid() 重发）', !!st.groups.find(x => x.id === 'gg1'));
+
+  /* 群背景也是信任边界 */
+  const raw2 = JSON.parse(store.get('xiaoshouji.v1'));
+  raw2.groups[0].chatBg = 'javascript:alert(1)';
+  store.set('xiaoshouji.v1', JSON.stringify(raw2));
+  const st2 = A.load();
+  ok('群背景不是图片一律洗掉', st2.groups[0].chatBg === '', String(st2.groups[0].chatBg));
+
+  sandbox.SHELL.closeAll();
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

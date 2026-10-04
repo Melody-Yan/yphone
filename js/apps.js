@@ -512,10 +512,19 @@ const APPS = [
       function listView() {
         root.innerHTML = '';
         root.append(navBar('微信', {
-          right: SJ.el('button', {
-            class: 'nav-btn',
-            onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
-          }, '＋')
+          right: SJ.el('div', { class: 'nav-right' }, [
+            SJ.el('button', {
+              class: 'nav-btn',
+              title: '发起群聊',
+              onclick: () => (SJ.state.characters.length < 2
+                ? toast('至少要有两个角色才能建群')
+                : newGroup())
+            }, '👥'),
+            SJ.el('button', {
+              class: 'nav-btn',
+              onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
+            }, '＋')
+          ])
         }));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
@@ -528,17 +537,22 @@ const APPS = [
         const preview = last => {
           if (!last) return '还没聊过';
           const body = last.img ? '[图片]' : last.transfer ? '[转账]' : (last.text || '');
-          return (last.me ? '我：' : '') + String(body).replace(/\n/g, ' ').slice(0, 28);
+          /* 群里得看出是谁在说，否则一串「哈哈哈」看不出名堂 */
+          const who = (!last.me && last.who)
+            ? ((SJ.state.characters.find(x => x.id === last.who) || {}).name || '')
+            : (last.me ? '我' : '');
+          return (who ? who + '：' : '') + String(body).replace(/\n/g, ' ').slice(0, 28);
         };
+        /* 群搜索要能按成员名字搜到群 */
+        const hay = row => row.c.name + ' ' + ((row.last && row.last.text) || '')
+          + (row.g ? ' ' + row.g.members.map(id => (SJ.state.characters.find(x => x.id === id) || {}).name || '').join(' ') : '');
         function paint() {
           feed.innerHTML = '';
           const q = (search.value || '').trim();
-          const list = q
-            ? rows.filter(({ c, last }) => (c.name + ' ' + ((last && last.text) || '')).indexOf(q) >= 0)
-            : rows;
+          const list = q ? rows.filter(row => hay(row).indexOf(q) >= 0) : rows;
           if (!list.length) {
             feed.append(SJ.el('div', { class: 'empty' },
-              q ? `没有找到「${q}」。` : '还没有聊天对象。先去「通讯录」造一个角色。'));
+              q ? `没有找到「${q}」。` : '还没有聊天对象。点右上角「＋」去「通讯录」造一个角色。'));
             return;
           }
           list.forEach(({ c, last }) => {
@@ -805,13 +819,13 @@ const APPS = [
 
       /* ── 聊天背景 ── */
       function chatBgPage(id) {
-        const c = SJ.state.characters.find(x => x.id === id);
+        const c = SJ.chatTarget(id);
         if (!c) return listView();
         const pad = subPage('聊天背景', () => chatSettings(id));
         const g = SJ.state.settings.chatBg;
         pad.append(
           SJ.el('div', { class: 'hint' }, c.chatBg
-            ? '只用在这个人身上。选「用默认」就退回去跟全局那张（' + (g ? '全局已设' : '全局也没设') + '）。'
+            ? '只用在' + (c.group ? '这个群' : '这个人') + '身上。选「用默认」就退回去跟全局那张（' + (g ? '全局已设' : '全局也没设') + '）。'
             : '现在跟的是全局背景' + (g ? '。' : '（没设，用的是默认纸色）。') + '在这张照片上，气泡会自动加一层底，保证字看得清。'),
           bgStrip(
             () => SJ.chatBgOf(c),
@@ -885,9 +899,110 @@ const APPS = [
       }
 
       /* ── 聊天设置主页 ── */
+      /* ── 建群 / 加人：多选列表 ── */
+      function groupPick(init, title, okLabel, onDone) {
+        const sel = [];
+        (init || []).forEach(id => { if (sel.indexOf(id) < 0) sel.push(id); });
+        const pad = subPage(title, () => listView());
+        const ok = SJ.el('button', { class: 'btn', onclick: () => {
+          if (sel.length < 2) return toast('至少要两个人');
+          onDone(sel.slice());
+        } }, okLabel);
+        const feed = SJ.el('div', { class: 'list' });
+        const draw = () => {
+          feed.innerHTML = '';
+          SJ.state.characters.forEach(m => {
+            const i = sel.indexOf(m.id);
+            feed.append(SJ.el('div', { class: 'row', onclick: () => {
+              if (i >= 0) sel.splice(i, 1); else sel.push(m.id);
+              draw();
+            } }, [
+              avatarNode(m),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, m.name),
+                SJ.el('div', { class: 'row-sub' }, m.relation || m.desc || '')
+              ]),
+              SJ.el('div', { class: 'row-time' }, i >= 0 ? '✓' : '')
+            ]));
+          });
+          if (!SJ.state.characters.length) {
+            feed.append(SJ.el('div', { class: 'empty' }, '还没有角色。先去「通讯录」造一个。'));
+          }
+          ok.textContent = okLabel + (sel.length ? `（${sel.length}）` : '');
+        };
+        pad.append(SJ.el('div', { class: 'hint' }, '选两个人以上。'), feed, ok);
+        draw();
+      }
+
+      function newGroup() {
+        groupPick([], '发起群聊', '建群', ids => {
+          const names = ids.map(id => (SJ.state.characters.find(x => x.id === id) || {}).name || '').filter(Boolean);
+          const g = SJ.makeGroup({ members: ids, name: names.join('、').slice(0, 24) });
+          SJ.saveGroup(g);
+          groupSettings(g);
+        });
+      }
+
+      /* ── 群聊设置 ──
+         和单聊的设置故意长得不一样：群没有「关系」「记忆卡片」这些，
+         但多了成员管理 —— 少拉一个人、多拉一个人，都在这儿。 */
+      function groupSettings(g) {
+        const pad = subPage('群聊设置', () => chatView(g.id));
+        const name = SJ.el('input', { class: 'field', placeholder: '群名称', value: g.name });
+        const emoji = SJ.el('input', { class: 'field', placeholder: '一个 emoji 当群头像', value: g.emoji || '' });
+        const saveIt = () => { g.name = name.value; g.emoji = emoji.value; SJ.saveGroup(g); };
+        name.addEventListener('change', saveIt);
+        emoji.addEventListener('change', saveIt);
+
+        const memBox = SJ.el('div', { class: 'mem-list' });
+        g.members.forEach(id => {
+          const m = SJ.state.characters.find(x => x.id === id);
+          if (!m) return;
+          memBox.append(SJ.el('div', { class: 'row', onclick: () => chatSettings(id) }, [
+            avatarNode(m),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, m.name),
+              SJ.el('div', { class: 'row-sub' }, m.relation || m.desc || '群成员')
+            ]),
+            SJ.el('div', { class: 'row-out', onclick: e => {
+              e.stopPropagation();
+              if (g.members.length < 3) return toast('群里至少留两个人');
+              g.members = g.members.filter(x => x !== id);
+              SJ.saveGroup(g);
+              groupSettings(g);
+            } }, '移出')
+          ]));
+        });
+
+        const left = SJ.state.characters.length - g.members.length;
+        pad.append(
+          SJ.el('div', { class: 'who' }, [avatarNode(SJ.groupFace(g)), SJ.el('div', { class: 'who-name' }, g.name)]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '群名称'), name]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '群头像'), emoji]),
+
+          SJ.el('div', { class: 'group-title' }, `群成员（${g.members.length} 人）`),
+          memBox,
+          rowGo('加人', left > 0 ? `还有 ${left} 个人没进群` : '所有人都已经在群里了',
+            () => groupPick(g.members, '加人', '完成', ids => { g.members = ids; SJ.saveGroup(g); groupSettings(g); })),
+
+          SJ.el('div', { class: 'group-title' }, '内容'),
+          rowGo('聊天背景', SJ.chatBgOf(SJ.groupFace(g)) ? (g.chatBg ? '这个群单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(g.id)),
+
+          SJ.el('div', { class: 'group-title' }, '危险区'),
+          SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('清空这个群的聊天记录？成员还在。', () => { SJ.clearChat(g.id); chatView(g.id); })
+          }, '清空聊天记录'),
+          SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox(`解散「${g.name}」？这个群的聊天记录会一起没。`, () => { SJ.deleteGroup(g.id); listView(); })
+          }, '解散群聊')
+        );
+      }
+
       function chatSettings(id) {
         const c = SJ.state.characters.find(x => x.id === id);
-        if (!c) return listView();
+        if (!c) return SJ.isGroup(id) ? groupSettings(id) : listView();
         const pad = subPage('聊天设置', () => chatView(id));
 
         const alias = SJ.el('input', { class: 'field', placeholder: 'TA 该怎么叫你（留空＝用「设置」里的默认）', value: c.alias || '' });
@@ -1083,15 +1198,18 @@ const APPS = [
       }
 
       function chatView(id) {
-        const c = SJ.state.characters.find(x => x.id === id);
+        const c = SJ.chatTarget(id);
         if (!c) return listView();
+        /* 群聊：c 是 core 合成的一张「脸」（有 id/name/avatar/avatarImg），
+           所以下面渲染头像、标题那些一行都不用改。G 才是真的群对象。 */
+        const G = SJ.groupOf(id);
         root.innerHTML = '';
         root.append(navBar(c.name, {
           back: listView,
           // 左上角齿轮：昵称 / 关系 / 记忆卡片 / 总结，都归它管
           left: SJ.el('button', { class: 'nav-btn', title: '聊天设置', html: svg('gear', 17), onclick: () => chatSettings(id) }),
           right: SJ.el('div', { class: 'nav-right' }, [
-            SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) }, '📞'),
+            G ? null : SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) }, '📞'),
             SJ.el('button', {
               class: 'nav-btn',
               onclick: () => confirmBox(`清空和「${c.name}」的聊天记录？`, () => { SJ.clearChat(id); chatView(id); })
@@ -1160,16 +1278,23 @@ const APPS = [
            所以这里只多套一层 .msg，外面那些调用一行都不用改。
            长按这一行能引用回复 —— src 不传就从气泡文字里现取，省得每个调用点都改。 */
         let lastRow = null;      // 最近画出来的一行，redraw 用它挂「已读」
+        /* 正在画的那条群消息是谁说的。用 `正在画` 而不是给每个气泡加参数 ——
+           渲染是按顺序同步跑的，一个变量就够，bubble/voice/packet 那些一行都不用改。 */
+        let curWho = '';
         function row(inner, me, src) {
-          const r = SJ.el('div', { class: 'msg ' + (me ? 'me' : 'ta') }, [
-            me ? null : SJ.el('div', { class: 'av-tap', onclick: () => chatSettings(id) }, [avatarNode(c)]),
-            inner,
+          const speaker = (!me && G && curWho) ? SJ.memberOf(G, curWho) : null;
+          const face = speaker || c;
+          /* 群里的每条消息都挂 grp（包括我自己发的）—— 「这是群聊」是整条会话的属性，
+             不只在「有人插话」时才成立。只有 TA 那条才套 .msg-box 装名字。 */
+          const r = SJ.el('div', { class: 'msg ' + (me ? 'me' : 'ta') + (G ? ' grp' : '') }, [
+            me ? null : SJ.el('div', { class: 'av-tap', onclick: () => chatSettings(speaker ? speaker.id : id) }, [avatarNode(face)]),
+            speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
           ]);
           list.append(r);
           list.scrollTop = list.scrollHeight;
           lastRow = r;
-          const m = src || { me: !!me, name: me ? '我' : c.name, text: (inner && inner.textContent) || '' };
+          const m = src || { me: !!me, name: me ? '我' : face.name, text: (inner && inner.textContent) || '' };
           if (m.text) {
             let hold = null;
             const go = () => { clearTimeout(hold); hold = setTimeout(() => openMsgSheet(m), 480); };
@@ -1315,6 +1440,7 @@ const APPS = [
 
         /* 一条存档消息 → 屏幕上的一坨气泡（对面的长回复会被拆成好几条） */
         function renderMsg(m) {
+          curWho = m.who || '';
           if (m.kind === 'img') return imgBubble(m);
           if (m.kind === 'video') return videoBubble(m);
           if (m.kind === 'transfer') return transferBubble(m);
@@ -1347,7 +1473,7 @@ const APPS = [
             if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
               lastRow.append(altPager(m));
             }
-            if (i === lastMine && SJ.state.settings.readReceipt !== false) {
+            if (i === lastMine && !G && SJ.state.settings.readReceipt !== false) {
               readTag = SJ.el('div', { class: 'msg-read' }, m.read ? '已读' : '未读');
               if (lastRow) lastRow.append(readTag);
             }
@@ -1375,10 +1501,11 @@ const APPS = [
           if (n) SJ.save();
           if (readTag) readTag.textContent = '已读';
         }
-        /* 刚发出去一条：把「已读」从旧的那条挪到新这条上，并翻回未读 */
+        /* 刚发出去一条：把「已读」从旧的那条挪到新这条上，并翻回未读。
+           群里不挂这个 —— 十几个人里谁读了算读了？ */
         function newReadTag(rowEl) {
           if (readTag) { readTag.remove(); readTag = null; }
-          if (SJ.state.settings.readReceipt === false || !rowEl) return;
+          if (G || SJ.state.settings.readReceipt === false || !rowEl) return;
           readTag = SJ.el('div', { class: 'msg-read' }, '未读');
           rowEl.append(readTag);
         }
@@ -1407,7 +1534,7 @@ const APPS = [
         //    没写开场白的角色进来是一片空白。
         if (!SJ.messages(id).length) {
           if ((c.greeting || '').trim()) { SJ.pushMessage(id, false, c.greeting.trim()); redraw(); }
-          else bubble(`还没聊过。跟「${c.name}」说点什么吧。`, false);
+          else bubble(G ? `群里还没人说话。随便开头吧，${G.members.length} 个人都会看到。` : `还没聊过。跟「${c.name}」说点什么吧。`, false);
         } else redraw();
 
         /* 只发不收 —— 对方一声不吭，等用户按「回复」（除非开了自动回复） */
@@ -1455,13 +1582,19 @@ const APPS = [
           let answer;
           try { answer = await SJ.askCharacter(c, redo ? h.slice(0, -1) : h); }
           catch (e) { answer = '（连接失败）' + e.message; }
-          /* TA 可能顺手把关系改了（[[rel:…]]），先把标记摘掉再落盘 */
-          answer = SJ.applySelfMarks(c, answer);
+          /* TA 可能顺手把关系改了（[[rel:…]]），先把标记摘掉再落盘。群里没有「关系」这回事 */
+          answer = G ? answer : SJ.applySelfMarks(c, answer);
+          /* 群聊：一段回答里常常是好几个人各说一句（「名字：内容%%名字：内容」），
+             在这儿拆成一条条落盘，每条记上 who —— 之后重画就不用再猜谁说的了。 */
+          const parts = G ? SJ.parseGroupReply(G, answer) : [{ who: '', text: answer }];
           /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
              旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
           const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
           if (isRedo) { SJ.addAlt(redo, answer); regen = null; }
-          else { regen = null; SJ.pushMessage(id, false, answer); }
+          else {
+            regen = null;
+            parts.forEach(p => SJ.pushMessage(id, false, p.text, p.who ? { who: p.who } : {}));
+          }
           tip.remove();
           markRead();       // 她开口了 = 读过我那条了
           beep('in');       // 一条回复一个提示音，不是每个气泡都响
@@ -1470,7 +1603,9 @@ const APPS = [
             redraw();
             list.scrollTop = list.scrollHeight;
           } else {
-          for (const t of SJ.splitReply(answer)) {
+          for (const p of parts) {
+            curWho = p.who || '';
+            const t = p.text;
             const v = SJ.voiceOf(t);
             if (v || SJ.redpacketOf(t)) {
               /* 语音和红包不是打出来的 —— 等一个停顿直接出现 */
@@ -1487,6 +1622,8 @@ const APPS = [
           }
           }
           busy = false; syncSend();
+          /* 群聊没有「一个人的记忆」和「一个人的朋友圈」，这两样都跳过 */
+          if (G) return;
           /* 攒够条数就悄悄把这段浓缩成记忆，下次她还能记得（失败不打扰用户） */
           SJ.autoMemorize(c).then(n => { if (n) toast(`她记住了 ${n} 件事`); }).catch(() => {});
           /* 偶尔让她自己冒一条朋友圈（她自己决定发不发，失败也不打扰） */
@@ -1501,6 +1638,14 @@ const APPS = [
           if (h.map(m => m.me).lastIndexOf(true) < 0) return toast('先发一条消息，才有回复可以重来');
           const last = h[h.length - 1];
           if (!last || last.me) return toast('她还没回呢');
+          /* 群里一整轮是好几个人各说一句，「留一版」的话翻页器该挂哪条说不清 ——
+             索性退回老做法：把上一轮整段丢掉重问。 */
+          if (G) {
+            SJ.truncateChat(id, h.map(m => m.me).lastIndexOf(true) + 1);
+            redraw();
+            askAndShow();
+            return;
+          }
           regen = last;
           askAndShow();
         }

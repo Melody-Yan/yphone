@@ -514,6 +514,12 @@ const APPS = [
         root.append(navBar('微信', {
           right: SJ.el('div', { class: 'nav-right' }, [
             SJ.el('button', {
+              class: 'nav-btn nav-mom',
+              title: '朋友圈',
+              html: svg('comment', 17),
+              onclick: () => momentsView()
+            }),
+            SJ.el('button', {
               class: 'nav-btn',
               title: '发起群聊',
               onclick: () => (SJ.state.characters.length < 2
@@ -522,6 +528,7 @@ const APPS = [
             }, '👥'),
             SJ.el('button', {
               class: 'nav-btn',
+              title: '去通讯录加人',
               onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
             }, '＋')
           ])
@@ -603,12 +610,23 @@ const APPS = [
         root.append(box, tabBar('me'));
       }
 
-      /* ── 朋友圈：角色自己发的生活动态，内容由 AI 按最近聊了什么生成 ── */
+      /* ── 朋友圈：角色自己发的生活动态，内容由 AI 按最近聊了什么生成 ──
+         '__me' 是我自己。它不是 state.characters 里的角色，但点赞/评论/发帖都用它当 id，
+         所以这儿把「我自己」也做成一张能渲染的脸 —— 下游一行都不用特判。 */
+      const ME = '__me';
+      const meFace = () => ({
+        name: String(SJ.state.settings.userName || '').trim() || '我',
+        avatar: SJ.state.settings.myAvatar || '🙂',
+        avatarImg: SJ.state.settings.myAvatarImg || '',
+        color: '#b9c6bd', me: true
+      });
       const charName = id => {
+        if (id === ME) return meFace().name;
         const c = SJ.state.characters.find(x => x.id === id);
         return c ? c.name : '已删除的角色';
       };
-      const charOf = id => SJ.state.characters.find(x => x.id === id) || { name: '已删除的角色', avatar: '🕯', color: '#c9c4bd' };
+      const charOf = id => id === ME ? meFace()
+        : (SJ.state.characters.find(x => x.id === id) || { name: '已删除的角色', avatar: '🕯', color: '#c9c4bd' });
 
       /* 挑一个人来发：优先最近聊过的。懒得让用户每次自己选。 */
       function pickSomeone() {
@@ -634,6 +652,9 @@ const APPS = [
       function momentNew() {
         const cs = SJ.state.characters;
         const items = [{
+          icon: '🙋', label: '我自己发一条', hint: '写点你自己的，不用等 AI',
+          run: () => momentMine()
+        }, {
           icon: '✨', label: '让最近聊过的人发一条', hint: '按你们最近的对话写',
           run: () => postOne(pickSomeone())
         }];
@@ -658,6 +679,45 @@ const APPS = [
         window.sheet(items);
       }
 
+      /* 我自己发一条。AI 发的是「他们」的生活，这条得我自己写 —— 所以给个输入框，
+         配图可选，不用等接口。 */
+      function momentMine() {
+        const pad = subPage('发条动态', () => momentsView());
+        const ta = SJ.el('textarea', { class: 'field mo-input', rows: 4, placeholder: '说点什么…' });
+        let img = '';
+        const prev = SJ.el('div', { class: 'mo-prev' });
+        const drawPrev = () => {
+          prev.innerHTML = '';
+          prev.style.backgroundImage = img ? 'url("' + SJ.imgSrc(img) + '")' : '';
+          prev.classList.toggle('on', !!img);
+        };
+        drawPrev();
+        pad.append(ta);
+        pad.append(SJ.el('div', { class: 'mo-tools' }, [
+          prev,
+          SJ.el('button', {
+            class: 'btn ghost',
+            onclick: async () => {
+              const ref = await pickToStore(1280, 0.8);
+              if (!ref) return;
+              img = ref; drawPrev();
+            }
+          }, img ? '换一张图' : '配一张图'),
+          img ? SJ.el('button', { class: 'btn ghost', onclick: () => { img = ''; drawPrev(); } }, '去掉图') : null
+        ]));
+        pad.append(SJ.el('button', {
+          class: 'btn',
+          onclick: () => {
+            const text = String(ta.value || '').trim();
+            if (!text && !img) { toast('写点什么再发'); return; }
+            SJ.addMoment(ME, text || '[图片]', img);
+            toast('发出去了');
+            momentsView();
+          }
+        }, '发布'));
+        root.append(pad);
+      }
+
       function momentsView() {
         root.innerHTML = '';
         root.append(navBar('朋友圈', {
@@ -667,13 +727,13 @@ const APPS = [
         const list = SJ.momentList();
         if (!list.length) {
           box.append(SJ.el('div', { class: 'empty' },
-            '朋友圈还空着。\n点右上角「写」，让他们说说最近在干嘛 —— 内容是按你们刚聊过的剧情生成的。'));
+            '朋友圈还空着。\n点右上角「写」—— 可以自己发一条，也可以让他们说说最近在干嘛（内容是按你们刚聊过的剧情生成的）。'));
         }
         list.forEach(m => {
           const who = charOf(m.charId);
           const card = SJ.el('div', { class: 'mo' });
           card.append(SJ.el('div', { class: 'mo-head' }, [
-            avatarNode(who),
+            who.me ? myAvatarNode() : avatarNode(who),
             SJ.el('div', { class: 'mo-who' }, [
               SJ.el('div', { class: 'mo-name' }, who.name),
               SJ.el('div', { class: 'mo-time' }, SJ.fmtAgo(m.ts))

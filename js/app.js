@@ -794,15 +794,16 @@ SJ.sfx = sfx;                    // 聊天页收发消息时响一下（apps.js 
    判定条件在 SJ.proactiveCandidates() 里（聊过 + 够了间隔 + 自己上次主动也隔够了），
    一次只放一个人。 */
 let proactiveBusy = false;
+/* 谁好久没说话了、要不要主动来找你，都由 core 判；这里只管「落地那一刻的动静」。
+   收到一条提示一条 —— 几个人先后发来就看得到先后，不是一堆堆在一起。 */
 function runProactive() {
   if (proactiveBusy) return;
   proactiveBusy = true;
-  SJ.proactiveCheck().then(r => {
-    proactiveBusy = false;
-    if (!r) return;
+  SJ.proactiveCheck(r => {
     try { SJ.sfx && SJ.sfx('in'); } catch (e) {}
     if (window.toast) window.toast('「' + r.char.name + '」给你发了条消息');
-  }).catch(() => { proactiveBusy = false; });
+  }).then(() => { proactiveBusy = false; })
+    .catch(() => { proactiveBusy = false; });
 }
 
 /* ══ 启动 ══ */

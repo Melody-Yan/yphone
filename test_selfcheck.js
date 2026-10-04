@@ -2488,7 +2488,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('刚主动找过的不再连着刷屏', !App.proactiveCandidates().some(c => c.id === pc.id));
   pc.proactiveAt = 0;
   ok('最久没说话的排最前面，一次只挑一个', App.proactiveCandidates()[0].id === pc.id);
-  ok('没配接口时 proactiveCheck 安静地什么都不做', (await App.proactiveCheck()) === null);
+  ok('没配接口时 proactiveCheck 安静地什么都不做', (await App.proactiveCheck()).length === 0);
 
   /* 老存档没有 lastTalk 时不能把所有人都当成「从没聊过」——那样一开 App 集体搭话 */
   const lc = App.makeCharacter({ name: '老存档角色' });
@@ -2924,6 +2924,95 @@ console.log('\n[35] 群聊：老存档与脏值');
   store.set('xiaoshouji.v1', JSON.stringify(raw2));
   const st2 = A.load();
   ok('群背景不是图片一律洗掉', st2.groups[0].chatBg === '', String(st2.groups[0].chatBg));
+
+  sandbox.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [36] 主动找多人 / 自己发朋友圈
+   主动不再「一次只放一个」；提示词也不再一刀切禁止「你很久没回我」。
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[36] 主动找多人 / 自己发朋友圈');
+{
+  boot();
+  const A = sandbox.SJ;
+  const top = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+  A.state.settings.proactive = true;
+  A.state.settings.idleMin = 180;
+
+  const p1 = A.makeCharacter({ name: '想念甲' });
+  const p2 = A.makeCharacter({ name: '想念乙' });
+  A.saveCharacter(p1); A.saveCharacter(p2);
+  A.pushMessage(p1.id, true, '好久不见');
+  A.pushMessage(p2.id, true, '好久不见');
+  [p1, p2].forEach(c => { c.lastTalk = Date.now() - 5 * 3600 * 1000; c.proactiveAt = 0; A.saveCharacter(c); });
+  /* 把别的角色都按住 —— 前面几十个用例攒了一堆角色，不按住它们会一起挤进来 */
+  A.state.characters.forEach(c => { if (c.id !== p1.id && c.id !== p2.id) c.proactiveAt = Date.now(); });
+  const cand = A.proactiveCandidates();
+  ok('够格的人不止一个（不再一次只放一个）', cand.length === 2, cand.map(c => c.name).join(','));
+  ok('PROACTIVE_MAX 是 3', A.PROACTIVE_MAX === 3, String(A.PROACTIVE_MAX));
+
+  A.state.settings.apiBase = 'https://api.test/v1';
+  A.state.settings.apiKey = 'k';
+  A.state.settings.apiModel = 'm';
+  let sysBody = '';
+  fetchImpl = (url, opts) => {
+    sysBody = JSON.parse(opts.body).messages[0].content;
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '在干嘛呢' } }] }));
+  };
+  const seen = [];
+  const got = await A.proactiveCheck(r => seen.push(r.char.name));
+  ok('一次能同时被两个人找', got.length === 2, got.map(r => r.char.name).join(','));
+  ok('每生成一条就回调一次（界面能就着弹提示，不用等全部跑完）', seen.length === 2, seen.join(','));
+  ok('消息真进了各自的聊天',
+    A.messages(p1.id).slice(-1)[0].text === '在干嘛呢' && A.messages(p2.id).slice(-1)[0].me === false);
+  ok('主动过就把 proactiveAt 记上，免得连着刷屏', p1.proactiveAt > 0 && p2.proactiveAt > 0);
+  ok('刚主动过的人立刻不再够格', A.proactiveCandidates().length === 0, String(A.proactiveCandidates().length));
+
+  /* 提示词看的是真发出去的那份 system，不是源码里的字符串 */
+  ok('提示词不再一刀切禁止「你很久没回我」', !sysBody.includes('不要提「你很久没回我」'));
+  ok('提示词让它自己看情况 / 看性格决定怎么说',
+    sysBody.includes('看情况') && sysBody.includes('看性格'));
+  ok('提示词给了「分享日常」和「开个新话题」两条路',
+    sysBody.includes('分享日常') && sysBody.includes('开个新话题'));
+
+  A.state.settings.apiBase = '';
+  A.state.settings.apiKey = '';
+  A.state.settings.apiModel = '';
+  fetchImpl = null;
+  A.state.settings.proactive = false;
+
+  /* ── 自己发朋友圈 ── */
+  A.state.settings.userName = '我自己';
+  sandbox.SHELL.closeAll();
+  sandbox.SHELL.openApp('chat');
+  await sleep(150);
+  ok('微信右上角重新有「朋友圈」入口', !!top().find(n => n._class.has('nav-mom')));
+  top().find(n => n._class.has('nav-mom')).click();
+  await sleep(80);
+  top().find(n => n._class.has('nav-btn') && n.textContent === '写').click();
+  await sleep(60);
+  ok('「写」里第一项就是「我自己发一条」', sheetLabels().includes('我自己发一条'), JSON.stringify(sheetLabels()));
+  clickSheet('我自己发一条');
+  await sleep(120);
+  const ta = top().find(n => n._class.has('mo-input'));
+  ok('自己发那条给了一个输入框', !!ta);
+  top().find(n => n._class.has('btn') && n.textContent === '发布').click();
+  await sleep(60);
+  ok('空着手不让发', !A.momentList().some(m => m.charId === '__me'), String(A.momentList().length));
+  if (ta) ta.value = '今天去看了海';
+  top().find(n => n._class.has('btn') && n.textContent === '发布').click();
+  await sleep(120);
+  const mine = A.momentList().find(m => m.charId === '__me');
+  ok('发出来了，并且署的是「我」', !!mine && mine.text === '今天去看了海', mine ? mine.text : 'none');
+  ok('回到朋友圈就能看到自己那条',
+    top().some(n => n._class.has('mo-name') && n.textContent === '我自己')
+    && top().some(n => n._class.has('mo-text') && n.textContent === '今天去看了海'));
+  const myRow = top().find(n => n._class.has('mo') && n.textContent.includes('今天去看了海'));
+  ok('自己那条画的是我自己的头像，不是「已删除的角色」',
+    !!myRow && !myRow.textContent.includes('已删除的角色'), myRow ? myRow.textContent.slice(0, 40) : 'none');
+  ok('自己发的也落盘了',
+    (JSON.parse(store.get('xiaoshouji.v1') || '{}').moments || []).some(m => m.charId === '__me'));
 
   sandbox.SHELL.closeAll();
 }

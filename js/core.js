@@ -1672,15 +1672,21 @@ function proactiveSys() {
   '# 怎么写',
   '- 就像平时发消息那样，随手发 1~2 条短消息；一条只说一件事。',
   `- 要分条的时候，每条之间单独占一行，那一行只写 ${SPLIT_MARK} 两个字符，别的什么都不要写。`,
-  '- 内容要日常、具体、有由头：刚干完什么、吃到什么、看到什么好玩的、突然想到一件事、随口问一句。',
   '- 用你自己的语气说话 —— 你俩是什么关系、你平时怎么称呼他、你最近在忙什么，都算数。',
   '- 越像随手打的越好，可以只有半句，可以没头没尾。',
   '',
+  '# 可以写什么（挑最像你的那个，别每次都一个套路）',
+  '- 分享日常：刚干完什么、吃到什么、看到什么好玩的、突然想到一件事、随口问一句。',
+  '- 开个新话题：你最近在琢磨的事、想问他的事、想拉他一起做的事。',
+  '- 也可以就说你想他了、问他怎么这么久没动静 —— 看情况，也看性格。',
+  '  跟你本来就很亲的，想说什么就说什么；客气疏远的、要面子的，就不会把这话说出口。',
+  '- 也可以只是甩个东西过来：「你看这个」，配张图或一个表情，别的什么都不说。',
+  '',
   '# 不要写',
-  '- 不要提「你很久没回我」「怎么不理我」「在吗」「忙什么呢」这类催人的话。',
-  '- 不要解释你为什么突然发消息，不要自我说明（「我是不是打扰你了」）。',
   '- 不要写成问候模板或通知：「亲爱的用户」「温馨提示」一律不要。',
+  '- 不要自我说明、不要道歉（「我是不是打扰你了」「抱歉突然找你」）。',
   '- 不要用 Markdown、不要一次堆一串 emoji。',
+  '- 不要一次说好几件事，不要写成小作文。',
   '',
   '只输出消息本身。'
   ].join('\n');
@@ -1736,7 +1742,7 @@ async function proactiveSay(char) {
   return out;
 }
 
-/* 挑一个最该来找你的人。一次只发一条，别开 App 就被一连串消息糊脸。
+/* 挑出最该来找你的人，按「最久没说话的排前面」。
    门槛是「聊过 + 确实够了 idleMin + 自己上次主动也隔够了」。 */
 function proactiveCandidates() {
   const s = state.settings;
@@ -1750,14 +1756,30 @@ function proactiveCandidates() {
     .sort((a, b) => lastTalkAt(a) - lastTalkAt(b));
 }
 
-async function proactiveCheck() {
-  if (!apiRoot() || !state.settings.apiKey || !state.settings.apiModel) return null;
-  const list = proactiveCandidates();
-  if (!list.length) return null;
-  try {
-    const msg = await proactiveSay(list[0]);
-    return msg ? { char: list[0], msg } : null;
-  } catch (e) { return null; }
+/* 一次最多放几个人来找你。上限不是「只准一个」—— 你确实可能同时被两三个人惦记着，
+   但也不能开一次 App 就被刷屏。 */
+const PROACTIVE_MAX = 3;
+/* 两个人之间隔一会儿再发。并着发看着像群发，而且接口那边也未必收得住。 */
+const PROACTIVE_GAP = 1500;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+/* onOne 可选：每生成出一条就立刻回调，界面可以就着它弹提示 —— 不用等全部跑完。
+   返回 [{char, msg}, ...]，没配接口或没人够格就是空数组。 */
+async function proactiveCheck(onOne) {
+  if (!apiRoot() || !state.settings.apiKey || !state.settings.apiModel) return [];
+  const list = proactiveCandidates().slice(0, PROACTIVE_MAX);
+  const out = [];
+  for (const c of list) {
+    try {
+      if (out.length) await wait(PROACTIVE_GAP);
+      const msg = await proactiveSay(c);
+      if (!msg) continue;
+      const one = { char: c, msg };
+      out.push(one);
+      if (typeof onOne === 'function') { try { onOne(one); } catch (e) {} }
+    } catch (e) { /* 一个人出岔子不该带走其他人 */ }
+  }
+  return out;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2479,7 +2501,7 @@ window.SJ = {
   groupOf, isGroup, groups, makeGroup, saveGroup, deleteGroup, groupFace, chatTarget,
   memberOf, pickSpeaker, buildGroupSystem, parseGroupReply, groupLines,
   GROUP_MAX, GROUP_MEMBER_MAX,
-  proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
+  proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle, PROACTIVE_MAX,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,
   /* 语音（浏览器自带 TTS） */

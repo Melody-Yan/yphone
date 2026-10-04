@@ -211,6 +211,42 @@ async function addWallFlow(after) {
   if (after) after();
 }
 
+/* 选一张图 → 压 → 丢进图片仓，交回 'idb:' 引用（存不下就退回 data URI）。
+   聊天背景、头像这些「只留一张」的场景走这条，不用占壁纸那 6 个格子。 */
+async function pickToStore(max, q) {
+  const raw = await pickImageFile(max, q);
+  if (!raw) return '';
+  try { return await SJ.putImg(raw); } catch (e) { return raw; }
+}
+
+/* 聊天背景选择器：一张预览 + 「换一张 / 用默认」。只留一张，不搞图库。 */
+function bgStrip(getCur, pick) {
+  const wrap = SJ.el('div', { class: 'bg-strip' });
+  const draw = () => {
+    wrap.innerHTML = '';
+    const cur = getCur();
+    const prev = SJ.el('div', { class: 'bg-prev' + (cur ? ' on' : '') });
+    if (cur) prev.style.backgroundImage = 'url("' + SJ.imgSrc(cur) + '")';
+    else prev.append(SJ.el('div', { class: 'bg-none' }, '默认纸色'));
+    wrap.append(
+      prev,
+      SJ.el('div', { class: 'bg-btns' }, [
+        SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            const ref = await pickToStore(1280, 0.8);
+            if (!ref) return;
+            pick(ref); draw();
+          }
+        }, cur ? '换一张' : '选一张图片'),
+        cur ? SJ.el('button', { class: 'btn ghost', onclick: () => { pick(''); draw(); } }, '用默认') : null
+      ])
+    );
+  };
+  draw();
+  return wrap;
+}
+
 function numRow(title, sub, key, min, max) {
   return SJ.el('div', { class: 'row' }, [
     SJ.el('div', { class: 'row-main' }, [
@@ -767,6 +803,23 @@ const APPS = [
           }, '清空记忆'));
       }
 
+      /* ── 聊天背景 ── */
+      function chatBgPage(id) {
+        const c = SJ.state.characters.find(x => x.id === id);
+        if (!c) return listView();
+        const pad = subPage('聊天背景', () => chatSettings(id));
+        const g = SJ.state.settings.chatBg;
+        pad.append(
+          SJ.el('div', { class: 'hint' }, c.chatBg
+            ? '只用在这个人身上。选「用默认」就退回去跟全局那张（' + (g ? '全局已设' : '全局也没设') + '）。'
+            : '现在跟的是全局背景' + (g ? '。' : '（没设，用的是默认纸色）。') + '在这张照片上，气泡会自动加一层底，保证字看得清。'),
+          bgStrip(
+            () => SJ.chatBgOf(c),
+            ref => { SJ.setChatBg(c, ref); chatBgPage(id); }
+          )
+        );
+      }
+
       /* ── 语音与通话 ── */
       function voicePage(id) {
         const c = SJ.state.characters.find(x => x.id === id);
@@ -810,7 +863,8 @@ const APPS = [
           ]),
           rate,
           SJ.el('button', { class: 'btn ghost', onclick: () => SJ.speak('你好呀，我是' + c.name + '。听得见我说话吗？') }, '试听一下'),
-          rowGo('打个电话', '全屏通话页，能用打字接话', () => callView(id))
+          rowGo('打个电话', '全屏通话页，能用打字接话', () => callView(id)),
+          rowGo('通话记录', (n => n ? n + ' 通，内容不混进聊天' : '还没有通话')(SJ.callsOf(id).length), () => callListView(id))
         );
       }
 
@@ -859,6 +913,7 @@ const APPS = [
           SJ.el('div', { class: 'group-title' }, '内容'),
           rowGo('记忆卡片', memN ? `TA 记得 ${memN} 件事` : '还没记下什么', () => memPage(id)),
           rowGo('语音与通话', (SJ.state.settings.voice !== false ? '语音条已开' : '语音条已关') + ' · 打个电话', () => voicePage(id)),
+          rowGo('聊天背景', SJ.chatBgOf(c) ? (c.chatBg ? '这个人单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(id)),
           rowGo('消息与回复', SJ.state.settings.allAtOnce ? '一次全部发出' : '逐条发出', () => msgPage(id)),
 
           SJ.el('div', { class: 'group-title' }, '危险区'),
@@ -886,6 +941,10 @@ const APPS = [
         SJ.stopSpeak();
         root.innerHTML = '';
         let alive = true, busy = false, secs = 0;
+        /* 通话里说的话攒在这儿，挂断时一次性存成一条通话记录。
+           不进 chats —— 挂断以后聊天页不该被一整场对白淹掉。 */
+        const lines = [];
+        const said = (me, text) => { lines.push({ me: !!me, text: String(text), ts: Date.now() }); };
 
         const status = SJ.el('div', { class: 'call-status' }, '正在呼叫…');
         const sub = SJ.el('div', { class: 'call-sub' }, '');
@@ -909,6 +968,10 @@ const APPS = [
           alive = false;
           SJ.stopSpeak();
           if (callTimer) { clearInterval(callTimer); callTimer = null; }
+          if (lines.length) {
+            SJ.pushCall(cid, secs, lines);
+            toast('通话 ' + mmss(secs) + '，已记到「通话记录」');
+          }
           chatView(cid);
         }
         hang.addEventListener('click', end);
@@ -930,13 +993,15 @@ const APPS = [
           if (busy || !alive) return;
           busy = true;
           status.textContent = '对方正在说话…';
-          const h = SJ.messages(cid);
+          /* 历史 = 聊天记录 + 这通电话已经说过的话。通话内容不落盘，
+             但通话中他当然得记得刚才说过什么。 */
+          const h = SJ.messages(cid).concat(lines.map(l => ({ me: l.me, text: l.text, ts: l.ts })));
           let answer;
           try { answer = await SJ.askCharacter(cc, h); }
           catch (e) { answer = '（连接不上）' + e.message; }
           if (!alive) return;
           answer = SJ.applySelfMarks(cc, answer);
-          SJ.pushMessage(cid, false, answer);
+          said(false, answer);
           for (const t of SJ.splitReply(answer)) {
             if (!alive) break;
             const v = SJ.voiceOf(t) || SJ.stripMarks(t);
@@ -949,7 +1014,7 @@ const APPS = [
         }
 
         function mine(text) {
-          SJ.pushMessage(cid, true, text);
+          said(true, text);
           input.value = '';
           turn();
         }
@@ -963,6 +1028,58 @@ const APPS = [
           callTimer = setInterval(() => { secs++; time.textContent = mmss(secs); }, 1000);
           turn();
         }, 1600);
+      }
+
+      /* ── 通话记录 ──
+         通话不写进聊天，所以得有个地方翻。按时间倒序，点一条展开逐句对白。 */
+      function mmssOf(n) {
+        const s = Math.max(0, Math.round(Number(n) || 0));
+        const m = Math.floor(s / 60);
+        return (m ? m + ' 分 ' : '') + (s % 60) + ' 秒';
+      }
+      function callListView(id) {
+        const c = SJ.state.characters.find(x => x.id === id);
+        if (!c) return listView();
+        const pad = subPage('通话记录', () => voicePage(id));
+        const list = SJ.callsOf(id).slice().reverse();
+
+        if (!list.length) {
+          pad.append(SJ.el('div', { class: 'hint' }, '还没有通话记录。通话内容不会混进聊天里，都记在这儿。'));
+          return;
+        }
+
+        const open = {};
+        const box = SJ.el('div', { class: 'call-log' });
+        const draw = () => {
+          box.innerHTML = '';
+          list.forEach(rec => {
+            const head = SJ.el('div', { class: 'cl-head' }, [
+              SJ.el('div', { class: 'cl-who' }, [avatarNode(c), SJ.el('div', {}, [
+                SJ.el('div', { class: 'cl-name' }, c.name),
+                SJ.el('div', { class: 'cl-meta' }, SJ.fmtAgo(rec.at) + ' · 通话 ' + mmssOf(rec.secs))
+              ])]),
+              SJ.el('div', { class: 'row-time' }, open[rec.id] ? '收起 ›' : '展开 ›')
+            ]);
+            const card = SJ.el('div', { class: 'cl-card' }, head);
+            head.addEventListener('click', () => { open[rec.id] = !open[rec.id]; draw(); });
+            if (open[rec.id]) {
+              const body = SJ.el('div', { class: 'cl-body' });
+              if (!rec.lines.length) body.append(SJ.el('div', { class: 'cl-line ta' }, '（这通电话没留下内容）'));
+              rec.lines.forEach(l => body.append(SJ.el('div', { class: 'cl-line ' + (l.me ? 'me' : 'ta') }, [
+                SJ.el('span', { class: 'cl-who-s' }, l.me ? '我' : c.name),
+                SJ.el('span', { class: 'cl-text' }, l.text)
+              ])));
+              card.append(body);
+            }
+            box.append(card);
+          });
+        };
+        draw();
+        pad.append(box,
+          SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox(`清掉和「${c.name}」的全部通话记录？（聊天记录不受影响）`, () => { SJ.clearCalls(id); callListView(id); })
+          }, '清掉全部通话记录'));
       }
 
       function chatView(id) {
@@ -982,11 +1099,44 @@ const APPS = [
           ])
         }));
         const list = SJ.el('div', { class: 'chat-list' });
+        /* 聊天背景：先看这个人自己的，没有再看全局那张。设了才加 class ——
+           has-bg 会给气泡垫一层半透明底，没背景时不该白白模糊文字。 */
+        const bgv = SJ.chatBgOf(c);
+        if (bgv) {
+          list.classList.add('has-bg');
+          list.style.backgroundImage = 'url("' + SJ.imgSrc(bgv) + '")';
+        }
         const plus = SJ.el('button', { class: 'chat-plus' }, '＋');
         const input = SJ.el('input', { class: 'chat-input', placeholder: '说点什么…' });
         const mic = SJ.el('button', { class: 'chat-mic', title: '发语音' }, '🎤');
         const send = SJ.el('button', { class: 'chat-send' }, '发送');
-        root.append(list, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+        /* 引用条：长按某条消息 → 「引用回复」，它就出现在输入框上面 */
+        const quoteBar = SJ.el('div', { class: 'quote-bar hide' });
+        root.append(list, quoteBar, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+
+        let quote = null;
+        let readTag = null;
+        function setQuote(q) {
+          quote = q || null;
+          quoteBar.innerHTML = '';
+          if (!quote) { quoteBar.classList.add('hide'); return; }
+          quoteBar.classList.remove('hide');
+          quoteBar.append(
+            SJ.el('div', { class: 'qb-body' }, [
+              SJ.el('div', { class: 'qb-who' }, quote.name),
+              SJ.el('div', { class: 'qb-txt' }, quote.text)
+            ]),
+            SJ.el('button', { class: 'qb-x', onclick: () => setQuote(null) }, '✕')
+          );
+        }
+        function copyText(t) {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(t); toast('复制好了'); return;
+            }
+          } catch (e) {}
+          toast('这台设备不让复制，手动选一下吧');
+        }
 
         let busy = false;
         const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -997,10 +1147,19 @@ const APPS = [
           : Math.min(1200, 220 + String(t).length * 18) + Math.random() * 160;
 
         /* ── 各种气泡 ── */
+        function quoteNode(q) {
+          if (!q) return null;
+          return SJ.el('div', { class: 'qt' }, [
+            SJ.el('div', { class: 'qt-who' }, q.name || ''),
+            SJ.el('div', { class: 'qt-txt' }, q.text || '')
+          ]);
+        }
         /* 每条消息先包成一行：左/右各留一个头像位，气泡在中间。
            bubble() 仍然把「气泡本身」返回给调用方（打字动画要改它的文字），
-           所以这里只多套一层 .msg，外面那些调用一行都不用改。 */
-        function row(inner, me) {
+           所以这里只多套一层 .msg，外面那些调用一行都不用改。
+           长按这一行能引用回复 —— src 不传就从气泡文字里现取，省得每个调用点都改。 */
+        let lastRow = null;      // 最近画出来的一行，redraw 用它挂「已读」
+        function row(inner, me, src) {
           const r = SJ.el('div', { class: 'msg ' + (me ? 'me' : 'ta') }, [
             me ? null : SJ.el('div', { class: 'av-tap', onclick: () => chatSettings(id) }, [avatarNode(c)]),
             inner,
@@ -1008,10 +1167,30 @@ const APPS = [
           ]);
           list.append(r);
           list.scrollTop = list.scrollHeight;
+          lastRow = r;
+          const m = src || { me: !!me, name: me ? '我' : c.name, text: (inner && inner.textContent) || '' };
+          if (m.text) {
+            let hold = null;
+            const go = () => { clearTimeout(hold); hold = setTimeout(() => openMsgSheet(m), 480); };
+            const stop = () => clearTimeout(hold);
+            r.addEventListener('mousedown', go);
+            r.addEventListener('touchstart', go);
+            r.addEventListener('mouseup', stop);
+            r.addEventListener('mouseleave', stop);
+            r.addEventListener('touchend', stop);
+            r.addEventListener('touchmove', stop);
+          }
           return r;
         }
-        function bubble(text, me) {
-          const b = SJ.el('div', { class: 'bubble ' + (me ? 'me' : 'ta') }, text);
+        function openMsgSheet(m) {
+          sheet([
+            { icon: '💬', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
+            { icon: '📋', label: '复制这条', run: () => copyText(String(m.text)) }
+          ]);
+        }
+        function bubble(text, me, q) {
+          const b = SJ.el('div', { class: 'bubble ' + (me ? 'me' : 'ta') + (q ? ' has-qt' : '') },
+            q ? [quoteNode(q), text] : text);
           row(b, me);
           return b;
         }
@@ -1137,7 +1316,7 @@ const APPS = [
           if (m.kind === 'location') return locationBubble(m);
           if (m.kind === 'card') return cardBubble(m);
           if (m.kind === 'voice') return voiceBubble(m, m.me);
-          if (m.me) return bubble(SJ.stripMarks(m.text) || m.text, true);
+          if (m.me) return bubble(SJ.stripMarks(m.text) || m.text, true, m.quote);
           SJ.splitReply(m.text).forEach(t => chunkNode(t, false));
         }
 
@@ -1149,7 +1328,39 @@ const APPS = [
           if (rp) return packetBubble({ kind: 'packet', amount: rp.amount, note: rp.note, me });
           return bubble(SJ.stripMarks(t), me);
         }
-        function redraw() { list.innerHTML = ''; SJ.messages(id).forEach(renderMsg); }
+        function redraw() {
+          list.innerHTML = '';
+          readTag = null;
+          const h = SJ.messages(id);
+          /* 我最后一条消息是哪条 —— 「已读 / 未读」挂在它下面 */
+          let lastMine = -1;
+          for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
+          h.forEach((m, i) => {
+            renderMsg(m);
+            if (i === lastMine && SJ.state.settings.readReceipt !== false) {
+              readTag = SJ.el('div', { class: 'msg-read' }, m.read ? '已读' : '未读');
+              if (lastRow) lastRow.append(readTag);
+            }
+          });
+          lastRow = null;
+        }
+        /* 她开口了 = 到这会儿为止我说的她都读过了。这里是在她的回复落盘之后才调，
+           所以「我发的」全部标成已读是对的 —— 之后再发新的会重新挂「未读」。
+           早先那版从末尾往前数连着几条 me，撞上末尾那条 her 的回复就一条都不标，
+           而 DOM 那边照样写成「已读」—— 刷新又打回「未读」。 */
+        function markRead() {
+          let n = 0;
+          SJ.messages(id).forEach(m => { if (m.me && !m.read) { m.read = true; n++; } });
+          if (n) SJ.save();
+          if (readTag) readTag.textContent = '已读';
+        }
+        /* 刚发出去一条：把「已读」从旧的那条挪到新这条上，并翻回未读 */
+        function newReadTag(rowEl) {
+          if (readTag) { readTag.remove(); readTag = null; }
+          if (SJ.state.settings.readReceipt === false || !rowEl) return;
+          readTag = SJ.el('div', { class: 'msg-read' }, '未读');
+          rowEl.append(readTag);
+        }
 
         /* ── 待回复条数：末尾连着几条我发的，就是几条没被回 ── */
         function pendingCount() {
@@ -1184,8 +1395,10 @@ const APPS = [
         }
         const beep = k => { try { SJ.sfx && SJ.sfx(k); } catch (e) {} };
         function sendText(text) {
-          const h = SJ.pushMessage(id, true, text);
+          const h = SJ.pushMessage(id, true, text, quote ? { quote: quote } : {});
           renderMsg(h[h.length - 1]);
+          newReadTag(lastRow);
+          setQuote(null);
           input.value = '';
           syncSend();
           input.focus();
@@ -1195,6 +1408,7 @@ const APPS = [
         function sendMedia(extra) {
           const h = SJ.pushMessage(id, true, extra.text, extra);
           renderMsg(h[h.length - 1]);
+          newReadTag(lastRow);
           syncSend();
           beep('out');
           autoMaybe();
@@ -1223,6 +1437,7 @@ const APPS = [
           // 整条先落盘（刷新后照样能按同一套规则拆开），再一条条蹦出来
           SJ.pushMessage(id, false, answer);
           tip.remove();
+          markRead();       // 她开口了 = 读过我那条了
           beep('in');       // 一条回复一个提示音，不是每个气泡都响
           for (const t of SJ.splitReply(answer)) {
             const v = SJ.voiceOf(t);
@@ -2279,6 +2494,13 @@ const APPS = [
           'lock-walls', true
         ));
 
+        box.append(SJ.el('div', { class: 'group-title' }, '聊天背景'));
+        box.append(SJ.el('div', { class: 'hint' }, '微信里所有会话的底图。想给某个人单独换，去「聊天设置 → 聊天背景」。'));
+        box.append(bgStrip(
+          () => SJ.state.settings.chatBg,
+          ref => { SJ.setChatBg(null, ref); main(); }
+        ));
+
         box.append(SJ.el('div', { class: 'group-title' }, '我自己的头像'));
         const mine = SJ.el('div', { class: 'av-box' }, [myAvatarNode()]);
         const nameInput = SJ.el('input', {
@@ -2711,6 +2933,32 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
+
+        /* 主动找你 */
+        box.append(SJ.el('div', { class: 'group-title' }, '主动找你'));
+        box.append(SJ.el('div', { class: 'hint' },
+          '好久没说话，就让他们自己先开一句 —— 提示词是「随手发条微信」，会带上你的人设、' +
+          '关系和他记得的事，不提「你怎么不理我」这种。' +
+          '⚠️ 网页版被关掉时跑不了，所以是「下次打开小手机 / 切回前台」的那一刻判一次，一次只放一个人。'));
+        box.append(toggleRow('久不说话让 TA 主动发消息', '关掉就永远不会有人先开口', SJ.state.settings.proactive !== false, () => {
+          SJ.state.settings.proactive = SJ.state.settings.proactive === false; SJ.save(); main();
+        }));
+        const IDLES = [[15, '15 分钟'], [30, '半小时'], [60, '1 小时'], [180, '3 小时'], [360, '6 小时'], [720, '12 小时'], [1440, '1 天'], [2880, '2 天']];
+        box.append(SJ.el('div', {
+          class: 'row',
+          onclick: () => sheet(IDLES.map(([v, lab]) => ({
+            icon: '⏳', label: lab, hint: v === SJ.state.settings.idleMin ? '现在用的' : '',
+            run: () => { SJ.state.settings.idleMin = v; SJ.save(); main(); }
+          })))
+        }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '多久算「好久」'),
+            SJ.el('div', { class: 'row-sub' }, '从你最后一次说话开始算')
+          ]),
+          SJ.el('div', { class: 'row-time' }, ((IDLES.find(x => x[0] === SJ.state.settings.idleMin) || [0, '3 小时'])[1]) + ' ›')
+        ]));
+        box.append(SJ.el('div', { class: 'hint' },
+          (n => n ? `现在有 ${n} 个人够格来找你。` : '现在还没人到点（或者还没跟谁聊过）。')(SJ.proactiveCandidates().length)));
 
         /* 存档 */
         box.append(SJ.el('div', { class: 'group-title' }, '存档'));

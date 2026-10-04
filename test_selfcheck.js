@@ -2376,6 +2376,217 @@ console.log('\n[32] 已读不回 / 字体 / 状态栏 / 消息音效');
   sandbox.SHELL.closeAll();
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   [33] 聊天背景 · 通话记录单独放 · 主动找你 · 引用回复与已读
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
+{
+  boot();
+  const App = sandbox.SJ;
+  const S2 = sandbox.SJ;
+  sandbox.SHELL.closeAll();
+  App.resetAll();
+  App.state.settings.apiBase = '';
+  App.state.settings.apiKey = '';
+  App.state.settings.apiModel = '';
+  App.state.settings.readIgnore = false;    // 这个块里不能有「已读不回」搅局
+  const top = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+
+  /* ── 1. 聊天背景 ── */
+  const IMG = 'data:image/png;base64,' + 'A'.repeat(40);
+  const IMG2 = 'data:image/png;base64,' + 'B'.repeat(40);
+  ok('默认没有聊天背景', App.chatBgOf(null) === '' && App.chatBgOf(App.makeCharacter({ name: '谁' })) === '');
+  ok('全局背景写得进 state', App.setChatBg(null, IMG) === IMG && App.state.settings.chatBg === IMG);
+  ok('不是图片的值会被挡掉（只认 idb: / data:image / http）',
+    App.setChatBg(null, 'javascript:alert(1)') === '' && App.chatBgOf(null) === '');
+  App.setChatBg(null, IMG);
+
+  const bc = App.makeCharacter({ name: '背景角色' });
+  App.saveCharacter(bc);
+  ok('角色没单设时跟全局那张', App.chatBgOf(bc) === IMG);
+  App.setChatBg(bc, IMG2);
+  ok('角色单设后压过全局',
+    App.chatBgOf(bc) === IMG2 && App.state.settings.chatBg === IMG);
+  ok('单设的背景写进角色卡并落了盘',
+    App.state.characters.find(c => c.id === bc.id).chatBg === IMG2
+    && /data:image\/png;base64/.test(store.get('xiaoshouji.v1') || ''));
+  App.setChatBg(bc, '');
+  ok('「用默认」清得掉自己的那张', App.chatBgOf(bc) === IMG);
+
+  const bgm = App.makeCharacter({ name: '带背景', greeting: '哦' });
+  App.saveCharacter(bgm);
+  sandbox.SHELL.closeAll();
+  openFresh('chat', bgm.id);
+  ok('设了背景，聊天列表真的挂上 has-bg 和图片',
+    top().some(n => n._class.has('chat-list') && n._class.has('has-bg')
+      && /data:image\/png/.test(String(n.style.backgroundImage))));
+  App.setChatBg(null, '');
+  sandbox.SHELL.closeAll();
+  openFresh('chat', bgm.id);
+  ok('设回默认之后就不再挂了',
+    top().some(n => n._class.has('chat-list') && !n._class.has('has-bg')));
+
+  /* ── 2. 通话记录：内容不进聊天 ── */
+  const cc = App.makeCharacter({ name: '通话角色', greeting: '' });
+  App.saveCharacter(cc);
+  sandbox.SHELL.closeAll();
+  const chat = openFresh('chat', cc.id);
+  const nBefore = App.messages(cc.id).length;
+  walk(chat).find(n => n.attrs && n.attrs.title === '语音通话').click();
+  const cInput = findIn(chat, '打字也能接话…');
+  ok('聊天页右上角能进通话页', !!cInput && walk(chat).some(n => n._class.has('call-view')));
+  cInput.value = '喂，听得见吗';
+  walk(chat).find(n => n._class.has('call-say')).click();
+  ok('通话里说的那句话没进聊天记录', App.messages(cc.id).length === nBefore,
+    JSON.stringify(App.messages(cc.id).map(m => m.text)));
+  walk(chat).find(n => n._class.has('call-hang')).click();
+  const rec = App.callsOf(cc.id)[0];
+  ok('挂断后落成一条通话记录', App.callsOf(cc.id).length === 1 && !!rec);
+  ok('通话记录里存着那句话', !!rec && rec.lines.some(l => l.me && l.text === '喂，听得见吗'));
+  ok('聊天里从头到尾没有那句话', !App.messages(cc.id).some(m => m.text === '喂，听得见吗'));
+  ok('挂断后回到聊天页', !!findIn(chat, '说点什么…'));
+
+  /* 通话记录页 */
+  openFresh('chat', cc.id);
+  top().find(n => n._class.has('av-tap')).click();          // 点头像 → 聊天设置
+  top().find(n => n._class.has('row') && n.textContent.includes('语音与通话')).click();
+  const callRow = top().find(n => n._class.has('row') && n.textContent.includes('通话记录'));
+  ok('聊天设置 → 语音与通话里有「通话记录」入口', !!callRow);
+  ok('入口上直接写着有几通', !!callRow && callRow.textContent.includes('1 通'));
+  callRow.click();
+  ok('通话记录页打得开', top().some(n => n.textContent === '通话记录'));
+  ok('列表里有一张通话卡片', top().some(n => n._class.has('cl-card')));
+  ok('没展开时看不到通话内容', !top().some(n => n._class.has('cl-body')));
+  top().find(n => n._class.has('cl-head')).click();
+  ok('点一下展开，内容才出来', top().some(n => n._class.has('cl-body')));
+  ok('展开后能看到那句原话', top().some(n => n._class.has('cl-text') && n.textContent === '喂，听得见吗'));
+  top().find(n => n._class.has('cl-head')).click();
+  ok('再点一下收起来', !top().some(n => n._class.has('cl-body')));
+
+  /* ── 3. 主动找你 ── */
+  ok('fmtIdle 说人话',
+    App.fmtIdle(30) === '30 分钟' && App.fmtIdle(300) === '5 小时'
+    && App.fmtIdle(2880) === '2 天' && App.fmtIdle(null) === '很久',
+    [App.fmtIdle(30), App.fmtIdle(300), App.fmtIdle(2880), App.fmtIdle(null)].join(' / '));
+
+  const pc = App.makeCharacter({ name: '主动角色' });
+  App.saveCharacter(pc);
+  App.pushMessage(pc.id, true, '在吗');                 // 我说话了 = 刚互动过
+  ok('刚聊过的人不在候选里', !App.proactiveCandidates().some(c => c.id === pc.id));
+  pc.lastTalk = Date.now() - 4 * 3600 * 1000;
+  pc.proactiveAt = 0;
+  ok('idleMinutes 按最后一次我说话算', App.idleMinutes(pc) === 240, String(App.idleMinutes(pc)));
+  ok('4 小时没说话就够格了（默认门槛 3 小时）', App.proactiveCandidates().some(c => c.id === pc.id));
+  App.state.settings.idleMin = 720;
+  ok('门槛提到 12 小时就轮不到他', !App.proactiveCandidates().some(c => c.id === pc.id));
+  App.state.settings.idleMin = 180;
+  App.state.settings.proactive = false;
+  ok('总开关关掉一个人都不放', App.proactiveCandidates().length === 0);
+  App.state.settings.proactive = true;
+  pc.proactiveAt = Date.now();
+  ok('刚主动找过的不再连着刷屏', !App.proactiveCandidates().some(c => c.id === pc.id));
+  pc.proactiveAt = 0;
+  ok('最久没说话的排最前面，一次只挑一个', App.proactiveCandidates()[0].id === pc.id);
+  ok('没配接口时 proactiveCheck 安静地什么都不做', (await App.proactiveCheck()) === null);
+
+  /* 老存档没有 lastTalk 时不能把所有人都当成「从没聊过」——那样一开 App 集体搭话 */
+  const lc = App.makeCharacter({ name: '老存档角色' });
+  App.saveCharacter(lc);
+  App.pushMessage(lc.id, true, '之前聊过');
+  lc.lastTalk = 0;
+  ok('老存档角色能从最后一条我发的消息倒推出互动时间', App.lastTalkAt(lc) > 0);
+  const nl = App.makeCharacter({ name: '从没聊过' });
+  App.saveCharacter(nl);
+  ok('从没聊过的角色不会被当成「好久没说话」',
+    !App.proactiveCandidates().some(c => c.id === nl.id));
+
+  /* ── 4. 引用回复 / 已读 ── */
+  App.state.settings.readReceipt = true;
+  App.state.settings.proactive = false;      // 这一段别再让后台插话
+  const qc = App.makeCharacter({ name: '引用角色', greeting: '在的' });
+  App.saveCharacter(qc);
+  sandbox.SHELL.closeAll();
+  const qchat = openFresh('chat', qc.id);
+  const taRow = qchat && top().find(n => n._class.has('msg') && n._class.has('ta'));
+  ok('开场白那条是 TA 的消息行', !!taRow);
+  ok('消息行上有长按监听', !!taRow && (taRow._listeners.mousedown || []).length > 0);
+  dispatch(taRow, 'mousedown', {});
+  ok('长按弹「引用回复 / 复制这条」',
+    await waitFor(() => sheetLabels().includes('引用回复')),
+    JSON.stringify(sheetLabels()));
+  clickSheet('引用回复');
+  ok('引用条出现在输入框上面，不再藏着',
+    top().some(n => n._class.has('quote-bar') && !n._class.has('hide')));
+  ok('引用条上写着是谁说的、说的什么',
+    top().some(n => n._class.has('qb-who') && n.textContent === '引用角色')
+    && top().some(n => n._class.has('qb-txt') && n.textContent === '在的'));
+
+  findIn(qchat, '说点什么…').value = '你刚才说啥';
+  top().find(n => n._class.has('chat-send')).click();
+  const qm = App.messages(qc.id).slice(-1)[0];
+  ok('引用跟着消息一起落盘',
+    !!qm.quote && qm.quote.text === '在的' && qm.quote.name === '引用角色',
+    JSON.stringify(qm.quote));
+  ok('发完之后引用条自己收起',
+    top().some(n => n._class.has('quote-bar') && n._class.has('hide')));
+  ok('气泡上画出了引用块', top().some(n => n._class.has('qt')));
+  ok('刚发出去显示「未读」',
+    top().some(n => n._class.has('msg-read') && n.textContent === '未读'));
+  ok('重画之后引用块还在',
+    (openFresh('chat', qc.id), top().some(n => n._class.has('qt'))));
+
+  /* 她开口 = 读过我那条了 */
+  top().find(n => n._class.has('chat-send')).click();
+  await waitFor(() => App.messages(qc.id).some(m => !m.me && /本地演示/.test(m.text)));
+  ok('她回了之后，「未读」变「已读」',
+    top().some(n => n._class.has('msg-read') && n.textContent === '已读'),
+    JSON.stringify(top().filter(n => n._class.has('msg-read')).map(n => n.textContent)));
+  ok('已读状态也落了盘', App.messages(qc.id).some(m => m.me && m.read === true));
+
+  /* 关掉已读回执：一个字都不该画 */
+  App.state.settings.readReceipt = false;
+  openFresh('chat', qc.id);
+  ok('关掉已读回执就不再画那个小字', !top().some(n => n._class.has('msg-read')));
+  App.state.settings.readReceipt = true;
+
+  /* 「复制这条」在没剪贴板的环境里也不能崩 */
+  const taRow2 = top().find(n => n._class.has('msg') && n._class.has('ta'));
+  dispatch(taRow2, 'mousedown', {});
+  await waitFor(() => sheetLabels().includes('复制这条'));
+  let copyOk = true;
+  try { clickSheet('复制这条'); } catch (e) { copyOk = false; }
+  ok('「复制这条」没有剪贴板也不崩，点完面板收起',
+    copyOk && sheetLabels().length === 0, JSON.stringify(sheetLabels()));
+  sandbox.SHELL.closeAll();
+
+  /* ── 5. 老存档 / 导入：脏值必须在大门口挡掉 ── */
+  store.set('xiaoshouji.v1', JSON.stringify({
+    settings: { chatBg: 'javascript:alert(1)' },
+    characters: [{ id: 'a', name: '小美', chatBg: 'data:text/html;base64,PHN2Zz4=' }],
+    chats: { a: [{ me: true, text: '在吗', ts: 1 }] },
+    calls: {
+      a: [{ id: 'c1', at: 5000, secs: 63, lines: [{ me: true, text: '喂' }, { me: false, text: '嗯' }] },
+          '不是对象', null],
+      b: '也不是数组'
+    }
+  }));
+  boot();
+  ok('存档里不是图片的聊天背景（全局）在读取时就被洗干净',
+    sandbox.SJ.state.settings.chatBg === '', JSON.stringify(sandbox.SJ.state.settings.chatBg));
+  ok('角色卡上的脏背景也一并洗掉',
+    sandbox.SJ.state.characters[0].chatBg === '',
+    JSON.stringify(sandbox.SJ.state.characters[0].chatBg));
+  ok('通话记录能从存档里读回来',
+    (sandbox.SJ.callsOf('a')[0] || {}).secs === 63
+    && (sandbox.SJ.callsOf('a')[0] || {}).lines.length === 2);
+  ok('通话记录里的垃圾项被丢掉而不是把整份存档搞崩',
+    sandbox.SJ.callsOf('a').length === 1 && !sandbox.SJ.state.calls.b);
+  ok('聊天记录没被通话记录波及', sandbox.SJ.messages('a').length === 1);
+  ok('callLog 把所有角色的通话摊平并按时间倒序',
+    sandbox.SJ.callLog().length === 1 && sandbox.SJ.callLog()[0].charId === 'a');
+  sandbox.SHELL.closeAll();
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

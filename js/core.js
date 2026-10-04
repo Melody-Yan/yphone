@@ -99,6 +99,8 @@ const WALL_IMG_MAX = 6;
 const WALL_REV = 2;
 /* 朋友圈最多留几条 */
 const MOMENT_KEEP = 120;
+/* 每个角色最多留几通通话记录。通话正文不占聊天，但也不能无限长 */
+const CALL_KEEP = 40;
 
 /* 字体。只用系统自带的字体栈 —— 不带字体文件，中文字体动辄 5MB，
    塞进 Pages 静态站既慢又没必要。名字要够直白，用户在真机上试一眼就知道选哪个。 */
@@ -166,7 +168,13 @@ const DEFAULTS = {
     showStatus: true,    // 显示顶部状态栏
     sbColor: 'auto',     // 状态栏字色：auto 跟壁纸 / dark / light
     sfx: true,           // 收发消息的音效（WebAudio 现场合成，不用素材）
-    readIgnore: true     // 允许 TA 已读不回（偶尔真的不接话，比每次必回更像人）
+    readIgnore: true,    // 允许 TA 已读不回（偶尔真的不接话，比每次必回更像人）
+    /* 聊天增强 */
+    chatBg: '',          // 聊天背景（图片仓引用），空 = 默认纸色；角色自己的 c.chatBg 优先
+    readReceipt: true,   // 我的消息下面显示「已读 / 未读」
+    /* 主动找你：好久没说话，让 TA 先开一句 */
+    proactive: true,     // 总开关
+    idleMin: 180         // 多久没互动算「好久」（分钟）
   },
   characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,myRelation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
@@ -176,6 +184,9 @@ const DEFAULTS = {
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
   /* 朋友圈：角色自己发的生活动态 */
   moments: [],           // [{id,charId,text,img,ts,likes:[charId],comments:[{charId,text,ts}]}, ...]
+  /* 通话记录：{ 角色id: [{id,at,secs,lines:[{me,text,ts}],archived}] }
+     通话里说的话不进 chats —— 挂断以后聊天页不该被一整场对白淹掉。 */
+  calls: {},
   /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
   delivery: {
     shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
@@ -195,7 +206,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
-  moments: 'array', delivery: 'object', music: 'object'
+  moments: 'array', delivery: 'object', music: 'object', calls: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -291,6 +302,29 @@ function migrate(saved) {
   out.characters = (Array.isArray(out.characters) ? out.characters : [])
     .map((c, i) => normalizeCharacter(c, i)).filter(Boolean);
   out.moments = normalizeMoments(out.moments);
+  /* 通话记录：同样是对外接口，逐通归一。lines 里的东西不外发，但会画到屏幕上，
+     长度还是要掐住，否则一条 4 万字的记录能把聊天页撑死。 */
+  const callsIn = (out.calls && typeof out.calls === 'object' && !Array.isArray(out.calls)) ? out.calls : {};
+  out.calls = {};
+  Object.keys(callsIn).forEach(cid => {
+    const list = Array.isArray(callsIn[cid]) ? callsIn[cid] : [];
+    const clean = list
+      .filter(x => x && typeof x === 'object')
+      .map((x, i) => ({
+        id: String(x.id || ('call-' + cid + '-' + i)),
+        at: Number(x.at) || 0,
+        secs: Math.max(0, Math.round(Number(x.secs) || 0)),
+        lines: (Array.isArray(x.lines) ? x.lines : [])
+          .filter(l => l && typeof l === 'object')
+          .map(l => ({ me: !!l.me, text: String(l.text || '').slice(0, TEXT_MAX), ts: Number(l.ts) || 0 }))
+          .slice(-80)
+      }))
+      .slice(-CALL_KEEP);
+    if (clean.length) out.calls[cid] = clean;
+  });
+  /* 聊天背景：只认图片仓引用 / data URI / http，其它一律当没设 */
+  const bgOk = v => /^(idb:[\w-]+|data:image\/|https?:)/.test(String(v || '')) ? String(v) : '';
+  out.settings.chatBg = bgOk(out.settings.chatBg);
 
   /* 壁纸从「整条 CSS」改成「id」。老存档存的是一整串渐变，按 CSS 找回内置编号；
      对不上（比如那张自己传的壁纸已经删了）就退回默认，别留一张白屏。 */
@@ -742,6 +776,11 @@ function normalizeCharacter(c, i) {
     greeting: String(c.greeting || '').slice(0, TEXT_MAX),
     alias: String(c.alias || '').slice(0, NAME_MAX),
     relation: String(c.relation || '').slice(0, 60),
+    myRelation: String(c.myRelation || '').slice(0, 60),
+    allowRelation: !!c.allowRelation,
+    chatBg: avatarSrc(c.chatBg),         // 这个人的聊天背景，空 = 跟全局
+    lastTalk: Number(c.lastTalk) || 0,   // 真实时间戳：你们最后一次说话
+    proactiveAt: Number(c.proactiveAt) || 0, // 上次主动找你是什么时候（防刷屏）
     memUpTo: Math.max(0, Number(c.memUpTo) || 0),
     ts: Number(c.ts) || 0
   };
@@ -766,6 +805,7 @@ function deleteCharacter(id) {
   state.characters = state.characters.filter(c => c.id !== id);
   delete state.chats[id];
   delete state.memories[id];
+  delete state.calls[id];
   save();
 }
 
@@ -779,6 +819,11 @@ function pushMessage(id, me, text, extra) {
   // extra 用来带 kind/img/amount（图片、转账那几种气泡）
   list.push(Object.assign({ me: !!me, text: String(text), ts: Date.now() }, extra || {}));
   state.chats[id] = list.slice(-CHAT_KEEP);
+  // 我说话 = 最后一次互动。主动找你的判定靠它，也和 proactiveAt 一起防刷屏
+  if (me) {
+    const c = state.characters.find(x => x.id === id);
+    if (c) { c.lastTalk = Date.now(); c.proactiveAt = c.lastTalk; }
+  }
   save();
   return state.chats[id];
 }
@@ -794,6 +839,54 @@ function truncateChat(id, n) {
   return state.chats[id];
 }
 function clearChat(id) { delete state.chats[id]; save(); }
+
+/* ── 通话记录 ────────────────────────────────────────
+   通话里说的话一律不进 chats：挂断以后聊天页不该被一整场对白淹掉。
+   单独存一份（state.calls），在「聊天设置 → 语音与通话 → 通话记录」里翻。 */
+function callsOf(id) {
+  if (!state.calls[id]) state.calls[id] = [];
+  return state.calls[id];
+}
+function pushCall(id, secs, lines) {
+  const rec = {
+    id: uid(),
+    at: Date.now(),
+    secs: Math.max(0, Math.round(Number(secs) || 0)),
+    lines: (Array.isArray(lines) ? lines : [])
+      .filter(l => l && l.text)
+      .map(l => ({ me: !!l.me, text: String(l.text).slice(0, TEXT_MAX), ts: Number(l.ts) || 0 }))
+      .slice(-80)
+  };
+  const list = callsOf(id);
+  list.push(rec);
+  state.calls[id] = list.slice(-CALL_KEEP);
+  save();
+  return rec;
+}
+function deleteCall(id, callId) {
+  state.calls[id] = callsOf(id).filter(c => c.id !== callId);
+  save();
+}
+function clearCalls(id) { delete state.calls[id]; save(); }
+/* 所有人的通话，按时间倒序 —— 给「通话记录」总列表用 */
+function callLog() {
+  const out = [];
+  Object.keys(state.calls).forEach(cid => {
+    callsOf(cid).forEach(c => out.push(Object.assign({ charId: cid }, c)));
+  });
+  return out.sort((a, b) => b.at - a.at);
+}
+
+/* 聊天背景：角色自己的优先，没设就跟全局，都没设返回 ''（走默认纸色） */
+function chatBgOf(char) {
+  return avatarSrc(char && char.chatBg) || avatarSrc(state.settings.chatBg);
+}
+function setChatBg(char, img) {
+  const v = avatarSrc(img);
+  if (char) { char.chatBg = v; saveCharacter(char); }
+  else { state.settings.chatBg = v; save(); }
+  return v;
+}
 
 /* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
    没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面 */
@@ -1392,6 +1485,110 @@ async function autoMoment(char) {
   if ((state.chats[char.id] || []).length % every !== 0) return null;   // 只在整倍数那一刻试一次
   if (Math.random() > 0.5) return null;                                // 再随机一半，别每次必发
   try { return await generateMoment(char); } catch (e) { return null; }
+}
+
+/* ══════════════════════════════════════════════════════
+   L1.11 主动找你：好久没说话，让 TA 先开一句
+   ──────────────────────────────────────────────────────
+   判定放在「回到前台」时做，不挂 setInterval 空转 —— PWA 被系统冻住时
+   定时器根本不会响，挂在 boot/visibilitychange 上才是每次都会真的执行的那个点。
+   ══════════════════════════════════════════════════════ */
+/* ⚠️ 写成函数而不是 const：SPLIT_MARK 定义在文件后面（1937 行附近），
+   这个字符串在模块初始化时求值会直接撞 TDZ，整个 core.js 都加载不了。
+   ROLE_RULES 之所以能用 const，是因为它就排在 SPLIT_MARK 后面。 */
+function proactiveSys() {
+  return [
+  '你在演一个用手机跟人聊天的人。你们有一阵子没说话了，现在是你先开的口。',
+  '',
+  '# 怎么写',
+  '- 就像平时发消息那样，随手发 1~2 条短消息；一条只说一件事。',
+  `- 要分条的时候，每条之间单独占一行，那一行只写 ${SPLIT_MARK} 两个字符，别的什么都不要写。`,
+  '- 内容要日常、具体、有由头：刚干完什么、吃到什么、看到什么好玩的、突然想到一件事、随口问一句。',
+  '- 用你自己的语气说话 —— 你俩是什么关系、你平时怎么称呼他、你最近在忙什么，都算数。',
+  '- 越像随手打的越好，可以只有半句，可以没头没尾。',
+  '',
+  '# 不要写',
+  '- 不要提「你很久没回我」「怎么不理我」「在吗」「忙什么呢」这类催人的话。',
+  '- 不要解释你为什么突然发消息，不要自我说明（「我是不是打扰你了」）。',
+  '- 不要写成问候模板或通知：「亲爱的用户」「温馨提示」一律不要。',
+  '- 不要用 Markdown、不要一次堆一串 emoji。',
+  '',
+  '只输出消息本身。'
+  ].join('\n');
+}
+
+/* 你们最后一次说话是什么时候。老存档没有 lastTalk，就从最后一条「我说的话」倒推 ——
+   不然升级上来的号全都算「从没聊过」，一开 App 集体主动搭话。 */
+function lastTalkAt(c) {
+  const t = Number(c && c.lastTalk) || 0;
+  if (t) return t;
+  const list = (c && state.chats[c.id]) || [];
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].me && list[i].ts) return list[i].ts;
+  return Number(c && c.ts) || 0;
+}
+/* 多久没互动了（分钟）。返回 null 表示「没法判断」 */
+function idleMinutes(char) {
+  const t = lastTalkAt(char);
+  if (!t) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 60000));
+}
+function fmtIdle(min) {
+  if (min == null) return '很久';
+  if (min < 60) return min + ' 分钟';
+  if (min < 60 * 24) return Math.round(min / 60) + ' 小时';
+  return Math.round(min / (60 * 24)) + ' 天';
+}
+
+async function proactiveSay(char) {
+  const s = state.settings;
+  if (!char || !apiRoot() || !s.apiKey || !s.apiModel) return null;
+  const hist = (state.chats[char.id] || []).slice(-12)
+    .filter(m => !m.img && m.text)
+    .map(m => (m.me ? (char.alias || '他') + '：' : char.name + '：') + m.text).join('\n');
+  const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  const usr =
+    '你是：' + char.name + '\n' +
+    (char.relation ? '你们的关系：' + char.relation + '\n' : '') +
+    (char.alias ? '你平时叫他：' + char.alias + '\n' : '') +
+    (char.persona ? '你的人设：' + char.persona + '\n' : '') +
+    (mem ? '你记得的事：\n' + mem + '\n' : '') +
+    '现在：' + fmtDate(virtualNow()) + ' ' + fmtTime(virtualNow()) + '\n' +
+    '你们已经 ' + fmtIdle(idleMinutes(char)) + ' 没说话了。\n' +
+    (hist ? '上次聊到这儿：\n' + hist + '\n' : '（你们还几乎没聊过）\n') +
+    '\n发消息。';
+  const raw = await askOnce(proactiveSys(), usr);
+  const text = String(raw || '').trim();
+  if (!text) throw new Error('接口没返回内容');
+  /* 先落 proactiveAt 再发：发到一半崩了也不该下次开 App 再来一条 */
+  char.proactiveAt = Date.now();
+  saveCharacter(char);
+  let out = null;
+  splitReply(text).forEach(t => { const h = pushMessage(char.id, false, t); out = h[h.length - 1]; });
+  return out;
+}
+
+/* 挑一个最该来找你的人。一次只发一条，别开 App 就被一连串消息糊脸。
+   门槛是「聊过 + 确实够了 idleMin + 自己上次主动也隔够了」。 */
+function proactiveCandidates() {
+  const s = state.settings;
+  if (s.proactive === false) return [];
+  const need = Math.max(5, Number(s.idleMin) || 180);
+  const now = Date.now();
+  return state.characters
+    .filter(c => (state.chats[c.id] || []).length)
+    .filter(c => (now - lastTalkAt(c)) / 60000 >= need)
+    .filter(c => (now - (Number(c.proactiveAt) || 0)) / 60000 >= need)
+    .sort((a, b) => lastTalkAt(a) - lastTalkAt(b));
+}
+
+async function proactiveCheck() {
+  if (!apiRoot() || !state.settings.apiKey || !state.settings.apiModel) return null;
+  const list = proactiveCandidates();
+  if (!list.length) return null;
+  try {
+    const msg = await proactiveSay(list[0]);
+    return msg ? { char: list[0], msg } : null;
+  } catch (e) { return null; }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2000,6 +2197,9 @@ window.SJ = {
   virtualNow, advanceTime, onTime,
   makeCharacter, saveCharacter, deleteCharacter,
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
+  callsOf, pushCall, deleteCall, clearCalls, callLog,
+  chatBgOf, setChatBg,
+  proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,
   /* 语音（浏览器自带 TTS） */
@@ -2023,7 +2223,7 @@ window.SJ = {
   /* 生图 */
   imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData,
   /* 朋友圈 */
-  MOMENT_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
+  MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
   generateMoment, autoMoment,
   exportState, importState,
   /* 图片仓：字节进 IndexedDB，存档里只留 'idb:' 引用 */

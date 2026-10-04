@@ -1360,3 +1360,93 @@ input.field[type="range"]::-webkit-slider-thumb {
    #phone.dark-wall #statusbar 和 #phone.app-open #statusbar 两条自动规则。 */
 #phone.sb-dark #statusbar { color: #3a3a3c; text-shadow: 0 1px 6px rgba(255, 255, 255, .7); }
 #phone.sb-light #statusbar { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, .5); }
+
+/* ══════════════════════════════════════════════════════
+   聊天背景
+   ══════════════════════════════════════════════════════ */
+.chat-list.has-bg { background-size: cover; background-position: center; background-repeat: no-repeat; }
+/* 照片上气泡原本的纸色底会糊成一片，给一层毛玻璃：字还是字，照片还是照片。 */
+.chat-list.has-bg .bubble {
+  -webkit-backdrop-filter: blur(7px) saturate(1.1);
+  backdrop-filter: blur(7px) saturate(1.1);
+  box-shadow: 0 1px 10px rgba(40, 34, 28, .10);
+}
+.chat-list.has-bg .bubble.ta { background: rgba(255, 255, 255, .82); }
+.chat-list.has-bg .bubble.me { background: rgba(158, 200, 168, .86); }
+#phone.dark-wall .chat-list.has-bg .bubble.ta { background: rgba(46, 44, 41, .82); }
+
+/* 选背景：一张预览 + 两个按钮 */
+.bg-strip { display: flex; gap: 12px; align-items: center; padding: 4px 16px 12px; }
+.bg-prev {
+  flex: 0 0 108px; height: 68px; border-radius: 12px; overflow: hidden;
+  background: var(--card); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06);
+  background-size: cover; background-position: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.bg-prev.on { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06), 0 4px 14px rgba(60, 54, 46, .18); }
+.bg-none { font-size: 11px; color: var(--fg-dim); }
+.bg-btns { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.bg-btns .btn { margin: 0; }
+
+/* ══════════════════════════════════════════════════════
+   引用回复 / 已读
+   ══════════════════════════════════════════════════════ */
+/* 「已读」要占满一整行挂到气泡下面，所以这一行允许换行 */
+.chat-list .msg { flex-wrap: wrap; }
+.msg-read { flex-basis: 100%; font-size: 10px; color: var(--fg-dim); text-align: right; padding: 0 2px; }
+.chat-list .msg.ta .msg-read { text-align: left; }
+
+.bubble.has-qt { padding-top: 6px; }
+.qt {
+  border-left: 3px solid rgba(120, 112, 100, .45);
+  background: rgba(120, 112, 100, .10);
+  border-radius: 6px; padding: 4px 8px; margin-bottom: 6px;
+  max-width: 100%;
+}
+.qt-who { font-size: 10px; color: var(--fg-dim); margin-bottom: 1px; }
+.qt-txt {
+  font-size: 11.5px; color: var(--fg-dim); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.quote-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; border-top: 1px solid rgba(0, 0, 0, .06);
+  background: rgba(250, 248, 244, .96);
+}
+.quote-bar.hide { display: none; }
+.qb-body { flex: 1; min-width: 0; border-left: 3px solid var(--accent-ink); padding-left: 8px; }
+.qb-who { font-size: 10.5px; color: var(--accent-ink); }
+.qb-txt {
+  font-size: 12px; color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qb-x {
+  flex: 0 0 auto; border: 0; background: transparent; font-size: 15px;
+  color: var(--fg-dim); padding: 4px 6px;
+}
+
+/* ══════════════════════════════════════════════════════
+   通话记录
+   ══════════════════════════════════════════════════════ */
+.call-log { padding: 4px 16px 12px; }
+.cl-card {
+  background: var(--card); border-radius: 14px; margin-bottom: 10px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(60, 54, 46, .07);
+}
+.cl-head { display: flex; align-items: center; gap: 10px; padding: 12px; }
+.cl-head:active { background: rgba(0, 0, 0, .03); }
+.cl-who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.cl-who .avatar { width: 36px; height: 36px; border-radius: 12px; font-size: 18px; }
+.cl-name { font-size: 14px; }
+.cl-meta { font-size: 11.5px; color: var(--fg-dim); margin-top: 2px; }
+.cl-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.cl-line { display: flex; gap: 8px; font-size: 13px; line-height: 1.4; }
+.cl-line.me { flex-direction: row-reverse; text-align: right; }
+.cl-who-s { flex: 0 0 auto; font-size: 11px; color: var(--fg-dim); padding-top: 2px; }
+.cl-text {
+  background: var(--card); border-radius: 10px; padding: 6px 10px;
+  background: rgba(120, 112, 100, .09); max-width: 80%;
+}
+.cl-line.me .cl-text { background: rgba(158, 200, 168, .22); }
+

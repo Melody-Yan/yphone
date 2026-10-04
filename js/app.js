@@ -322,10 +322,14 @@ function bindPageHold(pageEl, pageIndex) {
   };
   pageEl.addEventListener('mousedown', begin);
   pageEl.addEventListener('touchstart', begin, { passive: true });
-  pageEl.addEventListener('mouseup', cancel);
   pageEl.addEventListener('mouseleave', cancel);
-  pageEl.addEventListener('touchend', cancel);
   pageEl.addEventListener('touchmove', cancel, { passive: true });
+  /* 抬手的地方不一定是这一页：拖图标时手指早就滑出去了（那会儿 `.page` 收不到
+     touchend），550ms 一到插件面板就盖在拖拽上冒出来。所以收尾统一挂 document ——
+     真实浏览器里手指落到哪儿，事件都冒泡到 document。 */
+  document.addEventListener('mouseup', cancel);
+  document.addEventListener('touchend', cancel);
+  document.addEventListener('touchcancel', cancel);
 }
 
 /* 这一页放几个图标。用户说的「三个四个随便塞由自己决定」就是这儿：
@@ -784,6 +788,23 @@ function applyWallpaper() {
 window.SHELL_LOOK = applyLook;   // 外观 App 改完设置调一下，立刻生效
 SJ.sfx = sfx;                    // 聊天页收发消息时响一下（apps.js 那边调）
 
+/* ══ 久没说话，让 TA 主动来找你 ══
+   只在开机 / 切回前台那一刻判一次。手机上的 PWA 被冻住时 setInterval 不响，
+   靠定时器做这件事等于没做 —— 这两个事件点才是真的每次都执行。
+   判定条件在 SJ.proactiveCandidates() 里（聊过 + 够了间隔 + 自己上次主动也隔够了），
+   一次只放一个人。 */
+let proactiveBusy = false;
+function runProactive() {
+  if (proactiveBusy) return;
+  proactiveBusy = true;
+  SJ.proactiveCheck().then(r => {
+    proactiveBusy = false;
+    if (!r) return;
+    try { SJ.sfx && SJ.sfx('in'); } catch (e) {}
+    if (window.toast) window.toast('「' + r.char.name + '」给你发了条消息');
+  }).catch(() => { proactiveBusy = false; });
+}
+
 /* ══ 启动 ══ */
 function boot() {
   applyWallpaper();
@@ -828,6 +849,13 @@ function boot() {
   SJ.imgBoot().then(n => {
     if (n) { applyWallpaper(); renderHome(); if (locked) renderLock(); }
     SJ.persistAsk();     // 申请持久化存储，免得系统清空间时先拿我们的数据开刀
+  });
+
+  /* 切回前台再看一眼有没有人该来找你。放在开机之后一点，
+     免得跟开机那一堆重绘抢主线程。 */
+  setTimeout(runProactive, 1500);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') runProactive();
   });
 }
 

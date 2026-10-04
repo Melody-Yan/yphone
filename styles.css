@@ -876,6 +876,27 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .shop-search { flex: 1; min-width: 0; border: 0; outline: none; background: none;
   font: inherit; font-size: 14px; color: var(--fg); }
 .shop-search::placeholder { color: #b6aea4; }
+/* 金刚区：参考图首页那一排圆形品类入口。横滑，一行放得下就不滚。 */
+.cat-rail { display: flex; gap: 10px; padding: 2px 16px 12px; overflow-x: auto; }
+.cat-rail::-webkit-scrollbar { display: none; }
+.cat {
+  flex: 0 0 auto; border: 0; background: none; cursor: pointer; padding: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  font: inherit; width: 56px;
+}
+.cat-i {
+  width: 48px; height: 48px; border-radius: 17px;
+  display: grid; place-items: center; font-size: 24px; line-height: 1;
+  box-shadow: var(--shadow-s);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.cat-l {
+  font-size: 11px; color: var(--fg-dim); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cat.on .cat-i { transform: translateY(-2px); box-shadow: 0 0 0 2.5px var(--accent), var(--shadow-s); }
+.cat.on .cat-l { color: var(--accent-ink); font-weight: 500; }
+.cat:active .cat-i { transform: scale(.93); }
 /* 「我的」页上面那张统计卡。注意别叫 .me-card —— 那是微信主页自己的白卡片 */
 .dl-stat-card { display: flex; margin: 6px 16px 14px; border-radius: 20px; overflow: hidden;
   background: linear-gradient(150deg,#5c5348,#3d372f); color: #fff; box-shadow: var(--shadow-m); }

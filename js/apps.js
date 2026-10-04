@@ -2545,24 +2545,62 @@ const APPS = [
            和列表共用同一个 hit 数组，下标一一对应。 */
         const search = SJ.el('input', {
           class: 'shop-search', placeholder: '搜索店铺或菜品', value: q,
-          oninput: ev => {
-            q = ev.target.value.trim();
-            let n = 0;
-            /* children 是 HTMLCollection，真浏览器里没有 forEach —— 自检的 DOM shim 是数组，
-               所以只有真机冒烟才抓得到这个错。用下标循环，两边都能跑。 */
-            for (let k = 0; k < list.children.length; k++) {
-              const on = hitShop(hit[k].s);
-              list.children[k].className = 'shop-card' + (on ? '' : ' hide');
-              if (on) n++;
-            }
-            none.className = 'empty big' + (n ? ' hide' : '');
-            none.textContent = n ? '' : '没搜到「' + q + '」\n换个词，或者点右上角 ⟳ 换一批';
-          }
+          oninput: ev => { q = ev.target.value.trim(); applyFilter(); }
         });
+        /* 过滤逻辑只写一遍：搜索框打字和点品类图标走的是同一条路，
+           所以「点奶茶」和「搜奶茶」结果必然一致。 */
+        function applyFilter() {
+          let n = 0;
+          /* children 是 HTMLCollection，真浏览器里没有 forEach —— 自检的 DOM shim 是数组，
+             所以只有真机冒烟才抓得到这个错。用下标循环，两边都能跑。 */
+          for (let k = 0; k < list.children.length; k++) {
+            const on = hitShop(hit[k].s);
+            list.children[k].className = 'shop-card' + (on ? '' : ' hide');
+            if (on) n++;
+          }
+          none.className = 'empty big' + (n ? ' hide' : '');
+          none.textContent = n ? '' : '没搜到「' + q + '」\n换个词，或者点右上角 ⟳ 换一批';
+          /* 品类高亮跟着走，点完知道自己在看哪一类。
+             按下标对应 kinds，不用 dataset —— core 的 el() 不处理 dataset（会写成一个名为
+             dataset 的垃圾属性），真机里读不到。 */
+          for (let k = 0; k < catRail.children.length; k++) {
+            catRail.children[k].className = 'cat' + (kinds[k] === q && q ? ' on' : '');
+          }
+        }
         body.push(SJ.el('div', { class: 'shop-search-wrap' }, [
           SJ.el('span', { class: 'shop-search-ico', html: svg('chat', 15) }),
           search
         ]));
+
+        /* 金刚区：品类圆圈。参考图首页就是这个结构，也是外卖 App 真正的主入口。
+           品类从「这批店实际有的 kind」里取，不写死一张表 —— AI 换一批店，这里跟着变。 */
+        const kinds = [];
+        dl().shops.forEach(s => { if (s.kind && kinds.indexOf(s.kind) < 0) kinds.push(s.kind); });
+        const CAT_COLORS = [
+          'linear-gradient(150deg,#fbe6b4,#e8b95c)', 'linear-gradient(150deg,#f7d3e0,#d98fae)',
+          'linear-gradient(150deg,#cfe3f5,#8fb0d6)', 'linear-gradient(150deg,#ddd4f2,#a894d6)',
+          'linear-gradient(150deg,#d3ecdc,#86b898)', 'linear-gradient(150deg,#f9dcc8,#dda27d)'
+        ];
+        const catRail = SJ.el('div', { class: 'cat-rail' });
+        if (kinds.length > 1) {
+          kinds.slice(0, 8).forEach((k, i) => {
+            const hitShopOfKind = dl().shops.find(s => s.kind === k) || {};
+            catRail.append(SJ.el('button', {
+              class: 'cat' + (q === k ? ' on' : ''),
+              onclick: () => {
+                /* 再点一下同一个品类 = 取消筛选，省得没有退路 */
+                q = (q === k) ? '' : k;
+                search.value = q;
+                applyFilter();
+              }
+            }, [
+              SJ.el('span', { class: 'cat-i', style: { background: CAT_COLORS[i % CAT_COLORS.length] } },
+                hitShopOfKind.emoji || '🍽'),
+              SJ.el('span', { class: 'cat-l' }, k)
+            ]));
+          });
+          body.push(catRail);
+        }
         body.push(chips);
 
         if (busy) {

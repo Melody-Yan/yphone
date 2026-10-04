@@ -1802,12 +1802,18 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     walk(oApp2).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 5 &&
     !!walk(oApp2).find(n => n._class.has('order-card') && n._class.has('done')));
 
-  /* 参考图那套店铺卡信息：榜单 / 月售 / 距离 / 满减 / VIP 标签墙 */
+  /* 参考图那套店铺卡信息：榜单 / 月售 / 距离 / 满减 / VIP 标签墙。
+     两家不同品类 —— 好验金刚区筛的是不是真的。 */
   App.setShops(App.normalizeShops({ shops: [{
     name: '云朵茶铺', kind: '奶茶甜品', emoji: '🧋', rating: '4.9', eta: '17分钟', fee: 3, min: 15,
     sold: '月售3000+', dist: '0.6km', rank: '奶茶甜品榜第2名', discount: '低至6折', promo: '满20减3',
     vip: true, tags: ['现做'],
     dishes: [{ name: '芋泥波波奶茶', desc: '一口软糯', price: 9, emoji: '🧋', hot: true }]
+  }, {
+    name: '小町寿司', kind: '日料', emoji: '🍣', rating: '4.7', eta: '25分钟', fee: 5, min: 25,
+    sold: '月售800+', dist: '1.4km', rank: '', discount: '低至7折', promo: '满40减8',
+    vip: false, tags: ['现切'],
+    dishes: [{ name: '三文鱼刺身', desc: '厚切', price: 48, emoji: '🍣', hot: true }]
   }] }));
   const rApp = openFresh('delivery');
   ok('店铺卡上有月售和距离',
@@ -1818,7 +1824,31 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     !!walk(rApp).find(n => n._class.has('tag-sale') && n.textContent === '满20减3') &&
     !!walk(rApp).find(n => n._class.has('tag-sale') && n.textContent === '低至6折') &&
     !!walk(rApp).find(n => n._class.has('tag-vip') && /VIP/.test(n.textContent)));
-  /* 搜索：输入就就地显隐卡片，不重画（重画会把焦点弄丢） */
+
+  /* ── 金刚区：参考图首页那一排品类圆圈，点了要真的筛 ── */
+  const cats = walk(rApp).filter(n => n._class.has('cat'));
+  ok('首页有金刚区（品类圆圈）', cats.length === 2, String(cats.length));
+  ok('品类名取自这批店真实有的 kind',
+    cats.map(c => c.textContent).join(',').includes('奶茶甜品') &&
+    cats.map(c => c.textContent).join(',').includes('日料'),
+    cats.map(c => c.textContent).join(','));
+  /* 点「日料」：只剩寿司店，奶茶店被藏起来 */
+  cats.find(c => c.textContent.includes('日料')).click();
+  const afterCat = walk(rApp).filter(n => n._class.has('shop-card'));
+  ok('点品类圆圈真的筛出了那一类',
+    afterCat.length === 2 &&
+    afterCat.filter(n => n._class.has('hide')).length === 1 &&
+    !afterCat.find(n => /云朵茶铺/.test(n.textContent) && !n._class.has('hide')),
+    afterCat.map(n => n._class.has('hide') ? 'hide' : 'show').join(','));
+  ok('选中的品类会高亮',
+    walk(rApp).filter(n => n._class.has('cat')).filter(n => n._class.has('on')).length === 1,
+    String(walk(rApp).filter(n => n._class.has('cat')).filter(n => n._class.has('on')).length));
+  /* 再点一下取消，回到全量 */
+  walk(rApp).filter(n => n._class.has('cat')).find(n => n._class.has('on')).click();
+  ok('再点一下同一个品类就取消筛选',
+    walk(rApp).filter(n => n._class.has('shop-card')).every(n => !n._class.has('hide')) &&
+    walk(rApp).filter(n => n._class.has('cat')).every(n => !n._class.has('on')));
+  /* 搜索框现在也走同一条过滤路径 */
   const si = walk(rApp).find(n => n._class.has('shop-search'));
   si.value = '不存在的店'; dispatch(si, 'input', { target: si });
   ok('搜不到时卡片都藏起来、并给出提示',
@@ -1835,11 +1865,13 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   const mineTxt = walk(rApp).filter(n => n._class.has('dl-stat-card')).map(n => n.textContent).join(' ');
   ok('统计里的订单数和 state 里的一致',
     mineTxt.includes(String(App.state.delivery.orders.length)), mineTxt);
-  /* 自取页 */
+  /* 自取页：同一批店（这里两家）都换成「几折 / 多远」的说法 */
   walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('自取')).click();
   ok('自取页按「几折 / 多远」列出同一批店',
-    walk(rApp).filter(n => n._class.has('shop-card')).length === 1 &&
-    !!walk(rApp).find(n => n._class.has('shop-line') && /自取/.test(n.textContent)));
+    walk(rApp).filter(n => n._class.has('shop-card')).length === App.state.delivery.shops.length &&
+    walk(rApp).filter(n => n._class.has('shop-line')).filter(n => /自取/.test(n.textContent)).length ===
+      App.state.delivery.shops.length,
+    walk(rApp).filter(n => n._class.has('shop-card')).length + ' 家');
   S.closeTop(true);
 
   /* 收摊：别把这一节造的数据留给 [24] */

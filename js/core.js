@@ -177,6 +177,9 @@ const DEFAULTS = {
     /* 聊天增强 */
     chatBg: '',          // 聊天背景（图片仓引用），空 = 默认纸色；角色自己的 c.chatBg 优先
     readReceipt: true,   // 我的消息下面显示「已读 / 未读」
+    /* 支付密码：4 位数字，空 = 不验（老用户和新用户默认都是空，
+       不塞默认值 —— 突然弹一个谁都不知道的密码等于把钱锁死）。 */
+    payPass: '',
     /* 主动找你：好久没说话，让 TA 先开一句 */
     proactive: true,     // 总开关
     idleMin: 180         // 多久没互动算「好久」（分钟）
@@ -371,6 +374,10 @@ function migrate(saved) {
   /* 聊天背景：只认图片仓引用 / data URI / http，其它一律当没设 */
   const bgOk = v => /^(idb:[\w-]+|data:image\/|https?:)/.test(String(v || '')) ? String(v) : '';
   out.settings.chatBg = bgOk(out.settings.chatBg);
+
+  /* 支付密码：只认 4 位数字，其它（含 null/对象）一律当没设。
+     用字面量 4 —— 这里是 migrate 链路，绝不能引用文件后面声明的 const（TDZ 会把整个存档清空）。 */
+  out.settings.payPass = /^\d{4}$/.test(String(out.settings.payPass || '')) ? String(out.settings.payPass) : '';
 
   /* 表情包库：自己收进来的图。过滤 + 去重（同一张收两遍没意义）+ 封顶 */
   out.stickers = Array.from(new Set(
@@ -1609,6 +1616,21 @@ function walletOut(amount, title, note) {
 }
 /* 够不够付。给 UI 用来提前禁用按钮 / 提示充值，不要等到点了才失败。 */
 function walletEnough(amount) { return normalizeMoney(amount) <= walletBalance(); }
+
+/* ── 支付密码 ──
+   4 位数字，设了才验。放在 core 而不是 apps：这是钱的门槛，
+   和钱包本身同源，以后新增支付路径也自动被覆盖。
+   注意它**不是**锁屏密码 —— 忘了支付密码不该把聊天记录一起赔进去，
+   所以清掉的口子在游戏里明说（钱包页有入口），不像锁屏那样只能关锁。 */
+function payPassOn() { return /^\d{4}$/.test(String(state.settings.payPass || '')); }
+function payPassSet(v) {
+  const s = String(v == null ? '' : v);
+  state.settings.payPass = /^\d{4}$/.test(s) ? s : '';
+  save();
+  return state.settings.payPass;
+}
+/* 对了返回 true。没设密码时永远 true —— 不能因为没设就把人挡在门外。 */
+function payPassCheck(v) { return !payPassOn() || String(v) === state.settings.payPass; }
 /* 外卖 / 商城都要用的一句话付账。够就扣、返回流水；不够返回 null（调用方负责提示）。 */
 function walletPay(amount, title, note) { return walletOut(amount, title, note); }
 
@@ -2823,6 +2845,7 @@ window.SJ = {
   /* 钱包：外卖和商城的钱都走这儿 */
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
+  payPassOn, payPassSet, payPassCheck,
   parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */

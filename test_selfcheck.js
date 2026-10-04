@@ -3595,6 +3595,205 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   ok('读回来以后正常的人还在', sandbox.SJ.chatList().some(r => r.c.id === 'bk2'));
 }
 
+/* 39. 支付密码 / 进货覆盖全部类目 / 自动深色不许反色 */
+console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
+{
+  let App = sandbox.SJ;   // 这块里 boot() 好几次，每次都得重新取
+  /* ── 1. 没设密码 = 不验。绝不能凭空塞一个谁都不知道的密码，那等于把钱锁死 ── */
+  sandbox.SHELL.closeAll();
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'p1', name: '阿浅', avatar: '☕' }], chats: { p1: [] },
+    wallet: { balance: 500, log: [] }, settings: {},
+    mall: { goods: [], cart: [], orders: [], fav: [] }
+  }));
+  boot(); App = sandbox.SJ;
+  ok('默认没有支付密码（老用户和新用户都不该被凭空锁住）',
+    sandbox.SJ.payPassOn() === false, JSON.stringify(sandbox.SJ.state.settings.payPass));
+  ok('没设密码时任何输入都放行（不能因为没设就挡住付款）',
+    sandbox.SJ.payPassCheck('') === true && sandbox.SJ.payPassCheck('0000') === true &&
+    sandbox.SJ.payPassCheck(null) === true);
+
+  /* ── 2. 设了密码：对的过、错的不行 ── */
+  sandbox.SJ.payPassSet('2468');
+  ok('设了 4 位密码后生效', sandbox.SJ.payPassOn() === true && sandbox.SJ.payPassCheck('2468') === true);
+  ok('密码不对就是不通过', sandbox.SJ.payPassCheck('1357') === false && sandbox.SJ.payPassCheck('') === false);
+  ok('非 4 位数字一律不认（清了等于关掉这道门）',
+    sandbox.SJ.payPassSet('12a4') === '' && sandbox.SJ.payPassOn() === false &&
+    sandbox.SJ.payPassSet('123') === '' && sandbox.SJ.payPassSet('12345') === '');
+  sandbox.SJ.payPassSet('2468');
+  ok('清空密码后又回到「不验」', sandbox.SJ.payPassSet('') === '' && sandbox.SJ.payPassOn() === false);
+  sandbox.SJ.payPassSet('2468');
+
+  /* ── 3. 脏值必须归一：存档里是对象/超长也不能炸，更不许把手机清空 ── */
+  store.delete('xiaoshouji.v1.broken');
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [], chats: {}, settings: { payPass: { hack: 1 } }
+  }));
+  boot(); App = sandbox.SJ;
+  ok('存档里的脏 payPass（对象）被归一成空，且 load 没炸',
+    sandbox.SJ.state.settings.payPass === '' && !store.get('xiaoshouji.v1.broken'),
+    JSON.stringify(sandbox.SJ.state.settings.payPass));
+  store.set('xiaoshouji.v1', JSON.stringify({ characters: [], chats: {}, settings: { payPass: '12' } }));
+  boot(); App = sandbox.SJ;
+  ok('存档里 2 位的 payPass 也被归一成空', sandbox.SJ.state.settings.payPass === '');
+  store.delete('xiaoshouji.v1.broken');
+
+  /* ── 4. 付款真的会被拦：点结算先弹数字盘，密码不对一分钱都不动 ── */
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'p1', name: '阿浅', avatar: '☕' }], chats: { p1: [] },
+    wallet: { balance: 500, log: [] }, settings: { payPass: '2468' },
+    mall: { goods: [{ id: 'g1', name: '连衣裙', cat: 'dress', price: 199 }],
+      cart: [{ id: 'c1', goodsId: 'g1', name: '连衣裙', price: 199, n: 1, picked: true }],
+      orders: [], fav: [] }
+  }));
+  boot(); App = sandbox.SJ;
+  const bal0 = sandbox.SJ.walletBalance();
+  const mApp = openFresh('mall');
+  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  const goBtn = walk(mApp).find(n => n._class.has('cart-go'));
+  ok('（前置）购物车结算按钮在，余额和密码就位',
+    !!goBtn && bal0 === 500 && sandbox.SJ.payPassOn() === true);
+  goBtn.click();
+  const pad = walk(byId.phone).find(n => n._class.has('pay-pad'));
+  ok('点结算先弹支付密码盘，不直接下单',
+    !!pad && sandbox.SJ.state.mall.orders.length === 0);
+  ok('弹窗上写着金额', !!walk(pad).find(n => n._class.has('pay-amt') && /199/.test(n.textContent)),
+    (walk(pad).find(n => n._class.has('pay-amt')) || {}).textContent);
+
+  /* 输错：余额一分不动、订单一个不出 */
+  const keysOf = p => walk(p).filter(n => n._class.has('pk'));
+  const press = (p, k) => { const b = walk(p).find(n => n._class.has('pk') && n.textContent === k); b.click(); };
+  ok('数字盘是 12 键', keysOf(pad).length === 12, String(keysOf(pad).length));
+  ['1', '3', '5', '7'].forEach(k => press(pad, k));
+  ok('密码输错：不下单、余额一分没动',
+    sandbox.SJ.state.mall.orders.length === 0 && sandbox.SJ.walletBalance() === bal0,
+    sandbox.SJ.state.mall.orders.length + '/' + sandbox.SJ.walletBalance());
+  ok('输错后弹窗还开着，让人重输', !!walk(byId.phone).find(n => n._class.has('pay-pad')));
+
+  /* 输对：这时才真的下单 */
+  const pad2 = walk(byId.phone).find(n => n._class.has('pay-pad'));
+  ['2', '4', '6', '8'].forEach(k => press(pad2, k));
+  ok('密码输对：订单生成、钱真的从钱包扣了',
+    sandbox.SJ.state.mall.orders.length === 1 && sandbox.SJ.walletBalance() === bal0 - 199,
+    sandbox.SJ.state.mall.orders.length + '/' + sandbox.SJ.walletBalance());
+  ok('付完弹窗收起来了', !walk(byId.phone).find(n => n._class.has('pay-pad')));
+
+  /* ── 5. 没设密码时点结算是「一步到位」，不弹任何盘 ── */
+  sandbox.SJ.payPassSet('');
+  sandbox.SJ.mallAddToCart(sandbox.SJ.mallGoods()[0]);
+  const mApp2 = openFresh('mall');
+  walk(mApp2).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  const go2 = walk(mApp2).find(n => n._class.has('cart-go'));
+  const bal1 = sandbox.SJ.walletBalance();
+  go2.click();
+  ok('没设密码时点结算直接下单，不弹数字盘',
+    !walk(byId.phone).find(n => n._class.has('pay-pad')) && sandbox.SJ.state.mall.orders.length === 2 &&
+    sandbox.SJ.walletBalance() < bal1,
+    String(sandbox.SJ.state.mall.orders.length));
+
+  /* ── 6. 进货必须一次覆盖全部 8 个分类 ── */
+  sandbox.SHELL.closeAll();
+  store.set('xiaoshouji.v1', JSON.stringify({ characters: [], chats: {}, settings: {},
+    wallet: { balance: 100, log: [] }, mall: { goods: [], cart: [], orders: [], fav: [] } }));
+  boot(); App = sandbox.SJ;
+  /* API 配置必须在 boot() 之后设 —— boot 会按存档重建设置，先设就被冲掉了 */
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  let genCalls = 0, askedCats = [];
+  fetchImpl = (url, opts) => {
+    genCalls++;
+    const user = JSON.parse(opts.body).messages[1].content;
+    /* 记下这次点名要了哪些分类 id */
+    const ids = (user.match(/cat 只能取这些 id：([^。]+)。/) || [])[1] || '';
+    askedCats.push(ids.split('、'));
+    /* 模拟模型：这一批点名要的全给足 3 件 */
+    const goods = ids.split('、').filter(Boolean).map((id, i) => ({
+      name: '货' + id + i, cat: id, sub: '', price: 99, oldPrice: 0,
+      emoji: '📦', desc: '', sales: '月销1+', brand: '牌子', tags: [], hot: i === 0
+    }));
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ goods }) } }] }));
+  };
+  const mallApp = openFresh('mall');
+  walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  const reBtn = walk(mallApp).find(n => n._class.has('row') && n.textContent.includes('重新进一批货'));
+  ok('「我的」页有让桃桃重新进货的入口', !!reBtn);
+  reBtn.click();
+  await waitFor(() => App.state.mall.goods.length > 0, 3000);
+  const cats = App.MALL_CAT_IDS;
+  const covered = new Set(App.mallGoods().map(g => g.cat));
+  ok('一次进货就把 8 个分类全覆盖（用户点一下就能填满）',
+    cats.every(c => covered.has(c)),
+    '覆盖 ' + covered.size + '/8，缺 ' + cats.filter(c => !covered.has(c)).join(','));
+  ok('每个分类下面都真的有商品',
+    cats.every(c => App.mallGoods().filter(g => g.cat === c).length > 0),
+    cats.map(c => c + ':' + App.mallGoods().filter(g => g.cat === c).length).join(' '));
+  ok('第一次请求就点名了全部 8 个分类', askedCats[0] && askedCats[0].length === 8, JSON.stringify(askedCats[0]));
+  ok('模型一次就听话时不该多问第二遍（省一次请求）', genCalls === 1, String(genCalls));
+
+  /* 模型漏类：必须自动补一轮，补完还是得全覆盖 */
+  /* 提示清不清无所谓，下面读的是 toasts() */
+  genCalls = 0; askedCats = [];
+  store.set('xiaoshouji.v1', JSON.stringify({ characters: [], chats: {}, settings: {},
+    wallet: { balance: 100, log: [] }, mall: { goods: [], cart: [], orders: [], fav: [] } }));
+  boot(); App = sandbox.SJ;
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  fetchImpl = (url, opts) => {
+    genCalls++;
+    const user = JSON.parse(opts.body).messages[1].content;
+    const ids = ((user.match(/cat 只能取这些 id：([^。]+)。/) || [])[1] || '').split('、').filter(Boolean);
+    askedCats.push(ids);
+    /* 第一次只回前 3 类（模拟模型偷懒漏类），之后老实按点名的给 */
+    const give = genCalls === 1 ? ids.slice(0, 3) : ids;
+    const goods = give.map((id, i) => ({ name: '货' + id + i, cat: id, sub: '', price: 99,
+      oldPrice: 0, emoji: '📦', desc: '', sales: '', brand: '', tags: [], hot: false }));
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ goods }) } }] }));
+  };
+  const mallApp2 = openFresh('mall');
+  walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')).click();
+  await waitFor(() => genCalls >= 2 && App.state.mall.goods.length > 0, 3000);
+  const cov2 = new Set(App.mallGoods().map(g => g.cat));
+  ok('模型漏类时自动补一轮，补完 8 个分类还是全有货',
+    App.MALL_CAT_IDS.every(c => cov2.has(c)),
+    '覆盖 ' + cov2.size + '/8，补了 ' + (genCalls - 1) + ' 轮');
+  ok('补的那一轮只点名缺的分类（不要连已满的再要一遍）',
+    askedCats.length >= 2 && askedCats[1].length < 8 && askedCats[1].every(c => App.MALL_CAT_IDS.includes(c)),
+    JSON.stringify(askedCats[1]));
+
+  /* 模型彻底摆烂（永远返回空）：不许崩、不许把原有货清掉，要给提示 */
+  genCalls = 0; /* 提示清不清无所谓，下面读的是 toasts() */
+  store.set('xiaoshouji.v1', JSON.stringify({ characters: [], chats: {}, settings: {},
+    wallet: { balance: 100, log: [] },
+    mall: { goods: [{ id: 'keep', name: '原有的一件', cat: 'home', price: 9 }],
+      cart: [], orders: [], fav: [] } }));
+  boot(); App = sandbox.SJ;
+  App.state.settings.apiBase = 'https://api.example.com/v1';
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '{"goods":[]}' } }] }));
+  const mallApp3 = openFresh('mall');
+  walk(mallApp3).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  walk(mallApp3).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')).click();
+  await waitFor(() => toasts().length > 0, 3000);
+  ok('模型一个货都没给：给提示、不崩、也没把原来的货清掉',
+    App.mallGoods().length === 1 && App.mallGoods()[0].id === 'keep',
+    App.mallGoods().length + ' 件 / ' + toasts());
+
+  /* ── 7. 自动深色：必须写明 only light，写 light 是挡不住的 ── */
+  fetchImpl = null;
+  const idx = fs.readFileSync(path.join(DIR, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  ok('index.html 声明 color-scheme: only light（挡安卓 Chrome 自动反色）',
+    /<meta\s+name="color-scheme"\s+content="only light">/.test(idx),
+    (idx.match(/<meta[^>]*color-scheme[^>]*>/) || ['没找到'])[0]);
+  ok('styles.css 里也声明了 only light 做双保险',
+    /\/\*[^]*?\*\/\s*color-scheme:\s*only light|:root\s*\{[^}]*color-scheme:\s*only light/.test(css));
+  ok('没有写成挡不住的 `light`（实测挡不住，等于没写）',
+    !/color-scheme:\s*light\s*[;}]/.test(css) && !/content="light"/.test(idx));
+}
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

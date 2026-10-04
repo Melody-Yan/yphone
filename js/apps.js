@@ -45,6 +45,7 @@ const ICON = {
   check: '<path d="M20 6 9 17l-5-5" />',
   left: '<path d="m15 18-6-6 6-6" />',
   right: '<path d="m9 18 6-6-6-6" />',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" />',
   bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />',
   video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /> <rect x="2" y="6" width="14" height="12" rx="2" />',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" />',
@@ -134,6 +135,48 @@ function confirmBox(text, onOk) {
       /* onOk 立刻执行，不跟着动画等：它多半要重画整个页面，
          等 200ms 再执行会让用户觉得点了没反应。遮罩自己淡出就行。 */
       SJ.el('button', { class: 'btn danger', onclick: () => { dismiss(mask); onOk(); } }, '确定')
+    ])
+  ]);
+  mask.append(box);
+  mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
+  document.getElementById('phone').append(mask);
+}
+
+/* 支付密码弹窗。设了密码才会弹；没设就直接放行 —— 钱不能被一把没人设过的锁挡住。
+   数字盘复用锁屏那套 .pad-* 结构，手感和长相都一致，不用再写一份。
+   onOk 只有输对了才调，且是立刻调（不跟着淡出动画等），别让人以为点了没反应。 */
+function payPad(title, amountText, onOk) {
+  if (!SJ.payPassOn()) return onOk();
+  const mask = SJ.el('div', { class: 'mask' });
+  let buf = '';
+  const dots = SJ.el('div', { class: 'pad-dots' });
+  const paint = () => { dots.textContent = '●'.repeat(buf.length) + '○'.repeat(4 - buf.length); };
+  paint();
+  const grid = SJ.el('div', { class: 'pad-grid' });
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].forEach(k => grid.append(SJ.el('button', {
+    class: 'pk', onclick: () => {
+      if (k === 'C') buf = '';
+      else if (k === '⌫') buf = buf.slice(0, -1);
+      else if (buf.length < 4) buf += k;
+      paint();
+      if (buf.length < 4) return;
+      if (SJ.payPassCheck(buf)) { dismiss(mask); onOk(); }
+      else {
+        /* 输错：抖一下、清空重来。不锁死、不清数据 —— 这是玩具，不是银行 */
+        buf = ''; paint();
+        box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+        setTimeout(() => box.classList.remove('shake'), 400);
+      }
+    }
+  }, k)));
+  const box = SJ.el('div', { class: 'confirm pay-pad' }, [
+    SJ.el('div', { class: 'pay-head' }, [
+      SJ.el('div', { class: 'pay-title' }, title || '请输入支付密码'),
+      amountText ? SJ.el('div', { class: 'pay-amt' }, amountText) : null
+    ].filter(Boolean)),
+    dots, grid,
+    SJ.el('div', { class: 'confirm-actions' }, [
+      SJ.el('button', { class: 'btn ghost', onclick: () => dismiss(mask) }, '取消')
     ])
   ]);
   mask.append(box);
@@ -714,6 +757,16 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
         ]));
+        box.append(SJ.el('div', { class: 'row', onclick: () => payPassView() }, [
+          SJ.el('div', { class: 'row-ico', html: svg('lock', 19) }),
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '支付密码'),
+            SJ.el('div', { class: 'row-sub' }, SJ.payPassOn()
+              ? '已开启 · 付款时要输 4 位数字'
+              : '现在是空的 = 付款不验密码。想加一道就点这里')
+          ]),
+          SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+        ]));
         box.append(SJ.el('div', { class: 'row', onclick: () => walletLogView() }, [
           SJ.el('div', { class: 'row-ico', html: svg('note', 19) }),
           SJ.el('div', { class: 'row-main' }, [
@@ -788,6 +841,43 @@ const APPS = [
         ]);
         mask = sheet([], form);
         setTimeout(() => { if (amt.focus) amt.focus(); }, 60);
+      }
+
+      /* 设置 / 清掉支付密码。和锁屏密码同款输入，但两者互不相干 */
+      function payPassView() {
+        root.innerHTML = '';
+        root.append(navBar('支付密码', { back: () => walletView() }));
+        const mk = ph => SJ.el('input', {
+          class: 'field', placeholder: ph, inputmode: 'numeric', maxlength: 4, value: ''
+        });
+        const a = mk('新密码（4 位数字）'), b = mk('再输一遍');
+        const save = SJ.el('button', {
+          class: 'btn',
+          onclick: () => {
+            const x = a.value.trim(), y = b.value.trim();
+            if (!x && !y) { toast('先填 4 位数字；想取消密码点下面的按钮'); return; }
+            if (!/^\d{4}$/.test(x)) { toast('要 4 位数字'); a.value = ''; return; }
+            if (x !== y) { toast('两次不一样，重来'); b.value = ''; return; }
+            SJ.payPassSet(x);
+            toast('支付密码设好了，付款时要输它');
+            walletView();
+          }
+        }, '保存');
+        const clear = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: () => {
+            SJ.payPassSet('');
+            toast('支付密码清掉了，付款不再验');
+            walletView();
+          }
+        }, '取消支付密码');
+        root.append(SJ.el('div', { class: 'pad' }, [
+          a, b, save, clear,
+          SJ.el('div', { class: 'hint' },
+            (SJ.payPassOn() ? `现在用的是 ${SJ.state.settings.payPass}。` : '现在没设支付密码。') +
+            '付款（外卖、桃桃商城）时会先弹数字盘。这个密码和锁屏密码是两回事，' +
+            '忘了在这儿清掉就行，余额和流水都不会动。')
+        ]), tabBar('me'));
       }
 
       function meView() {
@@ -3001,9 +3091,12 @@ const APPS = [
           toast('零钱不够，还差 ' + (total - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
           return;
         }
-        if (!SJ.placeOrder()) return;
-        toast('下单成功，骑手正在赶来');
-        ordersView();
+        /* 付钱前先过支付密码。没设密码时 payPad 会直接放行 */
+        payPad('请输入支付密码', '¥' + total, () => {
+          if (!SJ.placeOrder()) return;
+          toast('下单成功，骑手正在赶来');
+          ordersView();
+        });
       }
 
       /* 订单进度是按「下单到现在过了多久」现算的，所以这里每 5 秒重画一次。
@@ -3186,6 +3279,15 @@ const APPS = [
           ]))));
 
         const all = mg().goods;
+        /* 进货要跑两趟模型（全覆盖 + 补漏），比外卖久，得给个「正在进货」的样子，
+           不然点完 ⟳ 半天没反应，人会以为坏了。 */
+        if (busy) {
+          body.push(searchBar(() => homeView()), box);
+          box.append(SJ.el('div', { class: 'empty big' }, '桃桃正在进货…\n分类多，会慢几秒，先别急'));
+          return void page('home', '桃桃商城', body, {
+            right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
+          });
+        }
         if (!all.length) {
           box.append(SJ.el('div', { class: 'empty big' }, '货架还空着\n点右上角的 ⟳ 让桃桃去进一批货'));
         } else {
@@ -3358,9 +3460,11 @@ const APPS = [
                 if (!SJ.walletEnough(need)) {
                   return toast('零钱不够，还差 ' + (need - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
                 }
-                SJ.mallPlaceOrder();
-                toast('下单成功，桃桃正在打包');
-                ordersView();
+                payPad('请输入支付密码', '¥' + need, () => {
+                  SJ.mallPlaceOrder();
+                  toast('下单成功，桃桃正在打包');
+                  ordersView();
+                });
               }
             }, '结算')
           ])
@@ -3447,7 +3551,7 @@ const APPS = [
 
       /* ── AI 进货 ── */
       const GEN_SYS = '你是一个电商平台的商品数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
-      /* 每次指定几个分类去生成，其余分类保留旧货 —— 一次全换会让人白挑半天 */
+      /* 每次指定几个分类去生成 —— 调用方保证最终每个分类都有货 */
       function genUser(cats) {
         return '随机生成 ' + (cats.length * 3) + ' 件电商商品，覆盖这些分类：' +
           cats.map(c => c.name + '（' + c.subs.slice(0, 4).join('/') + '）').join('、') + '。\n' +
@@ -3455,27 +3559,45 @@ const APPS = [
           '{"goods":[{"name":"商品名","cat":"分类 id","sub":"二级子类","price":199,"oldPrice":299,' +
           '"emoji":"一个代表商品的 emoji","desc":"一句话卖点","sales":"月销2000+","brand":"品牌名",' +
           '"tags":["包邮","7天无理由"],"hot":true}]}\n' +
-          'cat 只能取这些 id：' + cats.map(c => c.id).join('、') + '。每个分类 3 件。\n' +
+          'cat 只能取这些 id：' + cats.map(c => c.id).join('、') + '。每个分类 3 件，' +
+          '这些分类一个都不能漏、也不能多出别的分类。\n' +
           '要求：name 要具体（「法式碎花连衣裙」而不是「裙子」），12 字以内；sub 必须是该分类下面列出的子类之一；' +
           '价格是人民币整数（19~2999）；oldPrice 是原价（比 price 高 10%~40%），没有就写 0；' +
           'desc 写材质/功效/场景，18 字以内；sales 写成「月销2000+」这种；brand 编一个像样的牌子名；' +
           'tags 从「包邮」「7天无理由」「正品」「顺丰」「当日发」「假一赔十」里挑 1~3 个；' +
           '每类里 1 件 hot 为 true（爆款）；emoji 要和商品对得上。';
       }
+      /* 一次进货请求 → 归一化后的商品。失败/空就返回 []，由调用方决定怎么办 */
+      async function genBatch(cats) {
+        const text = await SJ.askOnce(GEN_SYS, genUser(cats));
+        return SJ.normalizeGoods(SJ.parseJSONLoose(text));
+      }
       async function regen() {
         if (busy) return;
         busy = true;
-        /* 一次进 2 个分类，8 个分类轮着来 —— 转几圈就把商城填满了 */
-        const start = Math.floor(Math.random() * MALL_CATS.length);
-        const pick = [MALL_CATS[start], MALL_CATS[(start + 1) % MALL_CATS.length]];
+        /* 一次覆盖全部 8 个分类：以前只进 2 类、轮着来，用户看到的永远是
+           「好多分类下面没东西」——点了 ⟳ 也只补两个，等于永远填不满。
+           AI 偶尔漏类，所以补一轮：只对还空着的分类再要一次。
+           上限 2 轮，免得模型一直不听话时空转（ponytail: 最多多花一次请求）。 */
+        const all = MALL_CATS;
+        /* 先把「正在进货」画出来 —— 两趟模型要几秒，不先画就是点了没反应 */
         homeView();
         try {
-          const text = await SJ.askOnce(GEN_SYS, genUser(pick));
-          const fresh = SJ.normalizeGoods(SJ.parseJSONLoose(text));
+          let fresh = await genBatch(all);
+          let have = new Set(fresh.map(g => g.cat));
+          const missing = () => all.filter(c => !have.has(c.id));
+          let miss = missing();
+          if (miss.length && fresh.length) {
+            const more = await genBatch(miss);
+            fresh = fresh.concat(more);
+            have = new Set(fresh.map(g => g.cat));
+            miss = missing();
+          }
           if (!fresh.length) throw new Error('这次没进到货，再点一下右上角 ⟳');
-          /* 只替换这两个分类的旧货，别的分类留着 */
-          const keep = mg().goods.filter(g => !pick.some(c => c.id === g.cat));
-          SJ.setGoods(keep.concat(fresh));
+          /* 全量替换：每个分类都进了新货，旧的留着反而和新的一起显得乱 */
+          SJ.setGoods(fresh);
+          /* 补过一轮还是有分类空着 —— 说实话，别让用户以为是自己没找到 */
+          if (miss.length) toast('有 ' + miss.length + ' 个分类这次没进到货：' + miss.map(c => c.name).join('、'));
         } catch (e) {
           toast((e && e.message) || '进货失败');
         }

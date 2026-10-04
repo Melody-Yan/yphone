@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#faf8f5">
+<!-- 这台手机是「浅色 + 自己一套深色壁纸」，不该让浏览器自作主张反色。
+     安卓 Chrome 的「自动深色」会整页反相，纸色被翻成深底、头像看着像负片。
+     注意：只有 `only light` 能挡住，写 `light` 没用（实测 rgb(33,32,30) vs rgb(250,248,245)）。 -->
+<meta name="color-scheme" content="only light">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="yphone">

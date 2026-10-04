@@ -5,6 +5,9 @@
    所有颜色都走 :root 变量 —— 换色只改这一块。
    ══════════════════════════════════════════════════════ */
 :root {
+  /* 双保险：meta 之外再声明一次，缓存里存着旧 index.html 时也挡得住浏览器自动反色。
+     写 `only light`——`light` 挡不住（见 index.html 里的注释）。 */
+  color-scheme: only light;
   --paper: #faf8f5;          /* App 内容底：暖白纸 */
   --paper-2: #f1ede7;        /* 次级底 */
   --fg: #4b463f;             /* 主文字：暖炭灰 */
@@ -581,6 +584,26 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .confirm-actions .btn.danger { color: var(--danger); }
 .confirm-actions .btn.ghost { color: var(--fg-dim); }
 .confirm-actions .btn + .btn { border-left: 1px solid var(--line); }
+
+/* 支付密码盘：复用锁屏 .pad-* 那套数字键，但底色是浅色弹窗。
+   .pk 默认是给压在壁纸上的锁屏用的（半透明白 + 模糊），
+   放在纸色弹窗里对比度不够，这里覆盖成描边款。 */
+.pay-pad { max-width: 296px; padding-bottom: 10px; }
+.pay-head { padding: 20px 18px 4px; text-align: center; }
+.pay-title { font-size: 15px; font-weight: 600; }
+.pay-amt { margin-top: 6px; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+.pay-pad .pad-dots { margin: 14px 0 4px; color: var(--fg); }
+.pay-pad .pad-grid { grid-template-columns: repeat(3, 68px); gap: 10px; margin: 0 auto 8px; }
+.pay-pad .pk {
+  width: 68px; height: 54px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--paper-2);
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  color: var(--fg); font-size: 23px; box-shadow: none;
+}
+.pay-pad .pk:active { background: var(--accent-soft); }
+/* 输错抖一下。锁屏那个 .shake 挂在 #lock 上，这里挂在弹窗本体上 */
+.pay-pad.shake { animation: shake .4s; }
+#phone.no-anim .pay-pad.shake { animation: none; }
 
 /* 细滚动条，别破坏浅色气质 */
 .list::-webkit-scrollbar, .chat-list::-webkit-scrollbar, .walls::-webkit-scrollbar { width: 6px; height: 6px; }

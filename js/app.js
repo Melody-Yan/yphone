@@ -737,7 +737,36 @@ function applyLook() {
   phone.classList.toggle('no-label', s.showLabels === false);
   phone.classList.toggle('ico-glass', s.iconStyle === 'glass');
   phone.classList.toggle('ico-flat', s.iconStyle === 'flat');
+  phone.classList.toggle('no-status', s.showStatus === false);
+  phone.classList.toggle('sb-dark', s.sbColor === 'dark');
+  phone.classList.toggle('sb-light', s.sbColor === 'light');
   phone.style.setProperty('--lock-scale', String(s.lockScale || 1));
+  phone.style.setProperty('--font', SJ.FONT_STACKS[s.font] || SJ.FONT_STACKS.system);
+}
+
+/* 收发消息的提示音。用 WebAudio 现场合成两个短音 —— 不用下载音频文件，
+   离线和首次打开都不会有空窗。没有 AudioContext（老浏览器 / 沙箱）就安静地不响。 */
+let actx = null;
+function sfx(kind) {
+  if (SJ.state.settings.sfx === false) return false;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  try {
+    actx = actx || new AC();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    const hi = kind === 'in';                     // 收到：往上一挑；发出：往下一沉
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = hi ? 'sine' : 'triangle';
+    o.frequency.setValueAtTime(hi ? 880 : 620, t);
+    o.frequency.exponentialRampToValueAtTime(hi ? 1320 : 440, t + 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + 0.19);
+  } catch (e) {}
+  return true;
 }
 
 function applyWallpaper() {
@@ -753,6 +782,7 @@ function applyWallpaper() {
 }
 
 window.SHELL_LOOK = applyLook;   // 外观 App 改完设置调一下，立刻生效
+SJ.sfx = sfx;                    // 聊天页收发消息时响一下（apps.js 那边调）
 
 /* ══ 启动 ══ */
 function boot() {

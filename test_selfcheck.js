@@ -166,6 +166,7 @@ function makeSandbox() {
   return s;
 }
 let sandbox = null;
+let sandboxCtx = null;
 let _bootN = 0;
 
 const SRC = ['js/core.js', 'js/apps.js', 'js/app.js'];
@@ -177,9 +178,14 @@ function boot() {
   pages = freshPages();
   sandbox = makeSandbox();
   const ctx = vm.createContext(sandbox);
+  sandboxCtx = ctx;
   for (const f of SRC) {
     vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), ctx, { filename: f });
   }
+  /* 「允许 TA 已读不回」是随机的（18%）。自检里默认关掉它 —— 否则
+     「点了回复就该有回复」这类断言会随机翻车，红一次绿一次没法用。
+     它自己的行为在 [32] 里用固定的 Math.random 单独验。 */
+  try { sandbox.SJ.state.settings.readIgnore = false; } catch (e) {}
 }
 
 /* ── 断言 ── */
@@ -1111,6 +1117,55 @@ ok('「界面」这几条写进了存档', (() => {
   S.closeTop(true);
   const raw = store.get('xiaoshouji.v1') || '{}';
   return raw.includes('"showLabels"') && raw.includes('"haptic"') && raw.includes('"noAnim"') && raw.includes('"iconStyle"');
+})());
+
+/* 字体 / 状态栏 / 音效 —— 「设置太简陋」这一轮补的 */
+const sv6 = openFresh('look');
+const lookRow6 = t => walk(sv6).find(n => n._class.has('row') && n.textContent.includes(t));
+ok('外观 App 里有「字体」行', !!lookRow6('字体'));
+ok('外观 App 里有「显示状态栏」开关', !!lookRow6('显示状态栏'));
+ok('外观 App 里有「状态栏字色」行', !!lookRow6('状态栏字色'));
+ok('外观 App 里有「消息音效」开关', !!lookRow6('消息音效'));
+ok('字体四档都是系统字体栈，没有外链字体文件', (() => {
+  const F = sandbox.SJ.FONT_STACKS;
+  const keys = Object.keys(F);
+  return keys.length === 4 && keys.join(',') === 'system,rounded,serif,mono' &&
+    keys.every(k => typeof F[k] === 'string' && !/https?:|url\(/.test(F[k]));
+})());
+ok('选「等宽」后 --font 真的换了', (() => {
+  lookRow6('字体').click();
+  clickSheet('等宽');
+  const v = ph.style.getPropertyValue('--font') || '';
+  const on = sandbox.SJ.state.settings.font === 'mono' && v.includes('ui-monospace');
+  lookRow6('字体').click(); clickSheet('系统');
+  return on;
+})());
+ok('关掉「显示状态栏」→ #phone 挂上 no-status', (() => {
+  lookRow6('显示状态栏').click();
+  const on = ph._class.has('no-status');
+  lookRow6('显示状态栏').click();
+  return on && !ph._class.has('no-status');
+})());
+ok('状态栏字色能手动定，压过「跟随壁纸」', (() => {
+  lookRow6('状态栏字色').click();
+  clickSheet('浅色字');
+  const on = ph._class.has('sb-light') && sandbox.SJ.state.settings.sbColor === 'light';
+  lookRow6('状态栏字色').click(); clickSheet('跟随壁纸');
+  return on && !ph._class.has('sb-light');
+})());
+ok('没有 AudioContext 时消息音效安静地不响', (() => {
+  const had = sandbox.SJ.state.settings.sfx;
+  sandbox.SJ.state.settings.sfx = true;
+  const r = sandbox.SJ.sfx('in');            // 沙箱里没有 AudioContext → 必须返回 false 且不抛
+  sandbox.SJ.state.settings.sfx = had;
+  return r === false;
+})());
+ok('关掉音效后 sfx 直接不干活', (() => {
+  const had = sandbox.SJ.state.settings.sfx;
+  sandbox.SJ.state.settings.sfx = false;
+  const r = sandbox.SJ.sfx('in');
+  sandbox.SJ.state.settings.sfx = had;
+  return r === false;
 })());
 S.closeTop(true);
 
@@ -2251,6 +2306,73 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
     gl ? gl.textContent.trim().slice(0, 40) : 'no list');
   ok('开场白那条带可点头像', walk(gchat).some(n => n._class.has('av-tap')));
 
+  sandbox.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [32] 已读不回 —— 18% 的随机行为，必须把 Math.random 钉死才测得动
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[32] 已读不回 / 字体 / 状态栏 / 消息音效');
+{
+  boot();
+  const App = sandbox.SJ;
+  vm.runInContext('var _origRandom = Math.random;', sandboxCtx);
+  const rnd = v => vm.runInContext('Math.random = function () { return ' + v + '; }', sandboxCtx);
+  const rndBack = () => vm.runInContext('Math.random = _origRandom;', sandboxCtx);
+
+  const c = App.makeCharacter({ name: '不回消息的人', greeting: '在的。' });
+  App.saveCharacter(c);
+
+  /* 先验聊天设置里那个开关 */
+  let chat = openFresh('chat', c.id);
+  const avTap = walk(chat).find(n => n._class.has('av-tap'));
+  ok('点头像能进聊天设置（再确认一次）', !!avTap);
+  avTap.click();
+  const tapR = t => {
+    const r = walk(chat).find(n => n._class.has('row') && n.textContent.includes(t));
+    if (r) r.click();
+    return !!r;
+  };
+  ok('聊天设置「内容」里有「消息与回复」', tapR('消息与回复'));
+  const before = App.state.settings.readIgnore;
+  ok('「消息与回复」里有「允许 TA 已读不回」', tapR('允许 TA 已读不回'));
+  ok('点一下真的翻了开关', App.state.settings.readIgnore !== before);
+  tapR('允许 TA 已读不回');                        // 翻回默认（开）
+
+  /* 关掉开关：随机数再小也必须回 */
+  chat = openFresh('chat', c.id);
+  App.state.settings.readIgnore = false;
+  App.pushMessage(c.id, true, '在吗');
+  chat = openFresh('chat', c.id);
+  let send = walk(chat).find(n => n._class.has('chat-send'));
+  rnd(0.001);                                      // 必中「不回」的阈值
+  send.click();
+  for (let i = 0; i < 50 && send.textContent === '…'; i++) await new Promise(r => setTimeout(r, 60));
+  ok('关掉已读不回后，随机数落在阈值里也照样回',
+    App.messages(c.id).some(m => !m.me && m.text.includes('本地演示')));
+
+  /* 打开开关 + 随机数必中：真的一句话都不该多 */
+  App.pushMessage(c.id, true, '你在干嘛');
+  rnd(0.001);
+  App.state.settings.readIgnore = true;
+  const n0 = App.messages(c.id).length;
+  chat = openFresh('chat', c.id);
+  send = walk(chat).find(n => n._class.has('chat-send'));
+  ok('这时候右边的键是「回复」', send.textContent === '回复', send.textContent);
+  send.click();
+  await new Promise(r => setTimeout(r, 240));      // 「不回」是在调接口之前就 return 的，很快
+  ok('已读不回时对话一条都没多，也没有打字气泡',
+    App.messages(c.id).length === n0 && !walk(chat).some(n => n._class.has('typing')),
+    JSON.stringify(App.messages(c.id).map(m => m.text)));
+  ok('已读不回之后键又变回可用的「回复」', send.textContent === '回复', send.textContent);
+
+  /* 随机数给 0.9（> 0.18）：同一套设置下必须回 */
+  rnd(0.9);
+  send.click();
+  for (let i = 0; i < 50 && send.textContent === '…'; i++) await new Promise(r => setTimeout(r, 60));
+  ok('同一套设置，随机数落在阈值外就正常回',
+    App.messages(c.id).length > n0);
+  rndBack();
   sandbox.SHELL.closeAll();
 }
 

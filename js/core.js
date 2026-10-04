@@ -100,6 +100,16 @@ const WALL_REV = 2;
 /* 朋友圈最多留几条 */
 const MOMENT_KEEP = 120;
 
+/* 字体。只用系统自带的字体栈 —— 不带字体文件，中文字体动辄 5MB，
+   塞进 Pages 静态站既慢又没必要。名字要够直白，用户在真机上试一眼就知道选哪个。 */
+const FONT_STACKS = {
+  system: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif',
+  rounded: '"Yuanti SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Segoe UI", sans-serif',
+  serif: '"Songti SC", "Noto Serif SC", "SimSun", Georgia, serif',
+  mono: 'ui-monospace, Menlo, Consolas, "Courier New", monospace'
+};
+const FONT_NAMES = { system: '系统', rounded: '圆体', serif: '宋体', mono: '等宽' };
+
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
   wallpaper: 'p0',       // 默认「窗边」那张照片（壁纸 id，见 WALLS）
@@ -151,7 +161,12 @@ const DEFAULTS = {
     showLabels: true,    // 桌面图标下面显示名字
     haptic: true,        // 点按振动反馈（要设备支持 navigator.vibrate）
     lockScale: 1,        // 锁屏时钟大小 0.8 ~ 1.4
-    iconStyle: 'classic' // 图标质感：classic 经典 / glass 液态玻璃 / flat 毛玻璃
+    iconStyle: 'classic', // 图标质感：classic 经典 / glass 液态玻璃 / flat 毛玻璃
+    font: 'system',      // 字体：system / rounded / serif / mono（全是系统字体栈，不带字体文件）
+    showStatus: true,    // 显示顶部状态栏
+    sbColor: 'auto',     // 状态栏字色：auto 跟壁纸 / dark / light
+    sfx: true,           // 收发消息的音效（WebAudio 现场合成，不用素材）
+    readIgnore: true     // 允许 TA 已读不回（偶尔真的不接话，比每次必回更像人）
   },
   characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,myRelation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
@@ -2004,6 +2019,7 @@ window.SJ = {
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */
   WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,
+  FONT_STACKS, FONT_NAMES,
   /* 生图 */
   imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData,
   /* 朋友圈 */

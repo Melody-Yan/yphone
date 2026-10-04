@@ -823,6 +823,9 @@ const APPS = [
             () => { S.allAtOnce = S.allAtOnce !== true; SJ.save(); msgPage(id); }),
           rowToggle('自动回复', '你发完就等 TA 回，不用手点「回复」', S.autoReply === true,
             () => { S.autoReply = S.autoReply !== true; SJ.save(); msgPage(id); }),
+          rowToggle('允许 TA 已读不回', '偶尔真的不接话 —— 每次都秒回反而像个客服',
+            S.readIgnore !== false,
+            () => { S.readIgnore = S.readIgnore === false; SJ.save(); msgPage(id); }),
           SJ.el('div', { class: 'hint' }, '「回复」按钮永远在。自动回复只是帮你少点一下。')
         );
       }
@@ -1179,18 +1182,21 @@ const APPS = [
         function autoMaybe() {
           if (SJ.state.settings.autoReply === true) setTimeout(() => askAndShow(), 400);
         }
+        const beep = k => { try { SJ.sfx && SJ.sfx(k); } catch (e) {} };
         function sendText(text) {
           const h = SJ.pushMessage(id, true, text);
           renderMsg(h[h.length - 1]);
           input.value = '';
           syncSend();
           input.focus();
+          beep('out');
           autoMaybe();
         }
         function sendMedia(extra) {
           const h = SJ.pushMessage(id, true, extra.text, extra);
           renderMsg(h[h.length - 1]);
           syncSend();
+          beep('out');
           autoMaybe();
         }
 
@@ -1200,6 +1206,13 @@ const APPS = [
           const h = SJ.messages(id);
           if (!h.length || !h[h.length - 1].me) return;   // 没有欠着的，别白问
           busy = true; syncSend();
+          /* 已读不回：偶尔真的不接话。这个决定必须放在调接口之前 ——
+             省一次 API 调用，而且「没回」本来就该是没下文的，
+             先弹个打字气泡再让它消失反而露馅。 */
+          if (SJ.state.settings.readIgnore !== false && Math.random() < 0.18) {
+            busy = false; syncSend();
+            return;
+          }
           const tip = bubble('…', false);
           tip.classList.add('typing');
           let answer;
@@ -1210,6 +1223,7 @@ const APPS = [
           // 整条先落盘（刷新后照样能按同一套规则拆开），再一条条蹦出来
           SJ.pushMessage(id, false, answer);
           tip.remove();
+          beep('in');       // 一条回复一个提示音，不是每个气泡都响
           for (const t of SJ.splitReply(answer)) {
             const v = SJ.voiceOf(t);
             if (v || SJ.redpacketOf(t)) {
@@ -2372,6 +2386,49 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
+
+        box.append(SJ.el('div', { class: 'row', onclick: () => {
+          window.sheet(Object.keys(SJ.FONT_NAMES).map(k => ({
+            icon: '🅰',
+            label: SJ.FONT_NAMES[k],
+            hint: SJ.state.settings.font === k ? '当前' : '',
+            run: () => { SJ.state.settings.font = k; look(); }
+          })), '字体（都是系统自带的，不下载）');
+        } }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '字体'),
+            SJ.el('div', { class: 'row-sub' }, '现在：' + (SJ.FONT_NAMES[SJ.state.settings.font] || '系统'))
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]));
+        box.append(toggleRow('显示状态栏', '关掉顶部的时间电量条，桌面更干净',
+          SJ.state.settings.showStatus !== false, () => {
+            SJ.state.settings.showStatus = SJ.state.settings.showStatus === false;
+            look();
+          }));
+        box.append(SJ.el('div', { class: 'row', onclick: () => {
+          const SB = [['auto', '跟随壁纸'], ['dark', '深色字'], ['light', '浅色字']];
+          window.sheet(SB.map(([v, n]) => ({
+            icon: '🔤',
+            label: n,
+            hint: SJ.state.settings.sbColor === v ? '当前' : '',
+            run: () => { SJ.state.settings.sbColor = v; look(); }
+          })), '状态栏的字色（自动算不准就手动定）');
+        } }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '状态栏字色'),
+            SJ.el('div', { class: 'row-sub' }, '现在：' +
+              ({ auto: '跟随壁纸', dark: '深色字', light: '浅色字' })[SJ.state.settings.sbColor] || '跟随壁纸')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]));
+        box.append(toggleRow('消息音效', '收发消息各响一下（现场合成，不用音频文件）',
+          SJ.state.settings.sfx !== false, () => {
+            SJ.state.settings.sfx = SJ.state.settings.sfx === false;
+            SJ.save();
+            if (SJ.state.settings.sfx) { try { SJ.sfx && SJ.sfx('in'); } catch (e) {} }
+            main();
+          }));
 
         box.append(SJ.el('div', { class: 'group-title' }, '我的壁纸'));
         box.append(SJ.el('div', { class: 'hint' },

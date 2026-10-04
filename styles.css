@@ -1345,3 +1345,18 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 #phone.dark-wall.ico-flat .icon-art { background: rgba(28, 26, 24, .34) !important; }
 #phone.ico-glass .icon-art svg, #phone.ico-flat .icon-art svg { opacity: .95; }
+
+/* ══ 外观：字体 / 状态栏 ══ */
+/* --font 由 app.js 的 applyLook() 从 SJ.FONT_STACKS 里取整条字体栈内联塞进来；
+   不内联时就沿用 :root 里那一套（字面量只写一处，别在这儿再抄一遍）。 */
+#phone { font-family: var(--font); }
+#phone button, #phone input, #phone textarea, #phone select { font-family: inherit; }
+
+#phone.no-status #statusbar { display: none; }
+#phone.no-status #home { padding-top: 10px; }
+#phone.no-status #lock { padding-top: 24px; }
+
+/* 手动定字色。写在文件末尾 = 同优先级下后出现者赢，能压过上面的
+   #phone.dark-wall #statusbar 和 #phone.app-open #statusbar 两条自动规则。 */
+#phone.sb-dark #statusbar { color: #3a3a3c; text-shadow: 0 1px 6px rgba(255, 255, 255, .7); }
+#phone.sb-light #statusbar { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, .5); }

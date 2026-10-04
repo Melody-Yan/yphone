@@ -276,7 +276,9 @@ html, body {
 .nav-btn.ghost { opacity: 0; pointer-events: none; }
 
 /* ══ 通用组件 ══ */
-.list { flex: 1; overflow-y: auto; padding: 8px 0 40px; }
+/* min-height: 0 是 column flex 里让 overflow-y 真正生效的关键：
+   flex item 默认 min-height:auto，内容再高它也不缩，于是「能滚」只是碰巧。 */
+.list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0 40px; }
 .group-title { font-size: 12px; color: var(--fg-dim); padding: 18px 20px 6px; letter-spacing: .6px; }
 .row {
   display: flex; align-items: center; gap: 12px;
@@ -392,7 +394,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 
 /* 聊天。gap 管「同一轮内」两条之间的缝；两轮之间的呼吸靠 .msg-time 自己的下边距 ——
    统一 gap 分不出这两种间距，而微信里它们明显不一样。 */
-.chat-list { flex: 1; overflow-y: auto; padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 7px; }
+.chat-list { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 7px; }
 .bubble {
   max-width: 74%; padding: 11px 15px; border-radius: 19px;
   font-size: 15px; line-height: 1.55; word-break: break-word;
@@ -856,7 +858,12 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ══════════════════════════════════════════════════════
    口味横滑条
    ══════════════════════════════════════════════════════ */
-.chips { display: flex; gap: 8px; padding: 2px 16px 12px; overflow-x: auto; }
+/* 这两条（.chips / .cat-rail）是 .app-view 里的固定高度内容。
+   .app-view 是 column flex，子元素默认 flex-shrink:1 —— 一旦下面的列表内容
+   把高度占满，横滑条会被按比例压扁：实测 390x844 下 rail 从 82px 压到 14px、
+   圆圈从 48px 压到 24px、文字 0px，整个入口等于废掉。
+   flex: 0 0 auto 就是「别压我」。 */
+.chips { display: flex; gap: 8px; padding: 2px 16px 12px; overflow-x: auto; flex: 0 0 auto; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
   flex: 0 0 auto; border: 1px solid var(--line); cursor: pointer;
@@ -871,13 +878,15 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
    ══════════════════════════════════════════════════════ */
 /* 搜索框：胶囊形，跟参考图一样 */
 .shop-search-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 16px 10px;
+  flex: 0 0 auto;
   background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 9px 15px; }
 .shop-search-ico { display: flex; opacity: .45; flex: 0 0 auto; }
 .shop-search { flex: 1; min-width: 0; border: 0; outline: none; background: none;
   font: inherit; font-size: 14px; color: var(--fg); }
 .shop-search::placeholder { color: #b6aea4; }
-/* 金刚区：参考图首页那一排圆形品类入口。横滑，一行放得下就不滚。 */
-.cat-rail { display: flex; gap: 10px; padding: 2px 16px 12px; overflow-x: auto; }
+/* 金刚区：参考图首页那一排圆形品类入口。横滑，一行放得下就不滚。
+   flex: 0 0 auto —— 同 .chips，别让下面列表把它压扁（压扁了就点不到了）。 */
+.cat-rail { display: flex; gap: 10px; padding: 2px 16px 12px; overflow-x: auto; flex: 0 0 auto; }
 .cat-rail::-webkit-scrollbar { display: none; }
 .cat {
   flex: 0 0 auto; border: 0; background: none; cursor: pointer; padding: 0;
@@ -904,7 +913,12 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .dl-stat + .dl-stat { border-left: 1px solid rgba(255,255,255,.14); }
 .dl-stat-n { font-size: 21px; font-weight: 600; letter-spacing: .3px; }
 .dl-stat-l { font-size: 11.5px; opacity: .7; margin-top: 4px; }
-.shop-list { padding: 4px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+/* 店铺列表自己就是滚动容器 —— 和 .list 一样的做法。
+   不这么写的话：它不是滚动容器，内容一旦超出就被外层 .dark-wall 的
+   overflow:hidden 裁掉，最后几家店永远够不到（实测 6 家店时最后一张卡
+   bottom=901 > 视口 844，滚也滚不动）。 */
+.shop-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 20px;
+  display: flex; flex-direction: column; gap: 12px; }
 .shop-card {
   display: flex; align-items: center; gap: 13px; padding: 12px;
   background: var(--panel); border: 1px solid var(--line);

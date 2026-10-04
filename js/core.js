@@ -101,6 +101,9 @@ const WALL_REV = 2;
 const MOMENT_KEEP = 120;
 /* 每个角色最多留几通通话记录。通话正文不占聊天，但也不能无限长 */
 const CALL_KEEP = 40;
+/* 自己收进表情库的图最多几张。表情都是小图（收的时候压到 240px），
+   但也别让人一口气塞 200 张进去把 5MB 的 localStorage 吃光。 */
+const STICKER_MAX = 80;
 
 /* 字体。只用系统自带的字体栈 —— 不带字体文件，中文字体动辄 5MB，
    塞进 Pages 静态站既慢又没必要。名字要够直白，用户在真机上试一眼就知道选哪个。 */
@@ -187,6 +190,8 @@ const DEFAULTS = {
   /* 通话记录：{ 角色id: [{id,at,secs,lines:[{me,text,ts}],archived}] }
      通话里说的话不进 chats —— 挂断以后聊天页不该被一整场对白淹掉。 */
   calls: {},
+  /* 表情包库：自己收进来的图（图片仓引用）。内置的那些 emoji 写在前端代码里，不进存档 */
+  stickers: [],
   /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
   delivery: {
     shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
@@ -206,7 +211,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
-  moments: 'array', delivery: 'object', music: 'object', calls: 'object'
+  moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -325,6 +330,11 @@ function migrate(saved) {
   /* 聊天背景：只认图片仓引用 / data URI / http，其它一律当没设 */
   const bgOk = v => /^(idb:[\w-]+|data:image\/|https?:)/.test(String(v || '')) ? String(v) : '';
   out.settings.chatBg = bgOk(out.settings.chatBg);
+
+  /* 表情包库：自己收进来的图。过滤 + 去重（同一张收两遍没意义）+ 封顶 */
+  out.stickers = Array.from(new Set(
+    (Array.isArray(out.stickers) ? out.stickers : []).map(bgOk).filter(Boolean)
+  )).slice(-STICKER_MAX);
 
   /* 壁纸从「整条 CSS」改成「id」。老存档存的是一整串渐变，按 CSS 找回内置编号；
      对不上（比如那张自己传的壁纸已经删了）就退回默认，别留一张白屏。 */
@@ -886,6 +896,30 @@ function setChatBg(char, img) {
   if (char) { char.chatBg = v; saveCharacter(char); }
   else { state.settings.chatBg = v; save(); }
   return v;
+}
+
+/* 表情包库（自己收的那部分）。内置 emoji 写在前端，不进存档 ——
+   十个 emoji 塞进存档只为了少写一行代码，不值得。 */
+function stickersOf() {
+  if (!Array.isArray(state.stickers)) state.stickers = [];
+  return state.stickers;
+}
+function addSticker(img) {
+  const v = avatarSrc(img);
+  if (!v) return '';
+  const list = stickersOf();
+  const i = list.indexOf(v);
+  if (i >= 0) list.splice(i, 1);   // 收第二遍 = 挪到最新（列表末尾），不留两份
+  list.push(v);
+  state.stickers = list.slice(-STICKER_MAX);
+  save();
+  return v;
+}
+function removeSticker(img) {
+  const v = String(img || '');
+  state.stickers = stickersOf().filter(s => s !== v);
+  save();
+  return state.stickers.length;
 }
 
 /* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
@@ -2199,6 +2233,7 @@ window.SJ = {
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
   callsOf, pushCall, deleteCall, clearCalls, callLog,
   chatBgOf, setChatBg,
+  stickersOf, addSticker, removeSticker, STICKER_MAX,
   proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,

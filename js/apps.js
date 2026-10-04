@@ -1198,13 +1198,18 @@ const APPS = [
           let inner;
           if (m.imgGone) {
             /* 存储瘦身时被清掉的老图。别留一个破图图标，说清楚它去哪儿了。 */
-            inner = SJ.el('div', { class: 'bubble-sticker gone' }, '🖼 图片已清理');
+            inner = m.sticker
+              ? SJ.el('div', { class: 'bubble-sticker gone' }, '😶 表情已清理')
+              : SJ.el('div', { class: 'bubble-sticker gone' }, '🖼 图片已清理');
+          } else if (m.sticker && /^(idb:|data:|https?:)/.test(m.img || '')) {
+            /* 自己收的表情：小图，不留气泡底 —— 表情包铺满整屏就不叫表情了 */
+            inner = SJ.el('img', { class: 'bubble-sticker-img', src: SJ.imgSrc(m.img), alt: '表情' });
           } else if (/^(idb:|data:|https?:)/.test(m.img || '')) {
             inner = SJ.el('img', { class: 'bubble-pic', src: SJ.imgSrc(m.img), alt: '图片' });
           } else {
             inner = SJ.el('div', { class: 'bubble-sticker' }, m.img || '🖼');
           }
-          const b = SJ.el('div', { class: 'bubble me media' }, [inner]);
+          const b = SJ.el('div', { class: 'bubble me media' + (m.sticker ? ' as-sticker' : '') }, [inner]);
           row(b, true);
           return b;
         }
@@ -1506,12 +1511,59 @@ const APPS = [
           f.click();
         }
 
+        /* 表情包：内置 emoji 在前，自己收进来的图在后。
+           自己收的图长按删掉 —— 每格挂一个删除按钮太吵，这又不是「管理」页。 */
         function pickImage() {
           let mask = null;
-          const pick = s => { if (mask) mask.remove(); sendMedia({ kind: 'img', img: s, text: '[图片]' }); };
-          const grid = SJ.el('div', { class: 'sticker-grid' },
-            STICKERS.map(s => SJ.el('button', { class: 'sticker', onclick: () => pick(s) }, s)));
-          mask = sheet([{ icon: '🗂', label: '从相册选一张', hint: '自动压小', run: pickFile }], grid);
+          const close = () => { if (mask) mask.remove(); };
+          const grid = SJ.el('div', { class: 'sticker-grid' });
+          const send = s => {
+            close();
+            sendMedia({ kind: 'img', img: s, sticker: true, text: '[表情]' });
+          };
+          const cell = ref => {
+            const b = SJ.el('button', { class: 'sticker has-img' },
+              SJ.el('img', { class: 'sticker-img', src: SJ.imgSrc(ref), alt: '表情' }));
+            let timer = null, fired = false;
+            const start = () => {
+              fired = false;
+              timer = setTimeout(() => { timer = null; fired = true; askDel(ref); }, 480);
+            };
+            const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+            b.addEventListener('mousedown', start);
+            b.addEventListener('touchstart', start, { passive: true });
+            b.addEventListener('mouseup', stop);
+            b.addEventListener('mouseleave', stop);
+            b.addEventListener('touchend', stop);
+            b.addEventListener('touchmove', stop);
+            /* 长按弹过删除确认之后，抬手跟来的那个 click 不能再把表情发出去 */
+            b.addEventListener('click', () => { if (!fired) send(ref); });
+            return b;
+          };
+          const askDel = ref => {
+            window.confirmBox('把这个表情从库里删掉？', () => { SJ.removeSticker(ref); draw(); });
+          };
+          const draw = () => {
+            grid.innerHTML = '';
+            STICKERS.forEach(s => grid.append(SJ.el('button', { class: 'sticker', onclick: () => send(s) }, s)));
+            SJ.stickersOf().forEach(ref => grid.append(cell(ref)));
+            grid.append(SJ.el('button', { class: 'sticker add', onclick: collect }, '＋'));
+          };
+          const collect = async () => {
+            const ref = await pickToStore(240, 0.85);
+            if (!ref) return;
+            SJ.addSticker(ref);
+            draw();
+            toast('收进表情库了');
+          };
+          draw();
+          mask = sheet([
+            { icon: '🗂', label: '从相册选一张', hint: '当图片发出去', run: pickFile },
+            { icon: '➕', label: '收一张进表情库', hint: '压到 240px，长按可删', run: collect }
+          ], SJ.el('div', { class: 'sticker-box' }, [
+            SJ.el('div', { class: 'sheet-head' }, '表情'),
+            grid
+          ]));
         }
 
         const AMOUNTS = [[5.2, '一杯奶茶'], [13.14, '一点点心意'], [52, '请你吃顿饭'], [100, '帮个忙'], [520, '别问了']];
@@ -1602,7 +1654,7 @@ const APPS = [
 
         plus.addEventListener('click', () => sheet([
           { icon: '↻', label: '重新生成', hint: '换个回法', run: roll },
-          { icon: '🖼', label: '发图片', hint: '贴纸 / 相册', run: pickImage },
+          { icon: '🖼', label: '发表情 / 图片', hint: '表情库 / 相册', run: pickImage },
           { icon: '🎬', label: '发视频', hint: '20MB 以内', run: pickVideo },
           { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
           { icon: '🧧', label: '发红包', run: askPacket },

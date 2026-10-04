@@ -587,6 +587,15 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   display: grid; place-items: center;
 }
 .sticker:active { background: rgba(125, 156, 148, .14); }
+/* 自己收进表情库的图：格子一样大，图铺满 */
+.sticker.has-img { padding: 0; overflow: hidden; }
+.sticker-img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.sticker.add { font-size: 22px; color: var(--fg-dim); border-style: dashed; }
+.sticker-box .sheet-head { padding-bottom: 0; }
+/* 表情气泡：小图、不留气泡底。铺满整屏就不叫表情了 */
+.bubble.as-sticker { background: none; padding: 0; box-shadow: none; }
+.bubble-sticker-img { width: 104px; height: 104px; object-fit: contain; display: block; }
+
 
 /* 一闪而过的提示 */
 .toast {

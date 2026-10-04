@@ -700,8 +700,8 @@ ok('聊天条左边有一个「＋」功能键', !!plus3);
 plus3.click();
 const labels = sheetLabels();
 ok('「＋」打开的是功能面板', labels.length >= 4, JSON.stringify(labels));
-ok('面板里有重新生成 / 发图片 / 转账 / 撤回上一条',
-  ['重新生成', '发图片', '转账', '撤回上一条'].every(t => labels.includes(t)), JSON.stringify(labels));
+ok('面板里有重新生成 / 发表情 / 转账 / 撤回上一条',
+  ['重新生成', '发表情 / 图片', '转账', '撤回上一条'].every(t => labels.includes(t)), JSON.stringify(labels));
 clickSheet('重新生成');
 ok('一条都没聊过时「重新生成」只给提示，不瞎发请求',
   toasts().includes('先发一条'), toasts() || '（没有提示）');
@@ -746,11 +746,12 @@ ok('给模型看到的是一句人话，不是一串 JSON', tr.text === '[转账
 ok('屏幕上渲染成转账卡片', walk(cv3).some(x => x._class.has('transfer')));
 
 plus3.click();
-clickSheet('发图片');
-ok('发图片面板里有贴纸可选', walk(byId.phone).filter(x => x._class.has('sticker')).length >= 6);
+clickSheet('发表情 / 图片');
+ok('表情面板里有内置贴纸可选', walk(byId.phone).filter(x => x._class.has('sticker')).length >= 10);
 walk(byId.phone).find(x => x._class.has('sticker')).click();
 const pic = sandbox.SJ.messages(xm3.id).slice(-1)[0];
 ok('贴纸作为图片消息存下来', pic.kind === 'img' && !!pic.img, JSON.stringify(pic));
+ok('贴纸打了标记（渲染时用小图，不铺满屏）', pic.sticker === true, JSON.stringify(pic).slice(0, 80));
 ok('屏幕上渲染成图片气泡', walk(cv3).some(x => x._class.has('bubble') && x._class.has('media')));
 
 ok('truncateChat 到 0 就是清空', sandbox.SJ.truncateChat(xm3.id, 0).length === 0);
@@ -2568,7 +2569,8 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
       a: [{ id: 'c1', at: 5000, secs: 63, lines: [{ me: true, text: '喂' }, { me: false, text: '嗯' }] },
           '不是对象', null],
       b: '也不是数组'
-    }
+    },
+    stickers: ['javascript:alert(1)', 'data:text/html;base64,PHN2Zz4=', 'idb:ok1', 'https://e.com/s.png', 'idb:ok1', 42]
   }));
   boot();
   ok('存档里不是图片的聊天背景（全局）在读取时就被洗干净',
@@ -2584,6 +2586,85 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('聊天记录没被通话记录波及', sandbox.SJ.messages('a').length === 1);
   ok('callLog 把所有角色的通话摊平并按时间倒序',
     sandbox.SJ.callLog().length === 1 && sandbox.SJ.callLog()[0].charId === 'a');
+  ok('表情库里的脏值在读取时就被洗干净（只留图片引用）',
+    JSON.stringify(sandbox.SJ.stickersOf()) === JSON.stringify(['idb:ok1', 'https://e.com/s.png']),
+    JSON.stringify(sandbox.SJ.stickersOf()));
+  sandbox.SHELL.closeAll();
+
+  /* ── 6. 表情包库 ──
+     上一段（脏存档）调过 boot()，沙箱和 state 整个换过一遍，
+     所以这里必须重新拿一份 SJ，也不能再用上面那个 qc。 */
+  const A6 = sandbox.SJ;
+  const PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const s6 = A6.makeCharacter({ name: '表情角色', greeting: '在的' });
+  A6.saveCharacter(s6);
+  A6.state.stickers = [];
+  ok('表情库默认是空的', A6.stickersOf().length === 0);
+  ok('收一张进去能存下来', A6.addSticker(PNG1) === PNG1 && A6.stickersOf().length === 1);
+  ok('不是图片的东西收不进来', A6.addSticker('javascript:alert(1)') === '' && A6.stickersOf().length === 1);
+  A6.addSticker(PNG1);
+  ok('同一张收两遍不会变成两份', A6.stickersOf().length === 1);
+  A6.state.stickers = [];
+  A6.addSticker('https://e.com/a.png');
+  A6.addSticker(PNG1);
+  A6.addSticker('https://e.com/a.png');
+  ok('再收一遍是把它挪到最新的位置，不是留两份',
+    A6.stickersOf().length === 2 && A6.stickersOf()[1] === 'https://e.com/a.png',
+    JSON.stringify(A6.stickersOf()));
+  A6.state.stickers = [];
+  for (let i = 0; i < A6.STICKER_MAX + 5; i++) A6.addSticker('https://e.com/' + i + '.png');
+  ok('收太多会封顶，顶掉的是最早收的，不会把 5MB 的存档撑爆',
+    A6.stickersOf().length === A6.STICKER_MAX && A6.stickersOf()[0] === 'https://e.com/5.png',
+    A6.stickersOf().length + ' 张，头一张 ' + A6.stickersOf()[0]);
+  A6.state.stickers = [];
+  A6.addSticker(PNG1);
+
+  /* 面板：内置 emoji + 自己收的图 */
+  sandbox.SHELL.closeAll();
+  openFresh('chat', s6.id);
+  top().find(n => n._class.has('chat-plus')).click();
+  ok('「＋」里有「发表情 / 图片」', await waitFor(() => sheetLabels().includes('发表情 / 图片')),
+    JSON.stringify(sheetLabels()));
+  clickSheet('发表情 / 图片');
+  const cells = walk(byId.phone).filter(x => x._class.has('sticker'));
+  ok('表情面板里有内置 emoji',
+    cells.filter(x => !x._class.has('has-img') && !x._class.has('add')).length >= 10, String(cells.length));
+  ok('面板里有「＋」能收新的', cells.some(x => x._class.has('add')));
+  ok('自己收的那张渲染成图片格', walk(byId.phone).some(x => x._class.has('sticker-img')));
+  ok('面板上写着「收一张进表情库」', sheetLabels().includes('收一张进表情库'), JSON.stringify(sheetLabels()));
+
+  const mineCell = walk(byId.phone).find(x => x._class.has('sticker') && x._class.has('has-img'));
+  mineCell.click();
+  const smsg = A6.messages(s6.id).slice(-1)[0];
+  ok('点一下就发出去了，并且打了表情标记',
+    smsg.kind === 'img' && smsg.sticker === true && smsg.img === PNG1, JSON.stringify(smsg).slice(0, 90));
+  ok('表情气泡不带气泡底（小图，不铺满屏）',
+    walk(byId.phone).some(x => x._class.has('as-sticker')));
+  ok('表情气泡里是真的 <img>，不是文字',
+    walk(byId.phone).some(x => x._class.has('bubble-sticker-img')));
+  ok('发完面板自己收起', sheetLabels().length === 0);
+
+  /* 长按删掉 */
+  top().find(n => n._class.has('chat-plus')).click();
+  clickSheet('发表情 / 图片');
+  const delCell = walk(byId.phone).find(x => x._class.has('sticker') && x._class.has('has-img'));
+  ok('那一格挂上了长按监听', !!delCell && (delCell._listeners.mousedown || []).length > 0);
+  dispatch(delCell, 'mousedown', {});
+  ok('长按弹删除确认', await waitFor(() => walk(byId.phone).some(x => x._class.has('confirm'))));
+  walk(byId.phone).find(x => x._class.has('btn') && x._class.has('danger')).click();
+  ok('确认后表情从库里删掉', A6.stickersOf().length === 0, String(A6.stickersOf().length));
+  ok('删完面板里那格也跟着没了', !walk(byId.phone).some(x => x._class.has('sticker-img')));
+  /* 长按弹过确认之后，抬手跟来的那个 click 不能再把表情发出去 */
+  const beforeDel = A6.messages(s6.id).length;
+  dispatch(delCell, 'click', {});
+  ok('长按删除之后，抬手那一下不会误发出去', A6.messages(s6.id).length === beforeDel);
+
+  /* 存储瘦身清掉的老表情不能只留一个破图 */
+  A6.messages(s6.id).push({ me: true, kind: 'img', img: '', imgGone: true, sticker: true, text: '[表情]', ts: Date.now() });
+  sandbox.SHELL.closeAll();
+  openFresh('chat', s6.id);
+  ok('被瘦身清掉的表情会说清楚它去哪了，而不是留个破图',
+    walk(byId.phone).some(x => x.textContent === '😶 表情已清理'));
   sandbox.SHELL.closeAll();
 }
 

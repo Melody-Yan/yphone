@@ -3815,6 +3815,24 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   };
 
   /* ── 1. 地址簿 ── */
+  /* 先模拟一个「很老的存档」：连 addresses / addr 这两个键都没有。
+     新字段不能把老用户的手机读白 —— 这是这个项目栽过两次的坑。 */
+  store.set('xiaoshouji.v1', JSON.stringify({ characters: [], chats: {},
+    wallet: { balance: 500, log: [] },
+    delivery: { shops: [], cart: [], orders: [{ id: 'old', items: [], total: 20, ts: 1 }] } }));
+  boot(); App = sandbox.SJ;
+  ok('[老存档] 没有 addresses 键时不炸，且拿到空数组',
+    Array.isArray(App.state.addresses) && App.state.addresses.length === 0,
+    JSON.stringify(App.state.addresses));
+  ok('[老存档] 没有 addr 键时 delivery.addr 是空串',
+    App.state.delivery.addr === '', JSON.stringify(App.state.delivery.addr));
+  ok('[老存档] 老订单没有 addr / gift 字段也被归一（不是 undefined）',
+    App.state.delivery.orders.every(o => typeof o.addr === 'string' && typeof o.from === 'string'
+      && typeof o.to === 'string' && o.gift === false),
+    JSON.stringify(App.state.delivery.orders[0]));
+  ok('[老存档] 加了地址簿之后钱没丢', App.walletBalance() === 500, String(App.walletBalance()));
+  ok('[老存档] 老订单仍然算进「我的订单」', App.state.delivery.orders.length === 1);
+
   fresh();
   ok('新存档 addresses 是空数组（老存档不会被它炸掉）', Array.isArray(App.state.addresses) && !App.state.addresses.length);
   ok('没地址时 addressNow() 返回 null，不是 undefined 炸掉', App.addressNow() === null);

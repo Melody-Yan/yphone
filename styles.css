@@ -374,6 +374,11 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   flex: 0 0 auto; width: 44px; height: 44px; border-radius: 15px;
   display: grid; place-items: center; font-size: 23px; line-height: 1;
   box-shadow: var(--shadow-s);
+  /* 兜底底色：头像图片没解析出来时（图片仓被清、blob 还没就绪、引用失效），
+     imgSrc() 会给一张 1×1 透明 GIF。没有底色的话整个头像就是个透明洞 ——
+     压在深色聊天背景上就是一团黑，看着像「头像坏了」。 */
+  background: var(--accent-soft, rgba(125, 156, 148, .14));
+  background-clip: padding-box;
 }
 .row .avatar { margin-right: 12px; }
 

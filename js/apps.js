@@ -108,9 +108,20 @@ function avatarNode(c) {
   // 传过头像图片就用图片，否则退回 emoji + 底色。头像图片由 core 的 avatarSrc 白名单过。
   // 图片真实字节在 IndexedDB 里，存档只存 'idb:xxx' 引用 —— 交给 SJ.imgSrc 换成 blob URL。
   if (c && c.avatarImg) {
+    /* 底色一起给上：图片没解析出来时（图片仓被清、blob 还没就绪、引用失效），
+       imgSrc() 返回的是 1×1 透明 GIF，只设 backgroundImage 的话整个头像就是个
+       透明洞 —— 压在深色聊天背景上就是一团黑，看着像「头像坏了」。
+       带上底色最差也是该角色自己的颜色，不会开天窗。
+       ⚠️ 背景画在文字下面，所以这里不能放 emoji（会盖在图上），emoji 是图片坏掉时
+       另一条路（.avatar 无 .img）的事。 */
     return SJ.el('div', {
       class: 'avatar img',
-      style: { backgroundImage: 'url("' + SJ.imgSrc(c.avatarImg) + '")' }
+      style: {
+        /* 用 backgroundColor 而不是 background 简写：简写会把 background-size
+           一起重置成 auto，把 .avatar.img 的 cover 顶掉，图就被拉伸了。 */
+        backgroundColor: (c && c.color) || '#9cb9c2',
+        backgroundImage: 'url("' + SJ.imgSrc(c.avatarImg) + '")'
+      }
     });
   }
   return SJ.el('div', { class: 'avatar', style: { background: (c && c.color) || '#9cb9c2' } }, (c && c.avatar) || '🙂');

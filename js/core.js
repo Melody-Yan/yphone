@@ -1635,8 +1635,14 @@ function normalizeGoods(raw) {
     id: String(g.id || ('gd-' + i)),
     name: String(g.name || '一件商品').slice(0, NAME_MAX),
     /* 分类归一到已知的几大类：AI 可能给「连衣裙」这种子类，找不到就落到「家居」兜底，
-       否则筛选按钮点了筛不出东西。 */
-    cat: MALL_CAT_IDS.indexOf(String(g.cat)) >= 0 ? String(g.cat) : 'home',
+       否则筛选按钮点了筛不出东西。
+       这里写死 id 列表、绝不引用 MALL_CAT_IDS —— normalizeGoods 会被 migrate 在
+       load() 期间调到，那时 MALL_CAT_IDS（在文件靠后）还在 TDZ 里。
+       真炸过：ReferenceError: Cannot access 'MALL_CAT_IDS' before initialization
+       → load() 的 catch 兜回默认值，用户的手机整个变空白（存档还在，但界面是空的，
+       而且之后任何一次 save() 都会把空的写回去 = 数据真丢）。 */
+    cat: ['dress', 'sport', 'beauty', 'digital', 'home', 'food', 'baby', 'bag']
+      .indexOf(String(g.cat)) >= 0 ? String(g.cat) : 'home',
     sub: String(g.sub || '').slice(0, 16),
     price: Math.max(0, Math.round(Number(g.price) || 0)),
     oldPrice: Math.max(0, Math.round(Number(g.oldPrice) || 0)),
@@ -2400,17 +2406,36 @@ function applySelfMarks(c, text) {
 const SPLIT_MARK = '%%';
 const MAX_CHUNKS = 6;
 
+/* 模型经常把 %% 写成全角 ％％（中文输入法下顺手就打出来了），
+   而全角 ％ 和半角 % 是两个不同的字符，只匹配半角就会整段挤在一行，
+   用户看到的就是「你好呀，晚上好～％％ 今天过得怎么样？」糊成一条。
+   这里半角/全角都认，中间夹空格、换行也认；再不行还有空行和句号两级退化兜底。 */
+const SPLIT_RE = /\s*[%％]\s*[%％]+[%％]*\s*/;
+
 function splitReply(raw) {
   let s = String(raw || '');
   /* 语音关了就把语音标记拆掉，别让用户看到 [[v]] 这种内部记号（红包标记不拆，它照常变气泡） */
   if (!voiceOn()) s = s.replace(/\[\[\/?v\]\]/g, '');
+  /* 别的分隔符也一并认了：模型偶尔打成 ‖ || 或者 ######## 这种。
+     只在「整段里真的没有 %%」时才启用，避免把正常文本里的符号当成换行。 */
   s = s.trim();
   if (!s) return [];
   const clean = a => a.map(x => x.trim()).filter(Boolean);
-  let parts = clean(s.split(/\s*%%+\s*/));
+  let parts = clean(s.split(SPLIT_RE));
+  if (parts.length < 2) {
+    /* 没有 %%：试试模型爱用的其他「分条」写法（连续 3 个以上的竖线/井号/星号） */
+    const alt = clean(s.split(/\s*(?:[|｜]{2,}|#{3,}|\*{3,})\s*/));
+    if (alt.length > 1) parts = alt;
+  }
   if (parts.length < 2) {
     const byBlank = clean(s.split(/\n{2,}/));
     if (byBlank.length > 1) parts = byBlank;
+  }
+  if (parts.length < 2) {
+    /* 模型换行但不空行：单换行也当分条（真机观察：它常直接一行一条，
+       但不写 %%）。前提是每行都短，否则会把一整段散文切碎。 */
+    const byLine = clean(s.split(/\n/));
+    if (byLine.length > 1 && byLine.every(x => x.length <= 40)) parts = byLine;
   }
   if (parts.length < 2 && s.length > 70) {
     // 还是一整段：按句号断成 2~3 条（不能用 (?<=) 后行断言，老 Safari 直接 SyntaxError 白屏）
@@ -2421,7 +2446,11 @@ function splitReply(raw) {
       for (let i = 0; i < sents.length; i += per) parts.push(sents.slice(i, i + per).join(''));
     }
   }
-  return (parts.length ? parts : [s]).slice(0, MAX_CHUNKS);
+  /* 兜底：就算分隔符没认出来，也把残留的 %% ／ ％％ 从正文里擦掉 ——
+     用户永远不该在气泡里看到分隔符本身。 */
+  return (parts.length ? parts : [s]).slice(0, MAX_CHUNKS)
+    .map(x => x.replace(/[%％]\s*[%％]+[%％]*/g, ' ').replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2433,7 +2462,9 @@ const ROLE_RULES = [
   '',
   '# 怎么说话',
   '- 短句、口语，一条只说一件事，像随手打字。',
-  `- 一次回 1~3 条；每条之间单独占一行，那一行只写 ${SPLIT_MARK} 两个字符，别的什么都不要写。`,
+  `- 一次回 1~3 条；每条单独占一行，每条之间只用半角百分号 %% 分隔（英文输入法下那两个竖着的百分号，不是全角的 ％％）。`,
+  `- 分隔符就写 %% 这两个字符，前后不要带空格、不要带编号、不要再加别的符号。`,
+  `- 除了 %% 和正常的标点，不要输出任何其他分隔符号（| 、# 、* 之类都不要拿来分条）。`,
   '- 可以带「嗯」「诶」「哦对」「哈哈」这种口头语，但别每句都带。',
   '- 允许停顿和没说完（用…），允许改口（用 * 划掉前一句，例如「我五点*六点下班」）。',
   '- 标点和错别字都随意，不必工整。',

@@ -644,11 +644,49 @@ ok('短回复不硬拆', JSON.stringify(sp('好')) === '["好"]', JSON.stringify
 ok('空回复得到空数组', sp('').length === 0 && sp(null).length === 0);
 ok('不会拆出超过 6 条', sp('a%%b%%c%%d%%e%%f%%g%%h').length === 6, String(sp('a%%b%%c%%d%%e%%f%%g%%h').length));
 
+/* 全角 ％％ 是线上真实踩到的坑：模型在中文输入法下顺手就把 % 打成了全角 ％，
+   两个字符不同，只认半角的话整段挤成一行 —— 用户看到的就是
+   「你好呀，晚上好～％％ 今天过得怎么样？」糊在一条气泡里。 */
+ok('全角 ％％ 也要按条拆开（线上真实踩到的那个 bug）',
+  JSON.stringify(sp('你好呀，晚上好～％％ 今天过得怎么样？')) === '["你好呀，晚上好～","今天过得怎么样？"]',
+  JSON.stringify(sp('你好呀，晚上好～％％ 今天过得怎么样？')));
+ok('全角 ％％ 前后带空格/换行也认得', sp('一％％二').length === 2 && sp('一\n％％\n二').length === 2);
+ok('半角全角混着写也认得', sp('甲%%乙％％丙').length === 3, JSON.stringify(sp('甲%%乙％％丙')));
+ok('不管怎么拆，正文里都不许残留分隔符',
+  sp('就一条％％').every(x => !/[%％]/.test(x)) && sp('你好呀，晚上好～％％ 今天过得怎么样？').every(x => !/[%％]/.test(x)),
+  JSON.stringify(sp('就一条％％')));
+ok('模型用其他符号分条（|| ### ***）也认',
+  sp('一||二||三').length === 3 && sp('甲###乙###丙').length === 3,
+  JSON.stringify(sp('一||二||三')));
+ok('短句换行也当分条（模型常直接一行一条）',
+  JSON.stringify(sp('早\n在的\n刚下课')) === '["早","在的","刚下课"]',
+  JSON.stringify(sp('早\n在的\n刚下课')));
+ok('但长行换行不硬拆（散文不该被切碎）',
+  sp('今天下午的课真的好无聊啊，老师在讲台上一直念PPT我坐在最后一排偷偷玩手机差点被发现了。下周居然还要考试我一点都没复习呢你那边在干嘛呀？').length <= 3);
+/* 真正的红线不是「拆几段」，而是「拆完能不能一字不差拼回去」——
+   分隔符再怎么认，都不许把用户该看到的话吃掉。 */
+const roundTrip = [
+  '你好呀，晚上好～％％ 今天过得怎么样？',
+  '嗯。%%在的%%刚下课',
+  '早\n在的\n刚下课',
+  '一||二||三',
+  '今天下午的课真的好无聊啊，老师在讲台上一直念PPT\n我坐在最后一排偷偷玩手机，差点被发现了'
+];
+ok('怎么拆都不许丢字（拼回去＝原文去掉分隔符）',
+  roundTrip.every(s => {
+    const back = sp(s).join('');
+    const want = s.replace(/[%％]{2,}/g, '').replace(/[|｜]{2,}|#{3,}|\*{3,}/g, '').replace(/\s+/g, '');
+    return back.replace(/\s+/g, '') === want;
+  }),
+  roundTrip.map(s => sp(s).join('') + '  vs  ' + s).join(' || ').slice(0, 200));
+
 const sysTxt = sandbox.SJ.buildSystem({ name: '小美', desc: '隔壁班的同学', persona: '话很多，爱用「诶」开头' });
 ok('提示词里报了角色名', sysTxt.includes('小美'));
 ok('提示词里带了人设原文', sysTxt.includes('爱用「诶」开头'), sysTxt.slice(0, 80));
 ok('提示词里带了简介', sysTxt.includes('隔壁班的同学'));
 ok('提示词教模型用 %% 分条', sysTxt.includes('%%'));
+ok('提示词明确要求「半角」%%（不然模型打成全角 ％％ 就不分条了）',
+  sysTxt.includes('半角') && sysTxt.includes('全角'), sysTxt.split('\n').filter(l => l.includes('%%')).join(' | ').slice(0, 120));
 ok('提示词禁止 Markdown / 书面语 / 客服腔',
   sysTxt.includes('Markdown') && sysTxt.includes('首先') && sysTxt.includes('还有什么可以帮你'));
 ok('提示词带了虚拟时间（同一天里对话有「现在」的概念）',
@@ -1724,6 +1762,30 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     msgs.length >= 2 && msgs.every(m => walk(m).some(n => n._class.has('avatar'))), msgs.length + ' 行');
   ok('我发的那行靠右，她发的那行靠左',
     msgs.some(m => m._class.has('me')) && msgs.some(m => m._class.has('ta')));
+
+  /* 回归：头像图片解析不出来时，绝不许变成一个透明洞。
+     imgSrc() 在引用失效/图仓没就绪时返回 1×1 透明 GIF，而 .avatar.img 以前
+     只设 backgroundImage、没有底色 → 整个头像透明，压在深色聊天背景上就是
+     一团黑，看着就是「深色模式头像很奇怪」。必须带上角色自己的底色。 */
+  S.closeTop(true);
+  App.state.characters[0].avatarImg = 'idb:并不存在的图';
+  App.state.settings.myAvatarImg = '';
+  const cv2 = openFresh('chat', App.state.characters[0].id);
+  const imgAv = walk(cv2).filter(n => n._class.has('avatar') && n._class.has('img'));
+  ok('聊天页存在用图片的头像', imgAv.length > 0, imgAv.length + ' 个');
+  ok('头像图片解析不出来时带着兜底底色（不是透明洞）',
+    imgAv.every(n => {
+      const bg = (n.style && (n.style.backgroundColor || n.style.background)) || '';
+      return bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+    }),
+    JSON.stringify(imgAv.map(n => (n.style && (n.style.backgroundColor || n.style.background)) || '(无)')));
+  ok('兜底底色用的是这个角色自己的颜色',
+    imgAv.some(n => String((n.style && (n.style.backgroundColor || n.style.background)) || '').includes('9cb9c2')),
+    JSON.stringify(imgAv.map(n => (n.style && (n.style.backgroundColor || n.style.background)) || '(无)')));
+  /* 简写会把 background-size 一起重置，必须用 backgroundColor */
+  ok('兜底底色没有用 background 简写（会把 cover 顶掉）',
+    imgAv.every(n => !(n.style && n.style.background && !n.style.backgroundColor)));
+  App.state.characters[0].avatarImg = '';
   S.closeTop(true);
 
   /* ── 微信里的朋友圈入口 ── */
@@ -2077,6 +2139,48 @@ console.log('\n[24] 存档读取不许弄丢数据');
   store.set('xiaoshouji.v1', good);
   boot();
   ok('把原档放回去，数据一条不少', sandbox.SJ.state.characters.length === 1 && sandbox.SJ.state.events.length === 1);
+
+  /* 回归：存档里带商城商品 / 钱包流水时，load() 绝不能炸。
+     炸过一次真的 —— normalizeGoods 引用了 MALL_CAT_IDS，而那个 const 在文件靠后，
+     load() 跑的时候它还在 TDZ 里。后果不是「商城有问题」，而是整台手机白屏：
+     load 的 catch 兜回默认值，之后任何一次 save() 就把空的写回去 = 用户数据真丢。
+     所以这里必须断言「没有生成 .broken 备份」—— 有 .broken 就说明 load 炸过。 */
+  store.delete('xiaoshouji.v1.broken');
+  const full = JSON.stringify({
+    version: 1,
+    settings: { userName: '小雨' },
+    characters: [{ id: 'a', name: '林深', avatar: '🌙', persona: '温柔' }],
+    chats: { a: [{ me: true, text: '在吗', ts: 1 }] },
+    wallpaper: 'p3',
+    mall: { goods: [
+      { id: 'g1', name: '连衣裙', cat: 'dress', sub: '连衣裙', price: 199, oldPrice: 299, emoji: '👗', desc: '好' },
+      { id: 'g2', name: '耳机', cat: 'digital', price: 599 }
+    ], cart: [{ id: 'g1', n: 2 }], orders: [], fav: ['g1'] },
+    wallet: { balance: 88.8, log: [{ id: 'w1', kind: 'out', amount: 38, title: '外卖', note: '', ts: 1 }] },
+    delivery: { shops: [], cart: [], orders: [] },
+    music: { tracks: [], now: '' }
+  });
+  store.set('xiaoshouji.v1', full);
+  boot();
+  const st2 = sandbox.SJ.state;
+  ok('带商城商品 + 钱包流水的存档读得回来（load 没炸）',
+    !store.get('xiaoshouji.v1.broken'),
+    store.get('xiaoshouji.v1.broken') ? 'load 炸了，退化成默认值' : '');
+  ok('角色没丢', st2.characters.length === 1 && st2.characters[0].name === '林深');
+  ok('聊天没丢', (st2.chats.a || []).length === 1);
+  ok('商城商品没丢（TDZ 就是死在这一步）', st2.mall.goods.length === 2,
+    st2.mall.goods.length + ' 件');
+  ok('商品分类归一到合法值', st2.mall.goods[0].cat === 'dress' && st2.mall.goods[1].cat === 'digital',
+    JSON.stringify(st2.mall.goods.map(g => g.cat)));
+  ok('认不出的分类落到家居兜底', sandbox.SJ.normalizeGoods([{ name: 'x', cat: '不存在的类' }])[0].cat === 'home');
+  ok('钱包余额和流水也没丢', st2.wallet.balance === 88.8 && st2.wallet.log.length === 1,
+    st2.wallet.balance + '/' + st2.wallet.log.length);
+  ok('收藏也没丢', st2.mall.fav.length === 1 && st2.mall.fav[0] === 'g1');
+  store.delete('xiaoshouji.v1.broken');
+
+  /* 原档放回去，别影响后面的用例 */
+  store.set('xiaoshouji.v1', good);
+  boot();
 }
 
 /* 27. 电量读真机 + 自己改密码（会重新 boot，放在【24】之后 */

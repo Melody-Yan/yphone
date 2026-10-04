@@ -62,7 +62,7 @@ function wallList() {
     if (!u || !u.img) return;
     out.push({
       id: u.id, name: u.name || ('我的壁纸 ' + (i + 1)),
-      css: 'url("' + u.img + '") center / cover no-repeat',
+      css: 'url("' + imgSrc(u.img) + '") center / cover no-repeat',
       dark: !!u.dark, custom: true, photo: true
     });
   });
@@ -267,7 +267,7 @@ function migrate(saved) {
   /* 壁纸从「整条 CSS」改成「id」。老存档存的是一整串渐变，按 CSS 找回内置编号；
      对不上（比如那张自己传的壁纸已经删了）就退回默认，别留一张白屏。 */
   out.settings.wallImgs = (Array.isArray(out.settings.wallImgs) ? out.settings.wallImgs : [])
-    .filter(u => u && typeof u === 'object' && /^(data:image\/|https?:)/.test(String(u.img || '')))
+    .filter(u => u && typeof u === 'object' && /^(idb:[\w-]+|data:image\/|https?:)/.test(String(u.img || '')))
     .slice(0, WALL_IMG_MAX)
     .map((u, i) => ({
       id: String(u.id || ('u' + i)),
@@ -296,12 +296,37 @@ function migrate(saved) {
   return out;
 }
 
-function save() {
+function writeRaw() {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
+    stateSaveErr = '';
+    return true;
   } catch (e) {
+    let kb = 0;
+    try { kb = Math.round(JSON.stringify(state).length * 2 / 1024); } catch (e2) {}
+    stateSaveErr = '写不进去了：浏览器给的空间满了（存档 ' + kb + 'KB）。去「设置 → 存储」清一下图片。';
     console.error('[core] 保存失败（可能是容量满了）', e);
+    return false;
   }
+}
+
+function save() {
+  if (!writeRaw()) {
+    /* 存不下，八成是图片在占地方：搬进图片仓再试一次。
+       还是不行才把错误交给界面 —— 绝不静默吞掉。
+       「以为发出去了、刷新就没了」比弹个报错糟得多。 */
+    imgSweep().then(n => {
+      if (n && writeRaw()) return;
+      if (saveErrHook) saveErrHook(stateSaveErr);
+    });
+    return false;
+  }
+  /* 顺手把新图片搬进图片仓 —— 业务代码在哪儿塞的图片都跑不掉。
+     输入框边打边存会高频调 save()，所以两秒内只扫一次（一次扫描是全量深走）。
+     ponytail: 时间节流，不是脏标记；真到状态大到扫描有感知时再改成记脏字段。 */
+  const now = Date.now();
+  if (!imgBusy && now - imgSweepAt > 2000) { imgSweepAt = now; imgSweep(); }
+  return true;
 }
 
 function resetAll() {
@@ -403,8 +428,262 @@ function makeCharacter(patch = {}) {
    这个坑已经踩过三次了（NAME_MAX、AVATAR_IMG_OK），这里不再给它第四次机会。 */
 function avatarSrc(v) {
   const s = String(v || '');
-  return /^(data:image\/|https?:\/\/)/.test(s) ? s : '';
+  return /^(idb:[\w-]+|data:image\/|https?:\/\/)/.test(s) ? s : '';
 }
+
+/* ══════════════════════════════════════════════════════
+   L0.5 图片仓：图片不进制式存档，走 IndexedDB
+   ──────────────────────────────────────────────────────
+   为什么要有这一层：localStorage 一个键只有 5MB 左右，而图片是唯一会长到
+   几十上百 MB 的东西。以前图片以 data URI 直接躺在存档里，结账是「聊得越久、
+   存档越接近上限」，满了之后 save() 抛 QuotaExceededError，而只有 console.error
+   一句 —— 用户看到的是「刚发出去的消息，刷新就没了」，比直接报错更糟。
+
+   现在：字节进 IndexedDB，存档里只留 'idb:<id>' 引用（几十字节）。
+   渲染层统一用 imgSrc() 把引用换成内存里的 blob: URL —— 仍然是同步的，
+   开机时 imgBoot() 一把把用得到的图灌进 URL_CACHE。
+
+   没有 IndexedDB 时（无痕模式 / 自检沙箱 / 老 WebView）全线降级成老行为：
+   putImg() 原样返回 data URI，功能一个不少，只是又回到 5MB 的天花板。
+   ══════════════════════════════════════════════════════ */
+const IMG_DB = 'yphone.img', IMG_STORE = 'img', IMG_REF = 'idb:';
+/* 引用还没解析出来时给 <img> / background-image 用的占位：1×1 透明 GIF，不发请求 */
+const BLANK_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+/* 短于这个长度的 data URI 不值得搬一趟 IndexedDB（正常图片都几万字符）
+   ⚠️ 常量放在这里是因为 migrate() 不会碰它；真正的 TDZ 红线是 DEFAULTS 之前的那些。 */
+const IMG_INLINE_MAX = 512;
+
+let imgDB = null, imgDBDead = false, imgBusy = false, imgSweepAt = 0, stateSaveErr = '';
+let saveErrHook = null;
+const URL_CACHE = new Map();      // id -> blob: URL
+
+/* function 声明（不是 const 箭头）：save() 里会调到 imgSweep()，
+   而 save() 定义在文件更上面。声明提升能扛住。 */
+function idbOpen() {
+  if (imgDB || imgDBDead) return Promise.resolve(imgDB);
+  return new Promise(resolve => {
+    let req;
+    try { req = indexedDB.open(IMG_DB, 1); } catch (e) { imgDBDead = true; return resolve(null); }
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains(IMG_STORE)) d.createObjectStore(IMG_STORE);
+    };
+    req.onsuccess = () => { imgDB = req.result; resolve(imgDB); };
+    req.onerror = () => { imgDBDead = true; resolve(null); };
+  });
+}
+function idbRun(mode, fn) {
+  return idbOpen().then(d => {
+    if (!d) return null;
+    return new Promise(resolve => {
+      try {
+        const tx = d.transaction(IMG_STORE, mode);
+        const req = fn(tx.objectStore(IMG_STORE));
+        tx.oncomplete = () => resolve(req ? req.result : null);
+        tx.onerror = () => resolve(null);
+        tx.onabort = () => resolve(null);
+      } catch (e) { resolve(null); }
+    });
+  });
+}
+/* 一把把整个仓读出来：几百张图逐张 get 要几百个事务，getAll 一个就够 */
+function idbAll() {
+  return idbOpen().then(d => {
+    if (!d) return null;
+    return new Promise(resolve => {
+      try {
+        const tx = d.transaction(IMG_STORE, 'readonly');
+        const st = tx.objectStore(IMG_STORE);
+        const ks = st.getAllKeys(), vs = st.getAll();
+        tx.oncomplete = () => resolve({ keys: ks.result || [], vals: vs.result || [] });
+        tx.onerror = () => resolve(null);
+      } catch (e) { resolve(null); }
+    });
+  });
+}
+
+/* 存档里所有 'idb:xxx' 引用。深走一遍 state 而不是维护一张字段清单 ——
+   以后新增任何带图的字段都自动被扫到，不会漏。 */
+function imgRefsIn(node, out, seen) {
+  out = out || new Set();
+  if (!node) return out;
+  if (typeof node === 'string') { if (node.slice(0, IMG_REF.length) === IMG_REF) out.add(node.slice(IMG_REF.length)); return out; }
+  if (typeof node !== 'object') return out;
+  seen = seen || new Set();
+  if (seen.has(node)) return out;
+  seen.add(node);
+  Object.keys(node).forEach(k => imgRefsIn(node[k], out, seen));
+  return out;
+}
+/* 深走一遍，把每个字符串交给 fn(holder, key, value) */
+function walkStrings(node, fn, seen) {
+  if (!node || typeof node !== 'object') return;
+  seen = seen || new Set();
+  if (seen.has(node)) return;
+  seen.add(node);
+  Object.keys(node).forEach(k => {
+    const v = node[k];
+    if (typeof v === 'string') fn(node, k, v);
+    else if (v && typeof v === 'object') walkStrings(v, fn, seen);
+  });
+}
+
+/* 存一张图，返回可以直接塞进 state 的引用。
+   已经有了 / 不是 data URI（http 图床地址、emoji 贴纸）/ 存不进去 → 原样返回。 */
+async function putImg(v) {
+  const s = String(v || '');
+  if (!s || s.slice(0, IMG_REF.length) === IMG_REF) return s;
+  if (!/^data:image\//.test(s)) return s;
+  const blob = dataUriToBlob(s);
+  if (!blob) return s;
+  const id = uid();
+  const ok = await idbRun('readwrite', st => st.put(blob, id));
+  if (!ok) return s;                       // 没有 IndexedDB：退回老行为，别把图弄丢
+  try { URL_CACHE.set(id, URL.createObjectURL(blob)); } catch (e) { return s; }
+  return IMG_REF + id;
+}
+
+/* 渲染层唯一的入口。同步 —— 所以所有 <img src> / backgroundImage 只要包一层就行。
+   传进来的若是 http 地址、data URI、emoji，原样放行。 */
+function imgSrc(v) {
+  const s = String(v || '');
+  if (s.slice(0, IMG_REF.length) !== IMG_REF) return s;
+  return URL_CACHE.get(s.slice(IMG_REF.length)) || BLANK_IMG;
+}
+
+/* 开机第一件事：把存档里引用到的图全部变成内存里的 blob URL。
+   只给「真的被引用」的图建 URL —— 仓里剩下的孤儿留给清理按钮。 */
+async function imgBoot() {
+  await idbOpen();
+  if (!imgDB) return 0;
+  const all = await idbAll();
+  if (!all) return 0;
+  const want = imgRefsIn(state);
+  let n = 0;
+  all.keys.forEach((k, i) => {
+    const id = String(k);
+    if (!want.has(id) || URL_CACHE.has(id)) return;
+    try { URL_CACHE.set(id, URL.createObjectURL(all.vals[i])); n++; } catch (e) { /* 单张坏了不拖累整机 */ }
+  });
+  return n;
+}
+
+/* 把存档里还以 data URI 形式躺着的图片搬进图片仓。
+   save() 之后顺手跑，所以业务代码一行都不用改 —— 这也是为什么要做「扫」而不是
+   在每个赋值点手写 putImg()：那种写法漏一个点，就会有一张图悄悄撑爆存档。 */
+async function imgSweep() {
+  if (imgBusy || !imgDB) return 0;
+  imgBusy = true;
+  let moved = 0;
+  try {
+    const jobs = [];
+    walkStrings(state, (host, key, v) => {
+      /* 必须「整条值就是一张图」才搬。消息正文里粘了个 data URI 的，
+         搬走了正文就被换成 idb:xxx，那是把用户的话改了 —— 只认纯图片值。 */
+      if (v.length > IMG_INLINE_MAX && /^data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(v)) jobs.push([host, key, v]);
+    });
+    for (const [host, key, v] of jobs) {
+      const ref = await putImg(v);
+      /* 搬的过程中这一格可能已经被「清图片」抹掉了 —— 别把它写回去 */
+      if (ref !== v && host[key] === v) { host[key] = ref; moved++; }
+    }
+    if (moved) writeRaw();      // 直接写，不走 save()，免得又触发一轮扫描
+  } finally { imgBusy = false; }
+  return moved;
+}
+
+/* 仓里没人引用的图（删掉的角色、清过的对话、搬了一半的失败操作留下的）。安全操作。 */
+async function imgClean() {
+  const all = await idbAll();
+  if (!all) return 0;
+  const want = imgRefsIn(state);
+  let n = 0;
+  for (const k of all.keys) {
+    const id = String(k);
+    if (want.has(id)) continue;
+    await idbRun('readwrite', st => st.delete(id));
+    const url = URL_CACHE.get(id);
+    if (url) { try { URL.revokeObjectURL(url); } catch (e) {} URL_CACHE.delete(id); }
+    n++;
+  }
+  return n;
+}
+
+/* 每个对话 / 朋友圈只留最近 keep 张图片，更早的抹掉留个「图片已清理」的位。
+   这是真正压住体积的那一刀 —— 图片仓再大也不该无限长。 */
+function imgPurge(keep) {
+  keep = Math.max(0, keep | 0);
+  let n = 0;
+  /* 还没被 imgSweep 搬走的图也是图（刚发完就点「只留 10 张」时会撞上），要一起算 */
+  const isImg = v => {
+    const s = String(v || '');
+    return s.slice(0, IMG_REF.length) === IMG_REF || (s.length > IMG_INLINE_MAX && /^data:image\//.test(s));
+  };
+  const strip = list => {
+    const at = [];
+    list.forEach((m, i) => { if (m && isImg(m.img)) at.push(i); });
+    at.slice(0, Math.max(0, at.length - keep)).forEach(i => { list[i].img = ''; list[i].imgGone = true; n++; });
+  };
+  Object.keys(state.chats || {}).forEach(id => strip(state.chats[id] || []));
+  strip(state.moments || []);
+  if (n) { save(); imgClean(); }
+  return n;
+}
+
+/* 图片全清。文字、角色、聊天记录一条不动 —— 只把图丢了。 */
+async function imgWipe() {
+  const all = await idbAll();
+  if (all) all.keys.forEach(k => {
+    const url = URL_CACHE.get(String(k));
+    if (url) { try { URL.revokeObjectURL(url); } catch (e) {} URL_CACHE.delete(String(k)); }
+  });
+  await idbRun('readwrite', st => st.clear());
+  /* 同样只认「整条值就是一个引用」，别把正文里恰好写着 idb: 的句子改掉 */
+  walkStrings(state, (host, key, v) => { if (/^idb:[\w-]+$/.test(v)) host[key] = ''; });
+  state.settings.myAvatarImg = '';
+  state.characters.forEach(c => { c.avatarImg = ''; });
+  state.settings.wallImgs.forEach(w => { w.img = ''; });
+  state.settings.wallImgs = state.settings.wallImgs.filter(w => w.img);
+  if (!wallById(state.wallpaper)) state.wallpaper = DEFAULTS.wallpaper;
+  if (state.settings.lockWallpaper && !wallById(state.settings.lockWallpaper)) state.settings.lockWallpaper = '';
+  writeRaw();
+  return true;
+}
+
+/* 存储体检报告。给设置页的「存储」面板用。 */
+async function storageReport() {
+  let raw = '';
+  try { raw = localStorage.getItem(KEY) || ''; } catch (e) {}
+  const all = await idbAll();
+  let imgBytes = 0, imgN = 0;
+  if (all) { imgN = all.keys.length; all.vals.forEach(b => { imgBytes += (b && b.size) || 0; }); }
+  const parts = [];
+  Object.keys(state).forEach(k => {
+    let n = 0;
+    try { n = JSON.stringify(state[k]).length * 2; } catch (e) { n = 0; }
+    if (n > 1024) parts.push({ key: k, kb: Math.round(n / 1024) });
+  });
+  parts.sort((a, b) => b.kb - a.kb);
+  let usedKB = 0, quotaKB = 0, persisted = false, canPersist = false;
+  try {
+    const sm = (typeof navigator !== 'undefined') && navigator.storage;
+    if (sm && sm.estimate) { const est = await sm.estimate(); usedKB = Math.round((est.usage || 0) / 1024); quotaKB = Math.round((est.quota || 0) / 1024); }
+    if (sm && sm.persisted) { persisted = await sm.persisted(); canPersist = !!sm.persist; }
+  } catch (e) {}
+  return {
+    stateKB: Math.round(raw.length * 2 / 1024), imgN, imgKB: Math.round(imgBytes / 1024),
+    usedKB, quotaKB, persisted, canPersist, idb: !!imgDB, parts, err: stateSaveErr
+  };
+}
+/* 申请「持久化存储」：有了它，系统在空间紧张时不会先拿我们的数据开刀。
+   一次调用就够，浏览器自己记住，失败也无所谓。 */
+async function persistAsk() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.persist) return false;
+    return !!(await navigator.storage.persist());
+  } catch (e) { return false; }
+}
+function onSaveError(fn) { saveErrHook = fn; }
 
 /* 角色的导入边界。id 兜底用序号而不是 uid()：migrate 每次加载都跑，
    用 uid() 的话没有 id 的老角色每次刷新都会换一个身份，聊天记录就接不上了。 */
@@ -962,8 +1241,8 @@ function parsePlaylist(text) {
 /* 加一张自定义壁纸。img 是 data URI（App 里已经压过），dark 是它的平均亮度判断，
    由 App 侧用 canvas 算好传进来 —— core 里不碰 canvas，自检垫片里也没有。 */
 function addWall(img, dark) {
-  const src = avatarSrc(img);              // 同一套 scheme 白名单：只收 data:image/ 和 http(s):
-  if (!/^data:image\//.test(src)) return null;
+  const src = avatarSrc(img);              // 同一套 scheme 白名单：idb: / data:image/ / http(s):
+  if (!/^(idb:[\w-]+|data:image\/)/.test(src)) return null;
   if (customWalls().length >= WALL_IMG_MAX) return null;
   const w = { id: 'u' + uid(), name: '我的壁纸 ' + (customWalls().length + 1), img: src, dark: !!dark };
   state.settings.wallImgs.push(w);
@@ -1200,7 +1479,18 @@ const imgSize  = () => String(state.settings.imgSize || '').trim() || '1024x1024
 /* 图床/接口给回来的可能是个 http 图片地址（会过期），先试着抓成本地 data URI 存下来。
    抓不动（跨域、没有 CORS 头）就原样用地址，能用一天是一天。 */
 async function imgToData(src) {
-  const s = String(src || '');
+  let s = String(src || '');
+  /* 图片仓里的引用要先还原成字节，否则「拿头像当参考图去生图」这条路会拿到 'idb:xxx' */
+  if (s.slice(0, IMG_REF.length) === IMG_REF) {
+    const blob = await idbRun('readonly', st => st.get(s.slice(IMG_REF.length)));
+    if (!blob) return '';
+    s = await new Promise(ok => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result));
+      fr.onerror = () => ok('');
+      fr.readAsDataURL(blob);
+    });
+  }
   if (/^data:image\//.test(s)) return s;
   if (!/^https?:\/\//.test(s)) return '';
   try {
@@ -1219,10 +1509,14 @@ async function imgToData(src) {
 function dataUriToBlob(uri) {
   const m = /^data:([^;,]+);base64,(.*)$/.exec(String(uri || ''));
   if (!m) return null;
-  const bin = atob(m[2]);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return new Blob([buf], { type: m[1] });
+  /* atob 在老 WebView 和自检沙箱里都没有 —— 解不出来就让调用方退回原样用 data URI，
+     别把整台手机拖崩。putImg() 已经按「拿到 null 就原样返回」写好了。 */
+  try {
+    const bin = atob(m[2]);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return new Blob([buf], { type: m[1] });
+  } catch (e) { return null; }
 }
 
 /* 从一段回复里抠出图片：markdown 图片、裸 data URI、裸 http 图片地址都认 */
@@ -1526,7 +1820,26 @@ async function autoMemorize(char) {
    导入走的就是 load() 那条 migrate()，所以坏文件只会被无视，
    不会把现有数据搅烂（这两个函数刻意不碰 DOM，方便自检）。
    ══════════════════════════════════════════════════════ */
-function exportState() { return JSON.stringify(state, null, 2); }
+/* 导出存档时要先把图片仓里的字节贴回来 —— 存档里存的是 'idb:xxx' 引用，
+   直接 JSON 出去等于导出一个「图全没了」的空壳。导入端拿到的是 data URI，
+   下一次 imgSweep() 会重新把它们搬进图片仓，来回一趟是完整的。
+   ⚠️ 因为要读 IndexedDB，这个函数是 async 的（以前是同步的）。 */
+async function exportState() {
+  const copy = JSON.parse(JSON.stringify(state));
+  const jobs = [];
+  walkStrings(copy, (host, key, v) => { if (/^idb:[\w-]+$/.test(v)) jobs.push([host, key, v]); });
+  for (const [host, key, v] of jobs) {
+    const blob = await idbRun('readonly', st => st.get(v.slice(IMG_REF.length)));
+    if (!blob) { host[key] = ''; continue; }
+    host[key] = await new Promise(ok => {
+      const fr = new FileReader();
+      fr.onload = () => ok(String(fr.result));
+      fr.onerror = () => ok('');
+      fr.readAsDataURL(blob);
+    });
+  }
+  return JSON.stringify(copy, null, 2);
+}
 
 function importState(text) {
   let data;
@@ -1536,6 +1849,8 @@ function importState(text) {
   const before = JSON.stringify(state);
   try { state = migrate(data); }
   catch (e) { state = JSON.parse(before); return { ok: false, error: '存档内容读取失败' }; }
+  /* 必须同步落盘 —— 导入完用户随时可能刷新，异步写会丢数据。
+     save() 自己就会在写失败时先 imgSweep() 再写一次，所以大存档也撑不爆。 */
   save();
   return { ok: true };
 }
@@ -1569,5 +1884,8 @@ window.SJ = {
   /* 朋友圈 */
   MOMENT_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
   generateMoment, autoMoment,
-  exportState, importState
+  exportState, importState,
+  /* 图片仓：字节进 IndexedDB，存档里只留 'idb:' 引用 */
+  IMG_REF, BLANK_IMG, imgSrc, putImg, imgBoot, imgSweep, imgClean, imgPurge, imgWipe,
+  storageReport, persistAsk, onSaveError
 };

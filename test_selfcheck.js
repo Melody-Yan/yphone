@@ -182,6 +182,8 @@ function ok(name, cond, extra) {
 }
 const iconsOn = () => pages.reduce((s, p) => s + p.children.filter(c => c._class.has('icon')).length, 0)
   + byId.dock.children.length;
+/* hide: true 的 App（存储）不上桌面，所以「桌面图标数」要跟「露脸的 App 数」比，不是注册表总数 */
+const shownApps = () => sandbox.APPS.filter(a => !a.hide).length;
 const findBtn = (root, text) => walk(root).find(n => n.textContent.trim() === text && n.tagName === 'BUTTON');
 
 console.log('\n小手机 · 自检');
@@ -197,7 +199,7 @@ ok('App 注册表里 id 不重名、每条都有 render',
   new Set(sandbox.APPS.map(a => a.id)).size === sandbox.APPS.length &&
   sandbox.APPS.every(a => typeof a.render === 'function'), '实际 ' + sandbox.APPS.length + ' 个');
 ok('window.SHELL 调试出口就位', !!(sandbox.SHELL && sandbox.SHELL.openApp && sandbox.SHELL.stack));
-ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
+ok('桌面图标数 = App 总数（分页+dock）', iconsOn() === shownApps(), iconsOn() + ' vs ' + shownApps());
 ok('首页有桌面挂件（大时钟）', pages[0].children.some(c => c._class.has('widget')));
 ok('状态栏时钟已填值', /^\d{1,2}:\d{2}/.test(byId['sb-clock'].textContent), byId['sb-clock'].textContent);
 ok('电量伪值已写入', /\d+%/.test(byId['sb-batt'].textContent), byId['sb-batt'].textContent);
@@ -264,7 +266,7 @@ try {
 S.closeTop(true);
 sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();ok('刷新后布局顺序保持', JSON.stringify(sandbox.SJ.state.layout.slice(0, 3)) === '["calc","notes","chat"]');
 ok('刷新后 dock 前三位 = 自定义顺序', byId.dock.children.map(c => c._class.has('icon')).length === 3);
-ok('刷新后图标仍全部在桌面', iconsOn() === sandbox.APPS.length, iconsOn() + ' vs ' + sandbox.APPS.length);
+ok('刷新后图标仍全部在桌面', iconsOn() === shownApps(), iconsOn() + ' vs ' + shownApps());
 
 /* 4. 虚拟时间引擎 */
 console.log('\n[4] 虚拟时间引擎（全机唯一时间源）');
@@ -552,7 +554,7 @@ fetchImpl = null;
 
 /* 13. 存档导出 / 导入（导入是信任边界） */
 console.log('\n[13] 存档导出 / 导入');
-const dump = sandbox.SJ.exportState();
+const dump = await sandbox.SJ.exportState();   // async 了：导出前要把图片仓里的字节贴回来
 ok('导出的是合法 JSON，含角色和会话', (() => {
   try { const o = JSON.parse(dump); return o.characters.length === 2 && !!o.chats && !!o.settings; }
   catch (e) { return false; }
@@ -1079,7 +1081,7 @@ ok('默认第一页有一个时钟插件（老存档也一样，桌面不会变�
 ok('时钟插件上写着虚拟时间', wgOn(0)[0].textContent.includes(wk.fmtTime(wk.virtualNow())),
   wgOn(0)[0].textContent);
 ok('其它页默认没有插件', wgOn(1).length === 0 && wgOn(2).length === 0);
-ok('桌面图标数 = App 总数（插件没吃掉 App）', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+ok('桌面图标数 = App 总数（插件没吃掉 App）', iconsOn() === shownApps(), iconsOn() + ' / ' + shownApps());
 
 /* 长按桌面空白处弹面板 */
 dispatch(pages[1], 'mousedown', {});
@@ -1102,7 +1104,7 @@ wk.addWidget(0, 'notes'); wk.addWidget(0, 'chat');
 S.SHELL.renderHome();
 ok('第一页 3 个插件 → 图标位缩到 1 行（4 个）', iconOn(0) === 4, iconOn(0) + ' 个');
 ok('装不下的图标挤到了第二页', iconOn(1) >= 1, iconOn(1) + ' 个');
-ok('图标总数没丢（还是 App 总数）', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+ok('图标总数没丢（还是 App 总数）', iconsOn() === shownApps(), iconsOn() + ' / ' + shownApps());
 
 /* 点日历插件直接进日历 App */
 resetWg();
@@ -1802,7 +1804,7 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('清空后点锁屏直接进', !locked());
 
   /* ── 每页放几个图标，自己定 ── */
-  const restN = sandbox.APPS.length - 3;   // 前 3 个在 dock 上，不参与分页
+  const restN = shownApps() - 3;   // 前 3 个在 dock 上，不参与分页（hide 的 App 不上桌面）
   const pk = i => pages[i].children;
   const iconAt = i => pk(i).filter(c => c._class.has('icon')).length;
   App.state.widgets = [[], [], []]; App.state.split = [2, 3]; App.save();
@@ -1812,7 +1814,7 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('装不下的自己开了第三页，一个都没丢',
     iconAt(0) + iconAt(1) + iconAt(2) === restN && iconAt(2) === restN - 5,
     [iconAt(0), iconAt(1), iconAt(2)].join(' / ') + ' 共 ' + restN);
-  ok('图标总数还是 App 总数', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+  ok('图标总数还是 App 总数', iconsOn() === shownApps(), iconsOn() + ' / ' + shownApps());
 
   App.state.split = [2]; App.save(); S.SHELL.renderHome();
   ok('split 只写了第一页 → 剩下的自己开第二页，不是全堆回第一页',
@@ -1827,7 +1829,7 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('弹出「第 1 页放几个图标」并给出可选项', sheetLabels().some(t => t.includes('4 个')), JSON.stringify(sheetLabels()));
   clickSheet('4 个');
   ok('选「4 个」→ 第一页真的只剩 4 个', iconAt(0) === 4, iconAt(0) + ' 个');
-  ok('多出来的挤到第二页，没丢', iconAt(1) === restN - 4 && iconsOn() === sandbox.APPS.length,
+  ok('多出来的挤到第二页，没丢', iconAt(1) === restN - 4 && iconsOn() === shownApps(),
     iconAt(1) + ' / 共 ' + iconsOn());
 
   App.state.split = [99, 99]; App.save();
@@ -1909,7 +1911,7 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   const base = iconAt(0);
   App.addWidget(0, 'month'); App.addWidget(0, 'moments'); S.SHELL.renderHome();
   ok('两个整行插件把第一页图标位压到 2 行（8 个）', iconAt(0) === 8, iconAt(0) + ' 个');
-  ok('压出去的图标没丢，挤到后面几页了', iconsOn() === sandbox.APPS.length, iconsOn() + ' / ' + sandbox.APPS.length);
+  ok('压出去的图标没丢，挤到后面几页了', iconsOn() === shownApps(), iconsOn() + ' / ' + shownApps());
   App.state.widgets = [[{ id: 'wg-clock', type: 'clock' }], [], []]; App.save(); S.SHELL.renderHome();
   ok('插件清掉后图标位回来了', iconAt(0) === base, iconAt(0) + ' vs ' + base);
 }
@@ -1929,6 +1931,110 @@ console.log('\n[29] 深色壁纸不能把 App 里的字也翻白');
   ok('App 打开时状态栏换回浅色字', /#phone\.app-open #statusbar\s*\{[^}]*color:\s*#4b463f/.test(css));
   ok('外壳在开/关 App 时会挂上 app-open 类',
     /classList\.add\('app-open'\)/.test(shell) && /classList\.remove\('app-open'\)/.test(shell));
+}
+
+console.log('\n[30] 存储：图片搬出存档（IndexedDB 图片仓）');
+{
+  const App = sandbox.SJ;      // 这一块里不 boot()，所以不用像 [28]/[29] 那样每次重新取
+  S.SHELL.closeAll();
+
+  /* ── 渲染入口：只有 idb: 引用需要换成 blob URL，别的原样放行 ── */
+  ok('imgSrc 放行 http 图床地址', App.imgSrc('https://a/b.png') === 'https://a/b.png');
+  ok('imgSrc 放行 emoji 贴纸', App.imgSrc('🙂') === '🙂');
+  ok('imgSrc 放行空值', App.imgSrc('') === '');
+  ok('imgSrc 对还没解析出来的引用给透明占位（给空串会变破图图标）',
+    App.imgSrc('idb:nope') === App.BLANK_IMG, App.imgSrc('idb:nope'));
+
+  /* ── 白名单：idb: 必须被认成合法图片，否则存进去也会被静默清掉 ── */
+  ok('avatarSrc 认 idb: 引用', App.avatarSrc('idb:ab12') === 'idb:ab12');
+  ok('avatarSrc 仍然认 data:image / http(s)',
+    App.avatarSrc('data:image/png;base64,AA') === 'data:image/png;base64,AA' &&
+    App.avatarSrc('https://a/b.png') === 'https://a/b.png');
+  ok('avatarSrc 仍然拦掉 javascript:', App.avatarSrc('javascript:alert(1)') === '');
+
+  /* ── 自检沙箱里没有 IndexedDB，这一组验的就是降级路径 ── */
+  const tiny = 'data:image/png;base64,iVBORw0KGgo=';
+  ok('没有图片仓时 putImg 原样退回 data URI（绝不把图弄丢）', (await App.putImg(tiny)) === tiny);
+  ok('putImg 已经是指引用就原样返回', (await App.putImg('idb:zzz')) === 'idb:zzz');
+  ok('putImg 对 emoji 贴纸不动它', (await App.putImg('🙂')) === '🙂');
+  ok('imgBoot 没有图片仓时安静返回 0', (await App.imgBoot()) === 0);
+  ok('imgSweep 没有图片仓时不动存档', (await App.imgSweep()) === 0);
+  ok('imgClean 没有图片仓时不报错', (await App.imgClean()) === 0);
+  ok('save() 成功时返回 true', App.save() === true);
+
+  /* ── 扫描 / 抹引用都必须要求「整条值就是一张图」──
+     沙箱里跑不到真扫描，所以照 [29] 的做法用文本钉住这条不变量：
+     消息正文里粘了个 data URI、或正文里恰好写着 idb: 的，
+     被换掉就是把用户的话改了 —— 那是比占空间严重得多的错。 ── */
+  const core = fs.readFileSync(path.join(DIR, 'js', 'core.js'), 'utf8');
+  ok('扫描时要求整条值就是一张图（正文里粘的 data URI 不会被搬走）',
+    core.includes(';base64,[A-Za-z0-9+/=]+$/.test(v)'));
+  ok('抹引用时也要求整条匹配（正文里写着 idb: 的句子不会被改）',
+    core.includes("/^idb:[\\w-]+$/.test(v)) host[key] = '';"));
+
+  /* ── 瘦身：每个对话只留最近 N 张图，文字一个字都不动 ── */
+  const sc = App.makeCharacter({ name: '存储测试' });
+  App.saveCharacter(sc);
+  /* 报告只列 ≥1KB 的项（不然满屏 0 KB 的噪音），所以正文塞长一点撑出体积 */
+  const LONG = '这是一段很长的正文。'.repeat(200);
+  App.state.chats[sc.id] = [
+    { me: true, text: '第一句', kind: 'img', img: 'idb:g1', ts: 1 },
+    { me: true, text: '第二句', kind: 'img', img: 'idb:g2', ts: 2 },
+    { me: true, text: '贴纸', kind: 'img', img: '🙂', ts: 3 },
+    { me: false, text: '第三句', kind: 'img', img: 'idb:g3', ts: 4 },
+    { me: true, text: LONG, ts: 5 }
+  ];
+  ok('瘦身只清更早的图（3 张里留最新 1 张）', App.imgPurge(1) === 2);
+  const cs = App.state.chats[sc.id];
+  ok('清掉的图留了「已清理」标记', cs[0].img === '' && cs[0].imgGone === true && cs[1].imgGone === true);
+  ok('最新那张留着', cs[3].img === 'idb:g3' && !cs[3].imgGone);
+  ok('emoji 贴纸不算图片，不动它', cs[2].img === '🙂' && !cs[2].imgGone);
+  ok('瘦身一个字都没改',
+    cs.map(m => m.text).join('|') === '第一句|第二句|贴纸|第三句|' + LONG);
+
+  /* 刚发完图、imgSweep 还没搬走时点「只留 N 张」也得算数 —— 否则那一刀会漏掉整批 */
+  const inline = 'data:image/png;base64,' + 'A'.repeat(2000);
+  App.state.chats[sc.id].push({ me: true, text: '刚发的图', kind: 'img', img: inline, ts: 6 });
+  ok('还没搬进图片仓的图也照样被清', App.imgPurge(0) === 2);   // 第 3 条是 idb:g3，第 6 条是刚发的内联图
+  ok('内联图被清后留标记且没了字节',
+    App.state.chats[sc.id][5].img === '' && App.state.chats[sc.id][5].imgGone === true);
+
+  /* ── 体检报告 ── */
+  const rep = await App.storageReport();
+  ok('报告给出存档体积', rep.stateKB > 0, String(rep.stateKB));
+  ok('报告列出谁最占地方，聊天记录在里头', rep.parts.some(p => p.key === 'chats'), JSON.stringify(rep.parts.slice(0, 3)));
+  ok('报告给出图片张数 / 体积 / 有没有图片仓',
+    typeof rep.imgN === 'number' && typeof rep.imgKB === 'number' && typeof rep.idb === 'boolean');
+
+  /* ── 全抹：图没了，文字一条不丢 ── */
+  App.state.settings.myAvatarImg = 'idb:av1';
+  App.state.characters[0].avatarImg = 'idb:av2';
+  await App.imgWipe();
+  ok('抹掉所有图片后引用清干净',
+    App.state.settings.myAvatarImg === '' && App.state.characters.every(x => !x.avatarImg));
+  ok('抹掉所有图片后聊天记录一条不丢',
+    App.state.chats[sc.id].length === 6 && App.state.chats[sc.id][4].text === LONG);
+
+  /* ── 被清掉的老图要说清楚，不能剩个破图图标 ── */
+  S.SHELL.openApp('chat', sc.id);
+  const chatNode = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+  ok('被清理的老图在聊天页显示「图片已清理」',
+    walk(chatNode).some(n => n.textContent.trim() === '🖼 图片已清理'));
+  S.SHELL.closeAll();
+
+  /* ── 入口：隐藏 App + 设置里能进去 ── */
+  ok('「存储」注册成隐藏 App（不上桌面）',
+    sandbox.APPS.some(a => a.id === 'storage' && a.hide === true));
+  ok('桌面上找不到「存储」这一格',
+    !walk(byId.pages).some(n => n._class && n._class.has('icon-name') && n.textContent.trim() === '存储'));
+  S.SHELL.openApp('settings');
+  ok('设置页有「存储」入口行',
+    walk(S.SHELL.stack[S.SHELL.stack.length - 1].node).some(n => n.textContent.trim() === '存储'));
+  S.SHELL.openApp('storage');
+  await new Promise(r => setTimeout(r, 0));    // 存储页是「先算完再画」
+  ok('存储 App 打得开且画出了用量',
+    walk(S.SHELL.stack[S.SHELL.stack.length - 1].node).some(n => n.textContent.includes('图片')));
+  S.SHELL.closeAll();
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

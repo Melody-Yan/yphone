@@ -77,10 +77,11 @@ function confirmBox(text, onOk) {
 /* 角色头像：通讯录、微信会话列表、聊天页头都用这一个，改一处全变 */
 function avatarNode(c) {
   // 传过头像图片就用图片，否则退回 emoji + 底色。头像图片由 core 的 avatarSrc 白名单过。
+  // 图片真实字节在 IndexedDB 里，存档只存 'idb:xxx' 引用 —— 交给 SJ.imgSrc 换成 blob URL。
   if (c && c.avatarImg) {
     return SJ.el('div', {
       class: 'avatar img',
-      style: { backgroundImage: 'url("' + c.avatarImg + '")' }
+      style: { backgroundImage: 'url("' + SJ.imgSrc(c.avatarImg) + '")' }
     });
   }
   return SJ.el('div', { class: 'avatar', style: { background: (c && c.color) || '#9cb9c2' } }, (c && c.avatar) || '🙂');
@@ -629,7 +630,8 @@ const APPS = [
             ])
           ]));
           card.append(SJ.el('div', { class: 'mo-text' }, m.text));
-          if (m.img) card.append(SJ.el('img', { class: 'mo-pic', src: m.img, alt: '配图' }));
+          if (m.img) card.append(SJ.el('img', { class: 'mo-pic', src: SJ.imgSrc(m.img), alt: '配图' }));
+          else if (m.imgGone) card.append(SJ.el('div', { class: 'mo-gone' }, '图片已清理'));
           else {
             card.append(SJ.el('button', {
               class: 'mo-make',
@@ -805,9 +807,15 @@ const APPS = [
           return b;
         }
         function imgBubble(m) {
-          const inner = /^(data:|https?:)/.test(m.img || '')
-            ? SJ.el('img', { class: 'bubble-pic', src: m.img, alt: '图片' })
-            : SJ.el('div', { class: 'bubble-sticker' }, m.img || '🖼');
+          let inner;
+          if (m.imgGone) {
+            /* 存储瘦身时被清掉的老图。别留一个破图图标，说清楚它去哪儿了。 */
+            inner = SJ.el('div', { class: 'bubble-sticker gone' }, '🖼 图片已清理');
+          } else if (/^(idb:|data:|https?:)/.test(m.img || '')) {
+            inner = SJ.el('img', { class: 'bubble-pic', src: SJ.imgSrc(m.img), alt: '图片' });
+          } else {
+            inner = SJ.el('div', { class: 'bubble-sticker' }, m.img || '🖼');
+          }
           const b = SJ.el('div', { class: 'bubble me media' }, [inner]);
           row(b, true);
           return b;
@@ -1931,6 +1939,113 @@ const APPS = [
     }
   },
 
+  /* ── 存储 ── */
+  {
+    id: 'storage',
+    name: '存储',
+    icon: 'photo',
+    hide: true,             // 不上桌面，只从「设置 → 存储」进来（app.js 的 appOrder 认这个标记）
+    color: 'linear-gradient(150deg,#e3e6ea,#a9b1ba)',
+    render(root, close) {
+      const KIND = {
+        chats: '聊天记录', characters: '角色', moments: '朋友圈', events: '日程',
+        worldbook: '世界书', delivery: '外卖', music: '音乐', settings: '设置 / 我的壁纸',
+        widgets: '桌面插件', layout: '桌面排布', split: '分页'
+      };
+      const kb = n => (n >= 1024 ? (n / 1024).toFixed(1) + ' MB' : n + ' KB');
+
+      async function main() {
+        root.innerHTML = '';
+        root.append(navBar('存储'));
+        const box = SJ.el('div', { class: 'list' });
+        box.append(SJ.el('div', { class: 'hint' }, '正在算…'));
+        root.append(box);
+
+        const r = await SJ.storageReport();
+        root.innerHTML = '';
+        root.append(navBar('存储'));
+
+        /* ── 总览 ── */
+        const pct = r.quotaKB ? Math.min(100, Math.max(0, Math.round(r.usedKB / r.quotaKB * 100))) : 0;
+        const card = SJ.el('div', { class: 'st-card' }, [
+          SJ.el('div', { class: 'st-big' }, kb(r.usedKB) + (r.quotaKB ? ' / ' + kb(r.quotaKB) : '')),
+          SJ.el('div', { class: 'st-bar' }, [SJ.el('i', { style: { width: Math.max(2, pct) + '%' } })]),
+          SJ.el('div', { class: 'st-sub' },
+            '图片 ' + kb(r.imgKB) + '（' + r.imgN + ' 张） · 文字存档 ' + kb(r.stateKB) +
+            (r.quotaKB ? ' · 用掉浏览器额度的 ' + pct + '%' : ''))
+        ]);
+        if (r.err) card.append(SJ.el('div', { class: 'st-err' }, '⚠ ' + r.err));
+        const top = SJ.el('div', { class: 'list' });
+        top.append(SJ.el('div', { class: 'group-title' }, '存储'));
+        top.append(card);
+        root.append(top);
+
+        /* ── 谁在占地方 ── */
+        const bl = SJ.el('div', { class: 'list' });
+        bl.append(SJ.el('div', { class: 'group-title' }, '文字存档里谁最占地方'));
+        if (r.parts.length) {
+          r.parts.slice(0, 6).forEach(p => bl.append(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, KIND[p.key] || p.key)]),
+            SJ.el('div', { class: 'row-time' }, kb(p.kb))
+          ])));
+        } else {
+          bl.append(SJ.el('div', { class: 'hint' }, '文字部分都还很小（每项不到 1 KB），暂时没什么可压的。'));
+        }
+        root.append(bl);
+
+        /* ── 持久化 ── */
+        const pm = SJ.el('div', { class: 'list' });
+        pm.append(SJ.el('div', { class: 'group-title' }, '防丢'));
+        pm.append(SJ.el('div', { class: 'hint' }, r.persisted
+          ? '已开启持久化存储：手机空间紧张时，系统不会优先清掉这台小手机的数据。'
+          : '手机空间紧张时，系统可能清掉网页数据 —— 那会连聊天记录一起没。点下面的按钮申请一下。'));
+        if (r.canPersist && !r.persisted) {
+          pm.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('button', {
+              class: 'btn ghost',
+              onclick: async () => { const ok = await SJ.persistAsk(); toast(ok ? '申请到了 ✓' : '浏览器没给，可能是无痕模式'); main(); }
+            }, '申请持久化存储')
+          ]));
+        }
+        root.append(pm);
+
+        /* ── 清理 ── */
+        const cl = SJ.el('div', { class: 'list' });
+        cl.append(SJ.el('div', { class: 'group-title' }, '清图片（文字一条不动）'));
+        const cut = n => {
+          const k = SJ.imgPurge(n);
+          SJ.applyWallpaper();
+          toast(k ? '清掉 ' + k + ' 张' : '没有更早的图了');
+          main();
+        };
+        cl.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('button', { class: 'btn ghost', onclick: () => cut(10) }, '每个对话只留最近 10 张图'),
+          SJ.el('button', { class: 'btn ghost', onclick: () => cut(30) }, '每个对话只留最近 30 张图'),
+          SJ.el('button', {
+            class: 'btn ghost',
+            onclick: async () => { const n = await SJ.imgClean(); toast(n ? '清掉 ' + n + ' 张没人用的' : '没有没人用的图'); main(); }
+          }, '清掉没人引用的图片'),
+          SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('抹掉所有图片？聊天记录、角色、设定一条都不会丢，只是图没了。',
+              async () => { await SJ.imgWipe(); SJ.applyWallpaper(); toast('图片都清掉了'); main(); })
+          }, '抹掉所有图片')
+        ]));
+        root.append(cl);
+
+        /* ── 说明 ── */
+        const w = SJ.el('div', { class: 'list' });
+        w.append(SJ.el('div', { class: 'group-title' }, '说明'));
+        w.append(SJ.el('div', { class: 'hint' },
+          '图片的真实字节存在 IndexedDB（编辑框外、不会被 5MB 的存档上限卡住），' +
+          '存档里只留几十字节的引用，所以聊天记录再怎么涨也不会把存档撑爆。' +
+          (r.idb ? '' : '⚠ 这台浏览器没给 IndexedDB，图片只能退回存档里，容易满。')));
+        root.append(w);
+      }
+      main();
+    }
+  },
+
   /* ── 设置 ── */
   {
     id: 'settings',
@@ -2107,6 +2222,16 @@ const APPS = [
           file
         ]));
 
+        /* 存储 */
+        box.append(SJ.el('div', { class: 'group-title' }, '存储'));
+        box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('storage'); } }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '存储'),
+            SJ.el('div', { class: 'row-sub' }, '看看用掉多少、谁最占地方、清掉老图片')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]));
+
         /* 数据 */
         box.append(SJ.el('div', { class: 'group-title' }, '数据'));
         const saveTip = SJ.el('div', { class: 'hint' }, '改动本来就会即时保存，这个按钮是让你确认一下。');
@@ -2124,7 +2249,9 @@ const APPS = [
 
       /* 文件名用真实时间戳是对的（不是剧情时间，别改成 virtualNow） */
       function exportArchive() {
-        const blob = new Blob([SJ.exportState()], { type: 'application/json' });
+        /* async：导出前要把图片仓里的字节贴回 data URI，否则导出去的是「图全没了」的空壳 */
+        return SJ.exportState().then(json => {
+        const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const d = new Date();
         const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -2133,6 +2260,7 @@ const APPS = [
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+        });
       }
 
       function field(label, key, ph, type = 'text') {
@@ -2158,4 +2286,5 @@ window.ICONSVG = svg;
 window.navBar = navBar;
 window.confirmBox = confirmBox;
 window.sheet = sheet;   // app.js 的桌面插件面板要用
+window.toast = toast;   // app.js 报「存档写不进去了」要用
 })();

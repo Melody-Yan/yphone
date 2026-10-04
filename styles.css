@@ -1195,3 +1195,19 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 插件里用 --accent-ink 的那几处（比如「谁」）在深色壁纸下是深绿压深玻璃。
    --accent-ink 本来就没跟着 dark-wall 翻（也不该翻，App 里还要用），在这儿单独放行。 */
 #phone.dark-wall .wg-who { color: rgba(255, 255, 255, .78); }
+
+/* ══ 存储面板（设置 → 存储） ══ */
+.st-card { margin: 4px 14px 2px; padding: 16px 16px 14px; border-radius: 18px;
+  background: var(--panel, rgba(255,255,255,.72)); border: 1px solid var(--line, rgba(0,0,0,.06));
+  box-shadow: var(--shadow-s, 0 1px 3px rgba(0,0,0,.06)); }
+.st-big { font-size: 26px; font-weight: 650; letter-spacing: -.4px; color: var(--fg); }
+.st-bar { height: 7px; margin: 12px 0 10px; border-radius: 99px; overflow: hidden;
+  background: rgba(0,0,0,.07); }
+.st-bar > i { display: block; height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #9fc0b4, #7fa8a0); transition: width .35s ease; }
+.st-sub { font-size: 12.5px; line-height: 1.55; color: var(--fg-dim); }
+.st-err { margin-top: 10px; font-size: 12.5px; line-height: 1.5; color: var(--danger, #c0564a); }
+
+/* 存储瘦身时被清掉的老图：别留破图图标，说清楚它去哪儿了 */
+.bubble-sticker.gone { font-size: 12.5px; color: var(--fg-dim); background: rgba(0,0,0,.05); padding: 9px 12px; }
+.mo-gone { margin: 8px 0 2px; font-size: 12.5px; color: var(--fg-dim); }

@@ -138,7 +138,9 @@ function tickStatus() {
 
 /* ══ 桌面 ══ */
 function appOrder() {
-  const ids = window.APPS.map(a => a.id);
+  /* hide: true 的 App 不上桌面，但仍然能用 openApp('id') 直达 ——
+     「存储」这类只在设置里点进去的工具不该占桌面一格。 */
+  const ids = window.APPS.filter(a => !a.hide).map(a => a.id);
   const custom = (SJ.state.layout || []).filter(id => ids.includes(id));
   return [...custom, ...ids.filter(id => !custom.includes(id))];
 }
@@ -270,8 +272,8 @@ function widgetBody(type) {
       const m = SJ.latestImage();
       let body;
       if (!m) body = SJ.el('div', { class: 'wg-empty' }, '还没有照片');
-      // 贴纸存的是表情符号，相册里压出来的才是 data URI，分开画
-      else if (/^data:/.test(m.img)) body = SJ.el('div', { class: 'wg-photo', style: { backgroundImage: `url("${m.img}")` } });
+      // 贴纸存的是表情符号，相册里压出来的才是图片（存档里是 idb: 引用），分开画
+      else if (/^(idb:|data:|https?:)/.test(m.img)) body = SJ.el('div', { class: 'wg-photo', style: { backgroundImage: `url("${SJ.imgSrc(m.img)}")` } });
       else body = SJ.el('div', { class: 'wg-photo wg-emoji' }, m.img);
       return [SJ.el('div', { class: 'wg-head' }, '相册'), body];
     }
@@ -765,10 +767,21 @@ function boot() {
   // 挂到 SJ 上：apps.js 里（设置页换壁纸）用的是 SJ.applyWallpaper，别让两边各存一个引用
   SJ.applyWallpaper = applyWallpaper;
 
+  /* 存档写不进去（浏览器空间满了）绝不静默 ——
+     「以为发出去了、刷新就没了」比弹条提示糟得多。 */
+  SJ.onSaveError(msg => { if (msg && window.toast) window.toast(msg); });
+
   // 暴露给调试和自检
   window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper };
   // 设置页开启锁屏后，立刻锁上给用户看一眼
   window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };
+
+  /* 图片真实字节在 IndexedDB 里，读它是异步的。先拿占位图把桌面撑起来，
+     开机那把读完再重画一次 —— 比让用户盯着白屏等一秒好。 */
+  SJ.imgBoot().then(n => {
+    if (n) { applyWallpaper(); renderHome(); if (locked) renderLock(); }
+    SJ.persistAsk();     // 申请持久化存储，免得系统清空间时先拿我们的数据开刀
+  });
 }
 
 boot();

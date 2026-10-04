@@ -110,6 +110,21 @@ html, body {
   transition: transform .32s cubic-bezier(.22,1,.36,1), filter .32s, opacity .32s;
   z-index: 10;
 }
+/* 照片壁纸下面压一层纱：顶上一条把状态栏糊白/糊黑，底下一段保 dock 和页码。
+   没有它，照片一亮一暗，白字黑字都得跟照片里的花纹打架。
+   前 6% 故意压得很实 —— 状态栏那 44px 里可能正好横着一根深色树枝。 */
+#home::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, .84) 0%, rgba(255, 255, 255, .78) 6%, rgba(255, 255, 255, .30) 17%,
+    rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, .50) 100%);
+}
+#phone.dark-wall #home::before {
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, .62) 0%, rgba(0, 0, 0, .58) 6%, rgba(0, 0, 0, .22) 17%,
+    rgba(0, 0, 0, 0) 32%, rgba(0, 0, 0, 0) 58%, rgba(0, 0, 0, .56) 100%);
+}
+#pages, #dots, #dock { position: relative; z-index: 1; }
 #home.pushed { transform: scale(.945); filter: brightness(.94) saturate(.85); opacity: .92; }
 
 #pages {
@@ -206,7 +221,7 @@ html, body {
 #phone.dark-wall .icon-art svg { opacity: .95; }
 #phone.dark-wall .icon-name { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 #phone.dark-wall .widget { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.16); color: #fff; }
-#phone.dark-wall #dock { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.14); }
+#phone.dark-wall #dock { background: rgba(30, 28, 26, .42); border-color: rgba(255, 255, 255, .16); }
 #phone.dark-wall #dots i { background: rgba(255,255,255,.3); }
 #phone.dark-wall #dots i.on { background: rgba(255,255,255,.9); }
 #phone.dark-wall #homebar { background: rgba(255,255,255,.85); }
@@ -421,12 +436,23 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   transition: opacity .28s, transform .28s;
   color: #4b463f;
 }
+/* 锁屏也压一层纱：顶上一条保状态栏，底下一段给键盘和提示留对比度。
+   中间（时钟那一段）故意留得薄，让照片透出来 —— 时钟靠 80px 字号和光晕自己撑住。 */
 #lock::before {
   content: ''; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,0) 40%);
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, .84) 0%, rgba(255, 255, 255, .78) 6%, rgba(255, 255, 255, .34) 18%,
+    rgba(255, 255, 255, .12) 40%, rgba(255, 255, 255, 0) 58%, rgba(255, 255, 255, 0) 72%,
+    rgba(255, 255, 255, .50) 100%);
+}
+#phone.lock-dark #lock::before {
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, .62) 0%, rgba(0, 0, 0, .58) 6%, rgba(0, 0, 0, .28) 18%,
+    rgba(0, 0, 0, .10) 40%, rgba(0, 0, 0, 0) 58%, rgba(0, 0, 0, 0) 70%,
+    rgba(0, 0, 0, .58) 100%);
 }
 #lock > * { position: relative; z-index: 1; }
-#lock-time { font-size: 80px; font-weight: 200; letter-spacing: -3px; text-shadow: 0 2px 18px rgba(255,255,255,.5); font-variant-numeric: tabular-nums; }
+#lock-time { font-size: 80px; font-weight: 200; letter-spacing: -3px; text-shadow: 0 2px 18px rgba(255, 255, 255, .5); font-variant-numeric: tabular-nums; }
 #lock-date { font-size: 17px; opacity: .68; margin-top: 2px; }
 #lock-hint { margin-top: auto; margin-bottom: 46px; font-size: 14px; opacity: .6; animation: breathe 2.4s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .28; } }
@@ -1121,3 +1147,31 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   padding: 12px 22px 6px;
   font-size: 12.5px; color: var(--fg-dim); letter-spacing: .3px;
 }
+
+/* ══════════════════════════════════════════════════════
+   照片壁纸上的可读性：白字/深字都要有影，刘海和图标要有厚度
+   渐变壁纸时代无所谓，照片一亮一暗，同样的字就糊了。
+   ══════════════════════════════════════════════════════ */
+#phone.dark-wall #statusbar { text-shadow: 0 1px 6px rgba(0, 0, 0, .45); }
+#phone.dark-wall #sb-notch { background: rgba(22, 22, 24, .84); }
+#phone.dark-wall .icon-art {
+  box-shadow:
+    0 9px 22px rgba(0, 0, 0, .36),
+    inset 0 1px 0 rgba(255, 255, 255, .5),
+    inset 0 -1px 0 rgba(0, 0, 0, .06);
+}
+#phone:not(.dark-wall) #statusbar { text-shadow: 0 1px 6px rgba(255, 255, 255, .72); }
+/* 浅色照片上的黑字：光晕比阴影管用 —— 照片哪块亮哪块暗说不准，一圈白边两头都兜得住 */
+#phone:not(.dark-wall) #lock-time { text-shadow: 0 1px 3px rgba(255, 255, 255, .92), 0 3px 26px rgba(255, 255, 255, .8); }
+#phone:not(.dark-wall) #lock-date,
+#phone:not(.dark-wall) #lock-hint { text-shadow: 0 1px 8px rgba(255, 255, 255, .92); }
+#phone.lock-dark #lock-time { text-shadow: 0 1px 4px rgba(0, 0, 0, .62), 0 3px 30px rgba(0, 0, 0, .55); }
+#phone.lock-dark #lock-date,
+#phone.lock-dark #lock-hint { text-shadow: 0 1px 8px rgba(0, 0, 0, .72); }
+#phone:not(.dark-wall) .icon-art {
+  box-shadow:
+    0 7px 18px rgba(60, 54, 46, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+/* 锁屏按钮压在照片上：底再厚一点，别让照片的花纹从玻璃里透出来 */
+#phone.lock-dark .pk { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .3); }

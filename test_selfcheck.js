@@ -234,7 +234,7 @@ ok('每个 App 都有返回键且点了真能退回桌面', noBack.length === 0,
 
 /* 3. 持久化（验收标准：刷新后还在） */
 console.log('\n[3] 持久化 · 验收标准');
-const W_TEST = sandbox.SJ.wallList()[2].id;     // 鼠尾草。壁纸现在存的是 id，不是整条 CSS
+const W_TEST = 'w2';                            // 鼠尾草（浅色）。壁纸存的是 id，不是整条 CSS
 sandbox.SJ.state.wallpaper = W_TEST;
 sandbox.SJ.state.layout = ['calc', 'notes', 'chat', 'clock', 'settings', 'gallery'];
 sandbox.SJ.save();
@@ -243,7 +243,7 @@ boot();                    // ← 模拟刷新
 ok('刷新后壁纸仍是所选那张', sandbox.SJ.state.wallpaper === W_TEST, sandbox.SJ.state.wallpaper);
 ok('刷新后桌面已应用该壁纸', byId.home.style.background === sandbox.SJ.wallCSS(W_TEST), byId.home.style.background);
 ok('浅色壁纸不加 dark-wall（桌面用深字）', !byId.phone._class.has('dark-wall'));
-sandbox.SJ.state.wallpaper = sandbox.SJ.wallList()[6].id;   // 石墨（深色）
+sandbox.SJ.state.wallpaper = 'w6';   // 石墨（深色）
 sandbox.SJ.applyWallpaper();
 ok('深色壁纸自动加 dark-wall（桌面翻白字）', byId.phone._class.has('dark-wall'));
 sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();
@@ -253,7 +253,7 @@ S.openApp('look');
 const sv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
 const wallStrip = walk(sv).find(n => n._class.has('desktop-walls'));
 const wallTiles = walk(wallStrip).filter(n => n._class.has('wall'));
-ok('外观页桌面壁纸栏渲染出 7 张缩略图', wallTiles.length === sandbox.SJ.wallList().length, wallTiles.length + ' 张');
+ok('外观页桌面壁纸栏把内置壁纸全渲染出来', wallTiles.length === sandbox.SJ.wallList().length, wallTiles.length + ' 张');
 try {
   wallTiles[4].click();
   ok('点第 5 张缩略图能换壁纸且不抛异常', sandbox.SJ.state.wallpaper === sandbox.SJ.wallList()[4].id,
@@ -995,7 +995,7 @@ ok('解锁瞬间桌面做了入场动效', byId.phone._class.has('unlocking'));
 S.closeTop(true);
 
 /* 锁屏可以单独一张壁纸 */
-const DESK_W = lk.wallList()[0].id, LOCK_W = lk.wallList()[6].id;
+const DESK_W = 'w2', LOCK_W = 'w6';   // 桌面浅色（鼠尾草）/ 锁屏深色（石墨），两条路要分开判
 lk.state.wallpaper = DESK_W;
 lk.state.settings.lockWallpaper = LOCK_W;
 lk.applyWallpaper();
@@ -1013,7 +1013,7 @@ const sv2 = openFresh('look');
 const lws = walk(sv2).find(n => n._class.has('lock-walls'));
 ok('外观 App 有锁屏壁纸栏', !!lws);
 ok('锁屏壁纸栏第一格是「跟随桌面」', lws.firstChild._class.has('follow'));
-ok('锁屏壁纸栏 = 跟随桌面 + 7 张', walk(lws).filter(n => n._class.has('wall')).length === 8,
+ok('锁屏壁纸栏 = 跟随桌面 + 全部内置', walk(lws).filter(n => n._class.has('wall')).length === 1 + lk.wallList().length,
   walk(lws).filter(n => n._class.has('wall')).length + ' 格');
 ok('跟随桌面时第一格是选中态', lws.firstChild._class.has('on'));
 S.closeTop(true);
@@ -1426,11 +1426,30 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   App.state.settings.imgModel = '';
 
   /* ── 壁纸：改成「存 id」，不再是整条 CSS ── */
-  ok('内置壁纸 7 张，id 是 w0…w6', App.wallList().length === 7 && App.wallList()[2].id === 'w2',
+  const wById = id => App.WALLS.find(w => w[0] === id);
+  ok('内置壁纸 8 张照片 + 7 张莫兰迪，id 是写死的字面量', App.wallList().length === 15 &&
+    App.wallList()[0].id === 'p0' && App.wallList()[8].id === 'w0',
     App.wallList().map(w => w.id).join(','));
-  ok('wallCSS 按 id 取回那条渐变', App.wallCSS('w2') === App.WALLS[2][1]);
-  ok('深浅判断也按 id（石墨深、晨雾浅）', App.isDarkWall('w6') === true && App.isDarkWall('w0') === false);
-  ok('认不出的 id 不炸，退回第一张', App.wallCSS('nope') === App.WALLS[0][1]);
+  ok('照片壁纸指向 img/ 里的 webp', App.wallCSS('p0') === 'url("img/wall-window.webp") center / cover no-repeat', App.wallCSS('p0'));
+  ok('wallCSS 按 id 取回那条渐变', App.wallCSS('w2') === wById('w2')[2]);
+  ok('深浅判断也按 id（石墨深、晨雾浅、窗边那张照片深）',
+    App.isDarkWall('w6') === true && App.isDarkWall('w0') === false && App.isDarkWall('p0') === true);
+  ok('认不出的 id 不炸，退回第一张', App.wallCSS('nope') === App.WALLS[0][2]);
+  /* 换了一批照片壁纸：老存档（没有 wallRev）该被一次性换到新的初始桌面/锁屏，
+     已经换过的不许再动 —— 否则用户自己挑的壁纸每次刷新都会被拨回去。 */
+  {
+    const keep = store.get('xiaoshouji.v1');
+    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', settings: { lockWallpaper: '' } }));
+    const old1 = App.load();
+    ok('老存档被换到新的初始桌面 + 锁屏，并盖上 wallRev',
+      old1.wallpaper === 'p0' && old1.settings.lockWallpaper === 'p1' && old1.wallRev === 2,
+      old1.wallpaper + '/' + old1.settings.lockWallpaper + '/' + old1.wallRev);
+    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', wallRev: 2, settings: { lockWallpaper: 'w5' } }));
+    const old2 = App.load();
+    ok('已经换过的存档不再被覆盖（用户自己选的还算数）',
+      old2.wallpaper === 'w3' && old2.settings.lockWallpaper === 'w5', old2.wallpaper + '/' + old2.settings.lockWallpaper);
+    store.set('xiaoshouji.v1', keep);
+  }
 
   /* ── 自己传的壁纸：scheme 白名单 / 上限 / 删掉正在用的那张 ── */
   App.state.settings.wallImgs.slice().forEach(w => App.removeWall(w.id));
@@ -1445,7 +1464,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   ok('自己传的那张记着它是不是深色', App.isDarkWall(uw.id) === true);
   App.state.wallpaper = uw.id;
   App.removeWall(uw.id);
-  ok('删掉正在用的那张壁纸 → 退回默认，不留一张空桌面', App.state.wallpaper === 'w0', App.state.wallpaper);
+  ok('删掉正在用的那张壁纸 → 退回默认，不留一张空桌面', App.state.wallpaper === App.DEFAULTS.wallpaper, App.state.wallpaper);
   App.state.settings.wallImgs.slice().forEach(w => App.removeWall(w.id));
   for (let i = 0; i < App.WALL_IMG_MAX; i++) App.addWall('data:image/png;base64,AAA' + i, false);
   ok('加到上限就不再收了', App.state.settings.wallImgs.length === App.WALL_IMG_MAX &&

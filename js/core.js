@@ -5,61 +5,71 @@
 
 const KEY = 'xiaoshouji.v1';
 
-/* 壁纸：全莫兰迪，多层渐变叠柔光色块（比单条 linear-gradient 更像照片，且零文件、离线可用）。
-   第三项 = 是否深色（深色要翻成白字，见 styles.css 的 .dark-wall）。
-   单一来源：设置页拿它渲染，app.js 拿它判断桌面文字颜色，别再各写一份。 */
+/* 壁纸表：[id, 名字, CSS, 是否深色]。
+   p* = 照片（img/ 里的 webp，780×1690，一张 ~30–350KB），w* = 原来那套莫兰迪渐变。
+   第四项 = 是否深色（深色要翻成白字，见 styles.css 的 .dark-wall），照片的深浅是压图时按平均亮度定死的。
+   单一来源：外观 App 拿它渲染缩略图，app.js 拿它判断桌面文字颜色，别再各写一份。
+   ⚠️ id 是写死的字面量，不是下标 —— 往中间插一张不会把老存档的壁纸串位。 */
 const WALLS = [
-  ['晨雾',
+  ['p0', '窗边', 'url("img/wall-window.webp") center / cover no-repeat', true],
+  ['p1', '雨窗', 'url("img/wall-rain.webp") center / cover no-repeat', true],
+  ['p2', '抹茶', 'url("img/wall-matcha.webp") center / cover no-repeat', true],
+  ['p3', '青梅', 'url("img/wall-plums.webp") center / cover no-repeat', true],
+  ['p4', '早餐', 'url("img/wall-tray.webp") center / cover no-repeat', true],
+  ['p5', '新叶', 'url("img/wall-leaves.webp") center / cover no-repeat', false],
+  ['p6', '枯枝', 'url("img/wall-branch.webp") center / cover no-repeat', false],
+  ['p7', '郁金香', 'url("img/wall-tulip.webp") center / cover no-repeat', false],
+  ['w0', '晨雾',
     'radial-gradient(115% 85% at 16% 6%, #fdfbf7 0%, rgba(253,251,247,0) 58%),' +
     'radial-gradient(95% 75% at 88% 94%, #cdd8d1 0%, rgba(205,216,209,0) 56%),' +
     'linear-gradient(170deg, #f2eee7, #e1e4de)', false],
-  ['灰蓝',
+  ['w1', '灰蓝',
     'radial-gradient(110% 80% at 20% 10%, #f4f8fa 0%, rgba(244,248,250,0) 60%),' +
     'radial-gradient(100% 80% at 82% 90%, #b6c7d0 0%, rgba(182,199,208,0) 58%),' +
     'linear-gradient(168deg, #e9eef1, #ccd7dd)', false],
-  ['鼠尾草',
+  ['w2', '鼠尾草',
     'radial-gradient(110% 80% at 78% 8%, #f6f8f1 0%, rgba(246,248,241,0) 58%),' +
     'radial-gradient(100% 80% at 14% 92%, #b3c2ab 0%, rgba(179,194,171,0) 56%),' +
     'linear-gradient(168deg, #eef1e9, #c9d3c2)', false],
-  ['陶土',
+  ['w3', '陶土',
     'radial-gradient(110% 80% at 22% 8%, #fdf5f0 0%, rgba(253,245,240,0) 58%),' +
     'radial-gradient(100% 85% at 84% 92%, #d3a595 0%, rgba(211,165,149,0) 60%),' +
     'linear-gradient(168deg, #f6ebe4, #e2c8bb)', false],
-  ['藕荷',
+  ['w4', '藕荷',
     'radial-gradient(110% 80% at 76% 10%, #faf5fb 0%, rgba(250,245,251,0) 58%),' +
     'radial-gradient(100% 82% at 16% 90%, #bdaec4 0%, rgba(189,174,196,0) 58%),' +
     'linear-gradient(168deg, #f1eaf2, #d3c5d7)', false],
-  ['燕麦',
+  ['w5', '燕麦',
     'radial-gradient(110% 80% at 20% 8%, #fdf9f0 0%, rgba(253,249,240,0) 58%),' +
     'radial-gradient(100% 82% at 86% 92%, #d6c39f 0%, rgba(214,195,159,0) 58%),' +
     'linear-gradient(168deg, #f7f1e6, #e6dac4)', false],
-  ['石墨',
+  ['w6', '石墨',
     'radial-gradient(110% 80% at 22% 8%, #7d8288 0%, rgba(125,130,136,0) 58%),' +
     'radial-gradient(100% 82% at 84% 92%, #2f3236 0%, rgba(47,50,54,0) 58%),' +
     'linear-gradient(168deg, #5f6469, #35383c)', true]
 ];
-/* 壁纸按 id 存：内置的是 'w0'…'w6'，自己上传的是 'u…'。
+/* 壁纸按 id 存：照片是 'p0'…'p7'，莫兰迪是 'w0'…'w6'，自己上传的是 'u…'。
    以前存的是整条 CSS 字符串 —— 那样既没法反过来判深浅，也塞不下自定义图片。
-   migrate() 会在内置表里按字符串找回对应的 id，老存档无缝切过来。
+   migrate() 会按 CSS 字符串在 WALLS 里找回 id，老存档无缝切过来。
    自定义那张会顺手算一个平均亮度存成 dark，好决定桌面文字翻不翻白。 */
 function customWalls() {
   const list = state && state.settings && state.settings.wallImgs;
   return Array.isArray(list) ? list : [];
 }
 function wallList() {
-  const out = WALLS.map((w, i) => ({ id: 'w' + i, name: w[0], css: w[1], dark: w[2], custom: false }));
+  const out = WALLS.map(w => ({ id: w[0], name: w[1], css: w[2], dark: w[3], custom: false, photo: w[0][0] === 'p' }));
   customWalls().forEach((u, i) => {
     if (!u || !u.img) return;
     out.push({
       id: u.id, name: u.name || ('我的壁纸 ' + (i + 1)),
       css: 'url("' + u.img + '") center / cover no-repeat',
-      dark: !!u.dark, custom: true
+      dark: !!u.dark, custom: true, photo: true
     });
   });
   return out;
 }
 const wallById = id => wallList().find(w => w.id === id) || null;
-const wallCSS = id => { const w = wallById(id); return w ? w.css : WALLS[0][1]; };
+const wallCSS = id => { const w = wallById(id); return w ? w.css : WALLS[0][2]; };
 function isDarkWall(id) { const w = wallById(id); return w ? w.dark : false; }
 
 
@@ -85,12 +95,15 @@ const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
 /* 自己上传的壁纸最多几张。一张 1280px 的 JPEG 转成 data URI 大约 300KB，
    localStorage 一共就 5MB 左右，再往上存就要开始丢东西了。 */
 const WALL_IMG_MAX = 6;
+/* 壁纸改版号。加了一批照片壁纸 → 直接 +1，老存档会被一次性换成新的初始桌面/锁屏。 */
+const WALL_REV = 2;
 /* 朋友圈最多留几条 */
 const MOMENT_KEEP = 120;
 
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
-  wallpaper: 'w0',       // 默认晨雾（内置壁纸 id，见 WALLS）
+  wallpaper: 'p0',       // 默认「窗边」那张照片（壁纸 id，见 WALLS）
+  wallRev: 0,            // 壁纸改版号：比 WALL_REV 小就一次性换上新的初始桌面/锁屏，之后尊重用户自己的选择
   lock: false,
   password: '',
   layout: [],            // 桌面图标顺序：[appId, ...]，空数组=用注册表默认顺序
@@ -118,7 +131,7 @@ const DEFAULTS = {
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
     /* 锁屏 */
-    lockWallpaper: '',   // 空 = 跟随桌面壁纸
+    lockWallpaper: 'p1', // 默认「雨窗」；空 = 跟随桌面壁纸
     lockWidgets: true,   // 锁屏上显示「今日安排」
     lockQuick: true,     // 锁屏底部快捷按钮
     /* 外观 */
@@ -151,7 +164,7 @@ const DEFAULTS = {
 /* 存档字段类型。导入存档是信任边界：这里不认的一律丢掉，类型不对的一律归位，
    否则一个坏 JSON 就能让整台手机白屏（比如把 characters 写成字符串）。 */
 const SCHEMA = {
-  wallpaper: 'string', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
+  wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
   moments: 'array', delivery: 'object', music: 'object'
@@ -173,7 +186,9 @@ function load() {
   let raw = null;
   try {
     raw = localStorage.getItem(KEY);
-    if (!raw) return clone(DEFAULTS);
+    /* 空存档也走一遍 migrate：初始状态必须是「迁移过」的样子，
+       否则 wallRev 这类只在 migrate 里推进的字段会停在 0，下次加载又把壁纸拨回去。 */
+    if (!raw) return migrate({});
     return migrate(JSON.parse(raw));
   } catch (e) {
     /* 解析或迁移炸了，也绝不能让这台手机被清空：原存档原样留在 localStorage 里，
@@ -263,13 +278,21 @@ function migrate(saved) {
   const hasImg = id => out.settings.wallImgs.some(u => u.id === id);
   const wallId = (v, emptyOk) => {
     const s = String(v || '');
-    if (/^w\d+$/.test(s)) return s;
-    if (/^u[\w-]+$/.test(s)) return hasImg(s) ? s : (emptyOk ? '' : 'w0');
-    const i = WALLS.findIndex(w => w[1] === s);
-    return i >= 0 ? 'w' + i : (emptyOk ? '' : 'w0');
+    if (/^[wp]\d+$/.test(s)) return s;
+    if (/^u[\w-]+$/.test(s)) return hasImg(s) ? s : (emptyOk ? '' : DEFAULTS.wallpaper);
+    const i = WALLS.findIndex(w => w[2] === s);
+    return i >= 0 ? WALLS[i][0] : (emptyOk ? '' : DEFAULTS.wallpaper);
   };
   out.wallpaper = wallId(out.wallpaper, false);
   out.settings.lockWallpaper = wallId(out.settings.lockWallpaper, true);
+  /* 换了一批照片壁纸：wallRev 落后的老存档一次性切到新的初始桌面 + 锁屏。
+     只做一次 —— wallRev 会随下一次 save() 落盘，之后用户选什么就是什么。
+     （load() 本身不 save()，所以在那之前每次加载都会重算一遍，但结果一样，不会打架。） */
+  if ((out.wallRev | 0) < WALL_REV) {
+    out.wallRev = WALL_REV;
+    out.wallpaper = 'p0';
+    out.settings.lockWallpaper = 'p1';
+  }
   return out;
 }
 
@@ -950,7 +973,7 @@ function addWall(img, dark) {
 function removeWall(id) {
   state.settings.wallImgs = customWalls().filter(u => u.id !== id);
   // 正用着的那张被删了，退回默认，别留一张空桌面
-  if (state.wallpaper === id) state.wallpaper = 'w0';
+  if (state.wallpaper === id) state.wallpaper = DEFAULTS.wallpaper;
   if (state.settings.lockWallpaper === id) state.settings.lockWallpaper = '';
   save();
 }

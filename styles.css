@@ -1211,3 +1211,137 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 存储瘦身时被清掉的老图：别留破图图标，说清楚它去哪儿了 */
 .bubble-sticker.gone { font-size: 12.5px; color: var(--fg-dim); background: rgba(0,0,0,.05); padding: 9px 12px; }
 .mo-gone { margin: 8px 0 2px; font-size: 12.5px; color: var(--fg-dim); }
+
+/* ══════════════════════════════════════════════════════
+   聊天：语音条 / 红包 / 位置 / 名片 / 视频 / 通话页
+   ══════════════════════════════════════════════════════ */
+.nav-right { display: flex; align-items: center; gap: 2px; }
+.av-tap { cursor: pointer; }
+.av-tap:active { transform: scale(.94); }
+
+/* ── 输入栏：🎤 跟「＋」一起排在左边 ── */
+.chat-mic {
+  flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: transparent; font-size: 17px; line-height: 1; cursor: pointer;
+}
+.chat-mic:active { transform: scale(.9); }
+
+/* ── 语音条：波纹 + 秒数。宽度由 .vc-wave 的格数决定，跟时长自洽 ── */
+.bubble.voice { display: flex; align-items: center; gap: 8px; min-width: 104px; padding: 9px 14px; }
+.bubble.voice .vc-ico { font-size: 15px; line-height: 1; }
+.vc-wave { display: flex; align-items: center; gap: 2.5px; height: 17px; }
+.vc-wave i { display: block; width: 2.5px; border-radius: 2px; height: 6px; background: currentColor; opacity: .45; }
+.vc-wave i:nth-child(2n) { height: 13px; }
+.vc-wave i:nth-child(3n) { height: 9px; }
+.vc-wave i:nth-child(5n) { height: 16px; }
+.vc-sec { font-size: 11.5px; opacity: .62; font-variant-numeric: tabular-nums; }
+.bubble.voice.playing .vc-wave i { opacity: 1; animation: vcJump .72s ease-in-out infinite; }
+.bubble.voice.playing .vc-wave i:nth-child(2) { animation-delay: .09s; }
+.bubble.voice.playing .vc-wave i:nth-child(3) { animation-delay: .18s; }
+.bubble.voice.playing .vc-wave i:nth-child(4) { animation-delay: .27s; }
+.bubble.voice.playing .vc-wave i:nth-child(5) { animation-delay: .36s; }
+.bubble.voice.playing .vc-wave i:nth-child(6) { animation-delay: .45s; }
+.bubble.voice.playing .vc-sec { opacity: 1; }
+@keyframes vcJump { 0%, 100% { transform: scaleY(.55); } 50% { transform: scaleY(1.5); } }
+
+.bubble-vid { display: block; width: 190px; max-width: 100%; border-radius: 12px; background: #000; }
+
+/* ── 红包 ── */
+.bubble.packet {
+  display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer;
+  background: linear-gradient(135deg, #f7c98b, #ea9c5a); color: #6b3d13;
+}
+.bubble.packet.open { background: linear-gradient(135deg, #ecd3ae, #d9bd96); color: #6b5a45; }
+.pk-ico { font-size: 24px; line-height: 1; }
+.pk-note { font-size: 13.5px; font-weight: 600; }
+.pk-tip { font-size: 11.5px; opacity: .78; margin-top: 2px; }
+
+/* ── 位置 ── */
+.bubble.loc { padding: 0; overflow: hidden; width: 200px; cursor: pointer; }
+.loc-map {
+  height: 78px; display: flex; align-items: center; justify-content: center;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(0deg, rgba(255,255,255,.5) 1px, transparent 1px) 0 0 / 22px 22px,
+    linear-gradient(140deg, #cfe3d4, #a9c9e0);
+}
+.loc-pin { font-size: 24px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.3)); }
+.loc-body { padding: 8px 11px 10px; }
+.loc-name { font-size: 13.5px; font-weight: 600; }
+.loc-addr { font-size: 11.5px; color: var(--fg-dim); margin-top: 2px; }
+
+/* ── 名片 ── */
+.bubble.card { display: flex; align-items: center; gap: 10px; padding: 10px 13px; width: 190px; cursor: pointer; }
+.bubble.card .avatar { width: 34px; height: 34px; font-size: 17px; flex: none; }
+.cd-name { font-size: 13.5px; font-weight: 600; }
+.cd-tip { font-size: 11.5px; color: var(--fg-dim); margin-top: 2px; }
+
+/* ── 通话页 ── */
+.call-view {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; padding: 62px 22px 30px;
+  background: linear-gradient(180deg, #2f3b44, #1b2429 62%, #131a1e);
+  color: #fff;
+}
+.call-who { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.call-who .avatar { width: 92px; height: 92px; font-size: 44px; box-shadow: 0 12px 34px rgba(0,0,0,.45); }
+.call-name { font-size: 20px; font-weight: 600; letter-spacing: .5px; }
+.call-status { margin-top: 20px; font-size: 13px; opacity: .68; letter-spacing: .4px; }
+.call-time { margin-top: 4px; font-size: 15px; opacity: .5; font-variant-numeric: tabular-nums; }
+.call-sub { margin: auto 0 16px; text-align: center; font-size: 15.5px; line-height: 1.6;
+  min-height: 46px; opacity: .92; padding: 0 6px; }
+.call-bar { display: flex; gap: 8px; width: 100%; }
+.call-input { flex: 1; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.18); color: #fff; }
+.call-input::placeholder { color: rgba(255,255,255,.42); }
+.call-say {
+  flex: none; padding: 0 18px; border: 0; border-radius: 12px;
+  background: rgba(255,255,255,.92); color: #1b2429; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.call-hang {
+  margin-top: 16px; width: 62px; height: 62px; border: 0; border-radius: 50%;
+  background: #d8503f; color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 8px 22px rgba(216,80,63,.42);
+}
+.call-hang:active { transform: scale(.94); }
+
+/* 语速滑块 */
+input.field[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; padding: 0; height: 28px; }
+input.field[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 3px; background: var(--line); }
+input.field[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -7px;
+  border-radius: 50%; background: #8aa79a; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
+
+/* ══ 外观 App 的「界面」开关（参考 NuoOS 那页，只做这套代码真能生效的几条） ══ */
+#phone { --lock-scale: 1; }
+#lock-time { font-size: calc(80px * var(--lock-scale)); }
+
+/* 显示 App 名称：关掉只剩图标，桌面更干净 */
+#phone.no-label .icon-name { display: none; }
+#phone.no-label .icon { gap: 0; }
+
+/* 关掉动画：转场、打字气泡、进场全部立刻到位 */
+#phone.no-anim *, #phone.no-anim *::before, #phone.no-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* 图标质感三档。.icon-art 的底色是 app.js 里内联写上去的（style.background = app.color），
+   所以换色必须 !important，否则内联样式永远赢。 */
+#phone.ico-glass .icon-art {
+  background: linear-gradient(160deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .2)) !important;
+  -webkit-backdrop-filter: blur(9px) saturate(1.35);
+  backdrop-filter: blur(9px) saturate(1.35);
+  box-shadow:
+    0 8px 20px rgba(60, 54, 46, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .95),
+    inset 0 -9px 15px -11px rgba(255, 255, 255, .95) !important;
+}
+#phone.ico-flat .icon-art {
+  background: rgba(255, 255, 255, .30) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .52) !important;
+}
+#phone.dark-wall.ico-flat .icon-art { background: rgba(28, 26, 24, .34) !important; }
+#phone.ico-glass .icon-art svg, #phone.ico-flat .icon-art svg { opacity: .95; }

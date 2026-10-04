@@ -138,9 +138,22 @@ const DEFAULTS = {
     wallImgs: [],        // 自己上传的壁纸：[{id,name,img,dark}, ...]
     /* 朋友圈 */
     momentsAuto: true,   // 聊着聊着让他们自己发
-    momentEvery: 24      // 攒够多少条新消息最多自动发一条
+    momentEvery: 24,     // 攒够多少条新消息最多自动发一条
+    /* 语音（浏览器自带 TTS，不花钱、离线也出声） */
+    voice: true,         // 允许出现语音条，也允许角色发语音
+    voiceAuto: true,     // 点开语音条自动播
+    voiceRate: 1,        // 语速 0.5 ~ 2
+    voiceName: '',       // 选中的系统音色名，空 = 交给浏览器
+    allAtOnce: false,    // 一次全部发出（关掉逐条打字停顿）
+    autoReply: false,    // 发完自动让 TA 回，不用手点「回复」
+    /* 外观（参考 NuoOS 的外观设置页，只做这套代码真能生效的几条） */
+    noAnim: false,       // 关掉转场/进场动画
+    showLabels: true,    // 桌面图标下面显示名字
+    haptic: true,        // 点按振动反馈（要设备支持 navigator.vibrate）
+    lockScale: 1,        // 锁屏时钟大小 0.8 ~ 1.4
+    iconStyle: 'classic' // 图标质感：classic 经典 / glass 液态玻璃 / flat 毛玻璃
   },
-  characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,memUpTo,ts}, ...]
+  characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,myRelation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
   worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
   memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
@@ -413,7 +426,8 @@ function makeCharacter(patch = {}) {
   return Object.assign({
     id: uid(), name: '新角色', avatar: '🙂', avatarImg: '', color: '#9cb9c2',
     desc: '', persona: '', greeting: '',
-    alias: '', relation: '', memUpTo: 0,   // 昵称 / 关系 / 已经总结到第几条消息
+    alias: '', relation: '', myRelation: '', allowRelation: false,  // 昵称 / TA认为的关系 / 我认为的关系 / 允许TA自己改
+    memUpTo: 0,   // 已经总结到第几条消息
     ts: Date.now()
   }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
 }
@@ -540,6 +554,19 @@ async function putImg(v) {
   const ok = await idbRun('readwrite', st => st.put(blob, id));
   if (!ok) return s;                       // 没有 IndexedDB：退回老行为，别把图弄丢
   try { URL_CACHE.set(id, URL.createObjectURL(blob)); } catch (e) { return s; }
+  return IMG_REF + id;
+}
+
+/* 直接塞一个二进制进图片仓（视频走这条）。返回 'idb:<id>'，存不下就返回 ''。
+   仓里存的东西不分图片还是视频 —— 都是一坨 blob，读的时候都走 imgSrc()。 */
+async function putBlob(blob) {
+  if (!blob || !blob.size) return '';
+  await idbOpen();
+  if (!imgDB) return '';
+  const id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const done = await idbRun('readwrite', st => st.put(blob, id));
+  if (!done) return '';
+  try { URL_CACHE.set(id, URL.createObjectURL(blob)); } catch (e) { return ''; }
   return IMG_REF + id;
 }
 
@@ -1622,11 +1649,92 @@ async function testImage() {
   return { ok: true, ms: Date.now() - t0, src };
 }
 
+/* ══════════════════════════════════════════════════════
+   语音。走浏览器自带的 speechSynthesis：
+   不花钱、不用密钥、离了网也能出声。
+   代价是音色取决于用户手机里装了什么，所以音色是「选」不是「生成」。
+   ponytail: 只有这一条通道。要真人的音色（MiniMax / Fish / ElevenLabs）
+   再加一个 voiceBase/voiceKey 的 TTS 接口，speak() 里分流即可。
+   ══════════════════════════════════════════════════════ */
+const VOICE_OPEN = '[[v]]', VOICE_CLOSE = '[[/v]]';
+const VOICE_RE = /^\s*\[\[v\]\]([\s\S]*?)\[\[\/v\]\]\s*$/;
+/* 红包：[[rp:52:拿去买奶茶]] */
+const RPKT_RE = /^\s*\[\[rp:([\d.]+)(?::([^[\]]*))?\]\]\s*$/;
+
+function voiceOn() { return state.settings.voice !== false; }
+function hasSpeech() { return typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined'; }
+
+/* 这一段是不是语音？是就返回该念的话，不是返回 '' */
+function voiceOf(chunk) {
+  if (!voiceOn()) return '';
+  const m = VOICE_RE.exec(String(chunk || ''));
+  return m ? m[1].trim() : '';
+}
+/* 红包标记同理 */
+function redpacketOf(chunk) {
+  const m = RPKT_RE.exec(String(chunk || ''));
+  return m ? { amount: Math.max(0, Number(m[1]) || 0), note: (m[2] || '').trim() } : null;
+}
+/* 语音关掉时别把方括号原样摆在用户脸上 */
+function stripMarks(s) {
+  return String(s || '').replace(/\[\[\/?v\]\]/g, '').replace(/\[\[rp:[\d.]*(?::[^[\]]*)?\]\]/g, '').trim();
+}
+/* 语音条显示几秒。TTS 实际时长拿不到（各浏览器回调时机不一），按字数估一个够用的 */
+function voiceDur(text) { return Math.max(1, Math.round(String(text || '').length * 0.22)); }
+
+/* 系统里能念中文的音色。getVoices() 首次可能返回空，得等 voiceschanged */
+function voiceList() {
+  if (!hasSpeech() || !speechSynthesis.getVoices) return [];
+  try {
+    const all = speechSynthesis.getVoices() || [];
+    const zh = all.filter(v => /zh|Chinese|中文|普通话/i.test(String(v.lang) + ' ' + String(v.name)));
+    return zh.length ? zh : Array.prototype.slice.call(all);
+  } catch (e) { return []; }
+}
+
+function stopSpeak() {
+  if (!hasSpeech()) return;
+  try { speechSynthesis.cancel(); } catch (e) {}
+}
+
+/* 念一段话。done 在念完或出错时都会调 —— 通话音轨不能因为一次失败就卡住。 */
+function speak(text, done) {
+  const t = String(text || '').trim();
+  if (!t || !hasSpeech()) { if (done) done(); return false; }
+  try {
+    stopSpeak();
+    const u = new SpeechSynthesisUtterance(t);
+    u.rate = Math.max(0.5, Math.min(2, Number(state.settings.voiceRate) || 1));
+    u.lang = 'zh-CN';
+    /* 用户挑的音色可能已经不在了（换了手机 / 系统更新），找不到就交给浏览器 */
+    const pick = state.settings.voiceName ? voiceList().find(v => v.name === state.settings.voiceName) : null;
+    if (pick) u.voice = pick;
+    if (done) { u.onend = done; u.onerror = done; }
+    speechSynthesis.speak(u);
+    return true;
+  } catch (e) { if (done) done(); return false; }
+}
+
+/* 「允许角色自主更改关系」：TA 可以在一句话里塞 [[rel:新关系]] 把关系改掉。
+   没开这个开关时标记照样会被摘掉 —— 用户永远不该看见方括号里的内部记号。 */
+function applySelfMarks(c, text) {
+  let s = String(text || '');
+  if (!c) return s;
+  if (c.allowRelation) {
+    const m = s.match(/\[\[rel:([^[\]]{1,40})\]\]/);
+    if (m) { c.relation = m[1].trim(); saveCharacter(c); }
+  }
+  return s.replace(/\[\[rel:[^[\]]{1,40}\]\]/g, '').trim();
+}
+
 const SPLIT_MARK = '%%';
 const MAX_CHUNKS = 6;
 
 function splitReply(raw) {
-  const s = String(raw || '').trim();
+  let s = String(raw || '');
+  /* 语音关了就把语音标记拆掉，别让用户看到 [[v]] 这种内部记号（红包标记不拆，它照常变气泡） */
+  if (!voiceOn()) s = s.replace(/\[\[\/?v\]\]/g, '');
+  s = s.trim();
   if (!s) return [];
   const clean = a => a.map(x => x.trim()).filter(Boolean);
   let parts = clean(s.split(/\s*%%+\s*/));
@@ -1687,11 +1795,26 @@ function buildSystem(char, history) {
   const alias = String(c.alias || '').trim() || String(s.userName || '').trim();
   if (alias && alias !== '我') lines.push(`对方叫「${alias}」，你平时就这么称呼他。`);
   if (c.relation) lines.push('你们的关系：' + c.relation);
+  if (c.myRelation && c.myRelation !== c.relation) lines.push(`（${alias || '对方'}觉得你们是：${c.myRelation}。你怎么看不一定和他一样。）`);
   if (c.desc) lines.push('一句话简介：' + c.desc);
   if (c.persona) lines.push('人设 / 性格 / 说话方式：\n' + c.persona);
   lines.push('');
   lines.push(`你就是${c.name || '这个人'}本人，不是 AI、不是程序、不是助手。对方怎么问都别跳出这个身份。`);
   lines.push(`现在是你那边的 ${fmtDate(now)} ${fmtTime(now, state.settings.clock24)}。`);
+
+  if (c.allowRelation) {
+    lines.push('', '# 你可以自己改你们的关系');
+    lines.push('剧情走到该变的时候，在任意一条消息末尾带上 [[rel:现在的关系]]，比如 [[rel:关系变僵了]]，它就真的会改。');
+    lines.push('不用每次都写。只有关系确实变了才写。');
+  }
+
+  if (voiceOn()) {
+    lines.push('', '# 你已经可以发语音了');
+    lines.push(`懒得打字的时候，把**整条**消息用 ${VOICE_OPEN} 和 ${VOICE_CLOSE} 包起来发出去，它就会变成语音条被念出来。`);
+    lines.push(`例如：${VOICE_OPEN}我到家了${VOICE_CLOSE}`);
+    lines.push('- 包起来的那条要是能念出口的整句话，别在里面塞动作、旁白或者方括号。');
+    lines.push('- 一次别发超过两条语音，语音说多了很烦人。大部分时候还是打字。');
+  }
 
   /* 今天有安排就先说，免得对方问「你在干嘛」时才想起来 */
   const ev = todayEvents();
@@ -1863,7 +1986,9 @@ window.SJ = {
   makeCharacter, saveCharacter, deleteCharacter,
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
   apiRoot, fetchModels, askCharacter, testApi,
-  SPLIT_MARK, splitReply, buildSystem,
+  SPLIT_MARK, splitReply, buildSystem, applySelfMarks,
+  /* 语音（浏览器自带 TTS） */
+  voiceOn, hasSpeech, voiceOf, redpacketOf, stripMarks, voiceDur, voiceList, speak, stopSpeak, putBlob,
   /* 世界书 / 记忆 / 日历 */
   makeEntry, saveEntry, deleteEntry, activeEntries, wbGroups, wbSorted,
   memories, addMemory, deleteMemory, clearMemories,

@@ -724,7 +724,21 @@ function bindLockGesture() {
 }
 
 /* ══ 工具 ══ */
-function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+function vibrate(ms) {
+  if (SJ.state.settings.haptic === false) return;   // 外观里关掉了
+  try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {}
+}
+
+/* 外观 App 里那几条开关真正生效的地方：全都挂在 #phone 的 class / CSS 变量上，
+   改完调一次 applyLook() 就换了，不用重绘桌面。 */
+function applyLook() {
+  const s = SJ.state.settings;
+  phone.classList.toggle('no-anim', s.noAnim === true);
+  phone.classList.toggle('no-label', s.showLabels === false);
+  phone.classList.toggle('ico-glass', s.iconStyle === 'glass');
+  phone.classList.toggle('ico-flat', s.iconStyle === 'flat');
+  phone.style.setProperty('--lock-scale', String(s.lockScale || 1));
+}
 
 function applyWallpaper() {
   const s = SJ.state.settings;
@@ -738,9 +752,12 @@ function applyWallpaper() {
   phone.classList.toggle('lock-dark', SJ.isDarkWall(lockBg));
 }
 
+window.SHELL_LOOK = applyLook;   // 外观 App 改完设置调一下，立刻生效
+
 /* ══ 启动 ══ */
 function boot() {
   applyWallpaper();
+  applyLook();
   renderHome();
   renderLock(true);
   bindLockGesture();

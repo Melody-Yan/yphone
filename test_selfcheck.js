@@ -18,7 +18,14 @@ function makeEl(tag) {
     tagName: String(tag).toUpperCase(),
     nodeType: tag === '#text' ? 3 : 1,
     children: [], parentNode: null,
-    attrs: {}, _class: new Set(), style: {}, dataset: {},
+    attrs: {}, _class: new Set(), dataset: {},
+    // 真浏览器的 style 是 CSSStyleDeclaration，能 setProperty/removeProperty 读 CSS 变量。
+    // 以前只当普通对象用（style.background = ...），加了 #phone 的 --lock-scale 之后必须补上。
+    style: {
+      setProperty(k, v) { this[k] = String(v); },
+      removeProperty(k) { delete this[k]; },
+      getPropertyValue(k) { return this[k] == null ? '' : String(this[k]); }
+    },
     _text: '', _html: '', hidden: false, value: '',
     _listeners: Object.create(null),
     get className() { return [...this._class].join(' '); },
@@ -850,9 +857,35 @@ gear.click();
 ok('点齿轮进去的是聊天设置，不是退回上一层', walk(cv4).some(n => n.textContent === '聊天设置'));
 ok('能改昵称', !!findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）'));
 ok('能改关系', !!findIn(cv4, 'TA 认为你们是什么关系'));
+ok('还能写「我认为的关系」', !!findIn(cv4, '你觉得你们是什么关系'));
+const hasRow = (root, t) => !!walk(root).find(x => x._class.has('row') && x.textContent.includes(t));
+const tapRow = (root, t) => {
+  const n = walk(root).find(x => x._class.has('row') && x.textContent.includes(t));
+  if (n) n.click();
+  return n;
+};
+ok('有「记忆卡片」入口', hasRow(cv4, '记忆卡片'));
+ok('有「语音与通话」入口', hasRow(cv4, '语音与通话'));
+ok('有「消息与回复」入口', hasRow(cv4, '消息与回复'));
+
+/* 记忆现在住在二级页里，走进去看 */
+tapRow(cv4, '记忆卡片');
+ok('进了记忆卡片页', walk(cv4).some(n => n.textContent === '记忆卡片'));
 ok('有手动总结按钮', !!findBtn(cv4, '手动总结这段对话'));
 ok('有自动总结开关', walk(cv4).some(n => n.textContent === '自动总结'));
 ok('有清空记忆', !!findBtn(cv4, '清空记忆'));
+findBtn(cv4, '返回').click();
+ok('二级页返回回到聊天设置，不是回对话', walk(cv4).some(n => n.textContent === '聊天设置'));
+
+/* 语音页：开关 + 语速 + 试听 + 打电话 */
+tapRow(cv4, '语音与通话');
+ok('进了语音与通话页', walk(cv4).some(n => n.textContent === '语音与通话'));
+ok('有语音条开关', walk(cv4).some(n => n.textContent === '语音条'));
+ok('有自动播放开关', walk(cv4).some(n => n.textContent === '自动播放'));
+ok('有音色选择', walk(cv4).some(n => n.textContent === '音色'));
+ok('有语速', walk(cv4).some(n => n.textContent === '语速'));
+ok('有试听按钮', !!findBtn(cv4, '试听一下'));
+findBtn(cv4, '返回').click();
 const aliasIn = findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）');
 aliasIn.value = '小笨蛋';
 dispatch(aliasIn, 'change', {});
@@ -1045,6 +1078,40 @@ S.closeTop(true);
 const sv5 = openFresh('look');
 ok('外观 App 里有「锁屏」开关行', !!walk(sv5).find(n => n.textContent.includes('已开启 ·')));
 ok('外观 App 里有「锁屏密码」行', !!walk(sv5).find(n => n.textContent.includes('锁屏密码')));
+/* 「界面」组：这几条是参考 NuoOS 的外观页抄来的，但每一条都得真能生效才算数 */
+const lookRow = t => walk(sv5).find(n => n._class.has('row') && n.textContent.includes(t));
+ok('外观 App 里有「显示 App 名称」开关', !!lookRow('显示 App 名称'));
+ok('外观 App 里有「点按振动」开关', !!lookRow('点按振动'));
+ok('外观 App 里有「关掉动画」开关', !!lookRow('关掉动画'));
+ok('外观 App 里有「图标质感」行', !!lookRow('图标质感'));
+ok('外观 App 里有「锁屏时钟大小」行', !!lookRow('锁屏时钟大小'));
+const ph = byId['phone'];
+lookRow('显示 App 名称').click();                       // 默认开 → 关
+ok('关掉「显示 App 名称」后 #phone 挂上了 no-label', ph._class.has('no-label'));
+ok('再点一次能开回来', (lookRow('显示 App 名称').click(), !ph._class.has('no-label')));
+lookRow('关掉动画').click();
+ok('打开「关掉动画」后 #phone 挂上了 no-anim', ph._class.has('no-anim'));
+lookRow('关掉动画').click();
+ok('关掉「关掉动画」后 no-anim 摘掉了', !ph._class.has('no-anim'));
+ok('改「图标质感」真写进设置并挂 class', (() => {
+  lookRow('图标质感').click();
+  clickSheet('液态玻璃');
+  const on = ph._class.has('ico-glass') && sandbox.SJ.state.settings.iconStyle === 'glass';
+  lookRow('图标质感').click(); clickSheet('经典');
+  return on && !ph._class.has('ico-glass');
+})());
+ok('改「锁屏时钟大小」真写进设置', (() => {
+  lookRow('锁屏时钟大小').click();
+  clickSheet('特大');
+  const v = sandbox.SJ.state.settings.lockScale;
+  lookRow('锁屏时钟大小').click(); clickSheet('正常');
+  return v === 1.3;
+})());
+ok('「界面」这几条写进了存档', (() => {
+  S.closeTop(true);
+  const raw = store.get('xiaoshouji.v1') || '{}';
+  return raw.includes('"showLabels"') && raw.includes('"haptic"') && raw.includes('"noAnim"') && raw.includes('"iconStyle"');
+})());
 S.closeTop(true);
 
 /* 两个开关真的管用 */
@@ -2035,6 +2102,156 @@ console.log('\n[30] 存储：图片搬出存档（IndexedDB 图片仓）');
   ok('存储 App 打得开且画出了用量',
     walk(S.SHELL.stack[S.SHELL.stack.length - 1].node).some(n => n.textContent.includes('图片')));
   S.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   [31] 语音条 / 通话 / 红包 / 位置 / 名片 / 视频 / 聊天设置分层
+   ══════════════════════════════════════════════════════════════ */
+console.log('\n[31] 语音条 · 通话 · 微信补全');
+{
+  const S = sandbox.SJ;
+  sandbox.SHELL.closeAll(); S.resetAll();
+
+  /* ── 标记解析（纯函数，不碰 DOM） ── */
+  ok('voiceOf 认得语音标记', S.voiceOf('[[v]]我到家了[[/v]]') === '我到家了');
+  ok('voiceOf 对普通文字给空', S.voiceOf('我到家了') === '');
+  ok('voiceOf 只认整条包起来的', S.voiceOf('先说[[v]]这个[[/v]]') === '');
+  ok('redpacketOf 拆得出金额和备注',
+    (S.redpacketOf('[[rp:52:买奶茶]]') || {}).amount === 52
+    && (S.redpacketOf('[[rp:52:买奶茶]]') || {}).note === '买奶茶');
+  ok('redpacketOf 没备注也能用', (S.redpacketOf('[[rp:5.2]]') || {}).note === '');
+  ok('redpacketOf 对普通文字给 null', S.redpacketOf('你好') === null);
+  ok('stripMarks 摘掉语音标记', S.stripMarks('[[v]]你好[[/v]]') === '你好');
+  ok('语音时长按字数估且至少 1 秒', S.voiceDur('') === 1 && S.voiceDur('十二个字十二个字十二') >= 2);
+
+  /* 语音关掉时不能把方括号摆到用户脸上 */
+  S.state.settings.voice = true;
+  ok('语音开着时标记保留给渲染层用', S.splitReply('[[v]]你好[[/v]]')[0] === '[[v]]你好[[/v]]');
+  S.state.settings.voice = false;
+  ok('语音关掉后标记在拆句阶段就被摘掉', S.splitReply('[[v]]你好[[/v]]')[0] === '你好');
+  S.state.settings.voice = true;
+
+  /* 没有 speechSynthesis 的环境（自检沙箱就是）必须安全降级 */
+  ok('沙箱里 hasSpeech() 是假的', S.hasSpeech() === false);
+  ok('voiceList() 没崩且给数组', Array.isArray(S.voiceList()) && S.voiceList().length === 0);
+  ok('speak() 没崩，还照样回调了', await new Promise(r => { let hit = false; S.speak('喂', () => { hit = true; r(hit); }); }));
+  ok('stopSpeak() 没崩', (() => { try { S.stopSpeak(); return true; } catch (e) { return false; } })());
+  ok('putBlob() 在没有图片仓时返回空串而不是假装存了', await S.putBlob({ size: 10 }) === '');
+
+  /* ── 关系自己能改 ── */
+  const rc = S.makeCharacter({ name: '改关系测试' });
+  S.saveCharacter(rc);
+  ok('没开开关时关系不会被改', (() => {
+    const t = S.applySelfMarks(rc, '随便[[rel:陌生人]]');
+    return rc.relation !== '陌生人' && t === '随便';
+  })());
+  rc.allowRelation = true;
+  ok('开了开关就真写进角色卡', (() => {
+    const t = S.applySelfMarks(rc, '随便[[rel:很熟的朋友]]');
+    return rc.relation === '很熟的朋友' && t === '随便'
+      && S.state.characters.find(c => c.id === rc.id).relation === '很熟的朋友';
+  })());
+
+  /* ── 提示词：语音开了才教 TA 发语音 ── */
+  const vc0 = S.makeCharacter({ name: '提示词测试' });
+  S.saveCharacter(vc0);
+  S.state.settings.voice = true;
+  ok('语音开着时提示词里有 [[v]] 的用法', S.buildSystem(vc0, []).includes('[[v]]'));
+  S.state.settings.voice = false;
+  ok('语音关着时提示词里没有它', !S.buildSystem(vc0, []).includes('[[v]]'));
+  S.state.settings.voice = true;
+
+  /* ── 界面上真的看得到 ── */
+  const mc = S.makeCharacter({ name: '功能测试', greeting: '' });
+  S.saveCharacter(mc);
+  S.state.settings.apiBase = ''; sandbox.SJ.state.settings.apiKey = '';
+  const chat = openFresh('chat', mc.id);
+  const last = () => walk(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node);
+
+  /* 点头像 = 进聊天设置 */
+  const av = walk(chat).find(n => n._class.has('av-tap'));
+  ok('没写开场白的角色进来不是一片空白',
+    walk(chat).some(n => n._class.has('chat-list') && n.children.length > 0));
+
+  ok('聊天页 TA 的头像可以点', !!av);
+  av.click();
+  ok('点头像进的是聊天设置', walk(chat).some(n => n.textContent === '聊天设置'));
+  ok('聊天设置里有「允许 TA 自己改关系」开关',
+    walk(chat).some(n => n.textContent === '允许 TA 自己改关系'));
+  findBtn(chat, '返回').click();
+
+  /* 「＋」里新增的五项 */
+  const plusBtn = walk(chat).find(n => n._class.has('chat-plus'));
+  plusBtn.click();
+  const labels = sheetLabels();
+  ['发视频', '发语音', '发红包', '发位置', '发名片'].forEach(t =>
+    ok('「＋」里有「' + t + '」', labels.includes(t)));
+
+  const msgKind = k => S.messages(mc.id).filter(m => m.kind === k).slice(-1)[0];
+
+  clickSheet('发红包');
+  clickSheet('¥52.00');
+  ok('红包落盘成 kind=packet 且带金额备注',
+    (msgKind('packet') || {}).amount === 52 && (msgKind('packet') || {}).note === '请你吃顿饭');
+  ok('红包画成了红包气泡', last().some(n => n._class.has('packet')));
+  const pkB = last().find(n => n._class.has('packet'));
+  pkB.click();
+  ok('点一下拆开，拆开状态跟着消息存下来', (msgKind('packet') || {}).opened === true);
+  ok('拆开后文案变成「已领取」', last().some(n => /已领取/.test(n.textContent)));
+
+  plusBtn.click(); clickSheet('发位置'); clickSheet('在回家的路上');
+  ok('位置落盘成 kind=location', (msgKind('location') || {}).name === '在回家的路上');
+  ok('位置画成了地图气泡', last().some(n => n._class.has('loc')));
+
+  plusBtn.click(); clickSheet('发名片'); clickSheet('提示词测试');
+  ok('名片落盘成 kind=card', (msgKind('card') || {}).charId === vc0.id);
+  ok('名片画成了名片气泡', last().some(n => n._class.has('card')));
+
+  /* 语音：把输入框的话发出去 */
+  const other = S.makeCharacter({ name: '别人' }); S.saveCharacter(other);
+  const box = findIn(chat, '说点什么…');
+  box.value = '我先睡了';
+  const mic = walk(chat).find(n => n._class.has('chat-mic'));
+  ok('输入栏有 🎤', !!mic);
+  mic.click();
+  const vm = msgKind('voice');
+  ok('语音落盘成 kind=voice', !!vm && vm.text === '我先睡了' && vm.dur >= 1);
+  ok('语音画成了语音条', last().some(n => n._class.has('voice')));
+  ok('语音条上有时长', last().some(n => n._class.has('vc-sec') && /″/.test(n.textContent)));
+  ok('发语音后输入框清空了', findIn(chat, '说点什么…').value === '');
+
+  /* 对面发来的语音 / 红包，重画时要认出来 */
+  S.pushMessage(mc.id, false, '[[v]]我听见了[[/v]]%%晚点说[[/v]]'.replace('晚点说', '早点睡'));
+  S.pushMessage(mc.id, false, '[[rp:13.14:给你的]]');
+  openFresh('chat', mc.id);
+  ok('重画时把 TA 的语音标记变成语音条',
+    walk(chat).some(n => n._class.has('voice')));
+  ok('重画时红包也还在', walk(chat).some(n => n._class.has('packet')));
+
+  /* ── 通话页 ── */
+  const callBtn = walk(chat).find(n => n.attrs && n.attrs.title === '语音通话');
+  ok('聊天页右上角有通话按钮', !!callBtn);
+  callBtn.click();
+  ok('进了通话页', walk(chat).some(n => n._class.has('call-view')));
+  ok('通话页显示对方名字', walk(chat).some(n => n._class.has('call-name') && n.textContent === '功能测试'));
+  ok('通话页有打字接话的输入框', !!findIn(chat, '打字也能接话…'));
+  const hang = walk(chat).find(n => n._class.has('call-hang'));
+  ok('有挂断按钮', !!hang);
+  hang.click();
+  ok('挂断后回到聊天页', !!findIn(chat, '说点什么…') && !walk(chat).some(n => n._class.has('call-view')));
+
+  /* 有开场白的角色：开场白要真画出来。上面那条只盖了「没开场白」的分支，
+     而 redraw() 的位置改错一次就让「有开场白」变成一片空白（真浏览器冒烟才发现的）。 */
+  const gw = S.makeCharacter({ name: '开场白角色', greeting: '我在这儿呢。' });
+  S.saveCharacter(gw);
+  const gchat = openFresh('chat', gw.id);
+  const gl = walk(gchat).find(n => n._class.has('chat-list'));
+  ok('有开场白的角色，开场白真的画在列表里',
+    !!gl && gl.children.length > 0 && gl.textContent.includes('我在这儿呢'),
+    gl ? gl.textContent.trim().slice(0, 40) : 'no list');
+  ok('开场白那条带可点头像', walk(gchat).some(n => n._class.has('av-tap')));
+
+  sandbox.SHELL.closeAll();
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

@@ -33,7 +33,7 @@ function openApp(id, arg) {
   stack.push(record);
 
   requestAnimationFrame(() => node.classList.add('in'));
-  if (stack.length === 1) homeEl.classList.add('pushed');
+  if (stack.length === 1) { homeEl.classList.add('pushed'); phone.classList.add('app-open'); }
   vibrate(8);
   return record;
 }
@@ -45,7 +45,7 @@ function closeTop(immediate = false) {
 
   const done = () => {
     rec.node.remove();
-    if (stack.length === 0) homeEl.classList.remove('pushed');
+    if (stack.length === 0) { homeEl.classList.remove('pushed'); phone.classList.remove('app-open'); }
   };
   if (immediate) { done(); return; }
   rec.node.classList.remove('in');

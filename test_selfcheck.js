@@ -1914,6 +1914,23 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('插件清掉后图标位回来了', iconAt(0) === base, iconAt(0) + ' vs ' + base);
 }
 
+console.log('\n[29] 深色壁纸不能把 App 里的字也翻白');
+{
+  /* 静态检查 —— 垫片没有 CSS 引擎，算不出「白字压白纸」这种布局/继承问题。
+     但那条不变量本身能用文本断言钉住：--fg 只准翻在真的压在照片上的那三层里。
+     换成照片壁纸后默认 p0 就是深色，这条一破，通讯录和微信立刻回到「看不见字」。 */
+  const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  const shell = fs.readFileSync(path.join(DIR, 'js', 'app.js'), 'utf8');
+  const darkOnPhone = css.match(/#phone\.dark-wall\s*\{[^}]*\}/);
+  ok('#phone.dark-wall 上没有直接改 --fg（改了 App 里的字就变白）',
+    !(darkOnPhone && /--fg/.test(darkOnPhone[0])), darkOnPhone && darkOnPhone[0].slice(0, 60));
+  ok('--fg 翻在 #statusbar / #home / #lock 三层里',
+    /#phone\.dark-wall #statusbar,\s*#phone\.dark-wall #home,\s*#phone\.dark-wall #lock\s*\{[^}]*--fg/.test(css));
+  ok('App 打开时状态栏换回浅色字', /#phone\.app-open #statusbar\s*\{[^}]*color:\s*#4b463f/.test(css));
+  ok('外壳在开/关 App 时会挂上 app-open 类',
+    /classList\.add\('app-open'\)/.test(shell) && /classList\.remove\('app-open'\)/.test(shell));
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

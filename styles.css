@@ -213,8 +213,18 @@ html, body {
   z-index: 40; pointer-events: none;
 }
 
-/* 深色壁纸时整体翻成白字（默认是浅色壁纸 → 深字） */
-#phone.dark-wall { --fg: #f3f1ee; --fg-dim: rgba(255,255,255,.7); --line: rgba(255,255,255,.14); --panel: rgba(38,36,34,.72); color: var(--fg); }
+/* 深色壁纸时桌面翻成白字。
+   注意 --fg 这类变量只在「真的压在照片上的那三层」里翻 —— 不能挂在 #phone 上：
+   #phone.dark-wall 挂上去，App 里的 .app-view / 弹窗 / 吐司都继承到白字，
+   而它们的底是 --paper 那张固定的暖白纸 → 白字压白纸，通讯录和微信直接看不见字。
+   默认壁纸以前是浅色的，所以这个坑一直没露头；换成照片后 p0 就是深色，一进去就中。 */
+#phone.dark-wall #statusbar,
+#phone.dark-wall #home,
+#phone.dark-wall #lock {
+  --fg: #f3f1ee; --fg-dim: rgba(255,255,255,.7);
+  --line: rgba(255,255,255,.14); --panel: rgba(38,36,34,.72);
+  color: var(--fg);
+}
 #phone.dark-wall #statusbar { color: #fff; }
 #phone.dark-wall .icon { color: #fff; }
 #phone.dark-wall .icon-art { color: #fff; }
@@ -1175,3 +1185,13 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 }
 /* 锁屏按钮压在照片上：底再厚一点，别让照片的花纹从玻璃里透出来 */
 #phone.lock-dark .pk { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .3); }
+
+/* ── App 打开时，状态栏和小白条压在 .app-view 那张暖白纸上 ──
+   深色壁纸下它们是白的，放在桌面/锁屏上没问题，一进 App 就是白字压白纸。
+   和上面「--fg 只在三层里翻」是同一个根因的两张脸。 */
+#phone.app-open #statusbar { color: #4b463f; text-shadow: none; }
+#phone.app-open #homebar { background: rgba(75, 70, 63, .45); }
+
+/* 插件里用 --accent-ink 的那几处（比如「谁」）在深色壁纸下是深绿压深玻璃。
+   --accent-ink 本来就没跟着 dark-wall 翻（也不该翻，App 里还要用），在这儿单独放行。 */
+#phone.dark-wall .wg-who { color: rgba(255, 255, 255, .78); }

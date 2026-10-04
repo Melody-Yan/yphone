@@ -1459,3 +1459,15 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .cl-line.me .cl-text { background: rgba(158, 200, 168, .22); }
 
+
+/* ── 回复的「另一版」翻页器 ──
+   挂在气泡那一行的末尾（.msg 已经是 flex-wrap），所以它自己占一行的小条。 */
+.alt-pager { flex-basis: 100%; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.chat-list .msg.me .alt-pager { justify-content: flex-end; }
+.alt-btn {
+  width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(120, 112, 100, .12); color: var(--fg-dim);
+  font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.alt-btn:active { transform: scale(.9); }
+.alt-n { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }

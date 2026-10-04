@@ -1116,6 +1116,7 @@ const APPS = [
 
         let quote = null;
         let readTag = null;
+        let regen = null;      // 点「重新生成」时记住要改哪条，回值到了就并成它的另一版
         function setQuote(q) {
           quote = q || null;
           quoteBar.innerHTML = '';
@@ -1342,12 +1343,27 @@ const APPS = [
           for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
           h.forEach((m, i) => {
             renderMsg(m);
+            /* 有好几版的回复，末尾挂个 ‹ 1/2 › —— 翻版本不用重问一次 */
+            if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
+              lastRow.append(altPager(m));
+            }
             if (i === lastMine && SJ.state.settings.readReceipt !== false) {
               readTag = SJ.el('div', { class: 'msg-read' }, m.read ? '已读' : '未读');
               if (lastRow) lastRow.append(readTag);
             }
           });
           lastRow = null;
+        }
+        /* 换版本的翻页器。翻页只改这一个气泡的 text，不重新问接口 */
+        function altPager(m) {
+          const n = m.alts.length;
+          const go = dir => () => { if (SJ.pickAlt(m, dir) == null) return; redraw(); };
+          const btn = (label, dir, cls) => SJ.el('button', { class: 'alt-btn ' + cls, onclick: go(dir) }, label);
+          return SJ.el('div', { class: 'alt-pager' }, [
+            btn('‹', -1, 'alt-prev'),
+            SJ.el('span', { class: 'alt-n' }, ((Number(m.altIdx) || 0) + 1) + ' / ' + n),
+            btn('›', 1, 'alt-next')
+          ]);
         }
         /* 她开口了 = 到这会儿为止我说的她都读过了。这里是在她的回复落盘之后才调，
            所以「我发的」全部标成已读是对的 —— 之后再发新的会重新挂「未读」。
@@ -1422,28 +1438,38 @@ const APPS = [
         /* 让对面开口。多条没回的会一次性回给你（她就当看到你连发的几条） */
         async function askAndShow() {
           if (busy) return;
+          /* 重新生成时最后一个说话的是她，所以「没有欠着的就别问」这条要放行 */
+          const redo = regen;
           const h = SJ.messages(id);
-          if (!h.length || !h[h.length - 1].me) return;   // 没有欠着的，别白问
+          if (!redo && (!h.length || !h[h.length - 1].me)) return;
           busy = true; syncSend();
           /* 已读不回：偶尔真的不接话。这个决定必须放在调接口之前 ——
              省一次 API 调用，而且「没回」本来就该是没下文的，
-             先弹个打字气泡再让它消失反而露馅。 */
-          if (SJ.state.settings.readIgnore !== false && Math.random() < 0.18) {
+             先弹个打字气泡再让它消失反而露馅。手动点「重新生成」不算 —— 那是你主动要的。 */
+          if (!redo && SJ.state.settings.readIgnore !== false && Math.random() < 0.18) {
             busy = false; syncSend();
             return;
           }
           const tip = bubble('…', false);
           tip.classList.add('typing');
           let answer;
-          try { answer = await SJ.askCharacter(c, h); }
+          try { answer = await SJ.askCharacter(c, redo ? h.slice(0, -1) : h); }
           catch (e) { answer = '（连接失败）' + e.message; }
           /* TA 可能顺手把关系改了（[[rel:…]]），先把标记摘掉再落盘 */
           answer = SJ.applySelfMarks(c, answer);
-          // 整条先落盘（刷新后照样能按同一套规则拆开），再一条条蹦出来
-          SJ.pushMessage(id, false, answer);
+          /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
+             旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
+          const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
+          if (isRedo) { SJ.addAlt(redo, answer); regen = null; }
+          else { regen = null; SJ.pushMessage(id, false, answer); }
           tip.remove();
           markRead();       // 她开口了 = 读过我那条了
           beep('in');       // 一条回复一个提示音，不是每个气泡都响
+          if (isRedo) {
+            /* 换版本不重演一遍打字 —— 那个气泡就在原地换掉，翻页器跟着更新 */
+            redraw();
+            list.scrollTop = list.scrollHeight;
+          } else {
           for (const t of SJ.splitReply(answer)) {
             const v = SJ.voiceOf(t);
             if (v || SJ.redpacketOf(t)) {
@@ -1459,6 +1485,7 @@ const APPS = [
             b.textContent = SJ.stripMarks(t);
             list.scrollTop = list.scrollHeight;
           }
+          }
           busy = false; syncSend();
           /* 攒够条数就悄悄把这段浓缩成记忆，下次她还能记得（失败不打扰用户） */
           SJ.autoMemorize(c).then(n => { if (n) toast(`她记住了 ${n} 件事`); }).catch(() => {});
@@ -1466,16 +1493,15 @@ const APPS = [
           SJ.autoMoment(c).then(m => { if (m) toast(`「${c.name}」发了一条朋友圈`); }).catch(() => {});
         }
 
-        /* 重新生成：砍掉她最后那条回复，拿同样的历史再问一遍 */
+        /* 重新生成：拿同样的历史再问一遍。旧的那版不删 —— 追加成「另一版」，
+           气泡下面挂个 ‹ 1/2 › 翻页器，随时能翻回去比对。 */
         function roll() {
           if (busy) return toast('等她说完了再重来');
           const h = SJ.messages(id);
-          const mine = h.map(m => m.me).lastIndexOf(true);    // 我最后说话的位置
-          const hers = h.map(m => m.me).lastIndexOf(false);   // 她最后说话的位置
-          if (mine < 0) return toast('先发一条消息，才有回复可以重来');
-          if (hers < mine) return toast('她还没回呢');
-          SJ.truncateChat(id, hers);
-          redraw();
+          if (h.map(m => m.me).lastIndexOf(true) < 0) return toast('先发一条消息，才有回复可以重来');
+          const last = h[h.length - 1];
+          if (!last || last.me) return toast('她还没回呢');
+          regen = last;
           askAndShow();
         }
 
@@ -1653,7 +1679,7 @@ const APPS = [
         }
 
         plus.addEventListener('click', () => sheet([
-          { icon: '↻', label: '重新生成', hint: '换个回法', run: roll },
+          { icon: '↻', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
           { icon: '🖼', label: '发表情 / 图片', hint: '表情库 / 相册', run: pickImage },
           { icon: '🎬', label: '发视频', hint: '20MB 以内', run: pickVideo },
           { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },

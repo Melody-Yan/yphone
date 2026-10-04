@@ -922,6 +922,35 @@ function removeSticker(img) {
   return state.stickers.length;
 }
 
+/* ── 回复的「另一版」 ──
+   重新生成不该把她的上一条吃掉 —— 换个回法本来就是「哪个更对味」的问题，
+   吃掉旧的就再也比不了了。所以一个气泡挂一组 alts，text 永远 = alts[altIdx]。 */
+const ALT_MAX = 8;
+function addAlt(msg, text) {
+  if (!msg) return text;
+  const t = String(text || '');
+  if (!Array.isArray(msg.alts) || !msg.alts.length) { msg.alts = [String(msg.text || '')]; msg.altIdx = 0; }
+  const i = msg.alts.indexOf(t);
+  if (i >= 0) msg.altIdx = i;
+  else {
+    msg.alts.push(t);
+    if (msg.alts.length > ALT_MAX) msg.alts.shift();
+    msg.altIdx = msg.alts.length - 1;
+  }
+  msg.text = msg.alts[msg.altIdx];
+  save();
+  return msg.text;
+}
+/* 左右翻版本，dir = ±1；不足两版返回 null */
+function pickAlt(msg, dir) {
+  if (!msg || !Array.isArray(msg.alts) || msg.alts.length < 2) return null;
+  const n = msg.alts.length;
+  msg.altIdx = ((Number(msg.altIdx) || 0) + Number(dir || 0) + n) % n;
+  msg.text = msg.alts[msg.altIdx];
+  save();
+  return msg.text;
+}
+
 /* 会话列表：聊过的永远排在没聊过的前面（按最后一条时间倒序），
    没聊过的按创建时间垫后面 —— 否则新建一个角色会莫名插到正在聊的人上面 */
 function chatList() {
@@ -2234,6 +2263,7 @@ window.SJ = {
   callsOf, pushCall, deleteCall, clearCalls, callLog,
   chatBgOf, setChatBg,
   stickersOf, addSticker, removeSticker, STICKER_MAX,
+  addAlt, pickAlt, ALT_MAX,
   proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,

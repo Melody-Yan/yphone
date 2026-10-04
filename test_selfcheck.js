@@ -2666,6 +2666,76 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('被瘦身清掉的表情会说清楚它去哪了，而不是留个破图',
     walk(byId.phone).some(x => x.textContent === '😶 表情已清理'));
   sandbox.SHELL.closeAll();
+
+  /* ── 7. 重新生成 = 留一版，可以翻回去 ──
+     「换个回法」本来就是比哪个更对味，把旧版吃掉就再也比不了了。 */
+  const mm = { me: false, text: '第一版', ts: Date.now() };
+  ok('只有一版的时候没得翻', A6.pickAlt(mm, 1) === null);
+  A6.addAlt(mm, '第二版');
+  ok('追加一版之后文本跟着走', mm.text === '第二版' && mm.alts.length === 2, JSON.stringify(mm.alts));
+  A6.addAlt(mm, '第二版');
+  ok('同一个回法不会存成两版', mm.alts.length === 2);
+  ok('往前翻回第一版', A6.pickAlt(mm, -1) === '第一版' && mm.text === '第一版');
+  ok('往后翻回第二版', A6.pickAlt(mm, 1) === '第二版');
+  ok('最后一版再往后绕回第一版（循环翻）', A6.pickAlt(mm, 1) === '第一版');
+  for (let i = 0; i < A6.ALT_MAX + 5; i++) A6.addAlt(mm, '第' + i + '版');
+  ok('版本太多会封顶，不会把存档撑爆', mm.alts.length === A6.ALT_MAX, String(mm.alts.length));
+  ok('text 永远等于 alts[altIdx]', mm.text === mm.alts[mm.altIdx], mm.text + ' vs ' + mm.alts[mm.altIdx]);
+
+  /* 真跑一遍：点「重新生成」不该多出一条消息 */
+  const s7 = A6.makeCharacter({ name: '重来角色', greeting: '你好呀' });
+  A6.saveCharacter(s7);
+  sandbox.SHELL.closeAll();
+  openFresh('chat', s7.id);
+  const inp7 = walk(byId.phone).find(n => n._class.has('chat-input'));
+  inp7.value = '在吗';
+  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  await sleep(80);
+  /* 这条一发，按钮从「发送」变成「回复 1」—— 再点一下才是真让她开口 */
+  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  ok('先有一条回复', await waitFor(() => {
+    const h = A6.messages(s7.id);
+    return h.length >= 2 && !h[h.length - 1].me;
+  }), String(A6.messages(s7.id).length));
+  /* 等她那条（可能被拆成好几段）逐条蹦完 —— busy 期间点「重新生成」会被挡掉 */
+  await waitFor(() => !walk(byId.phone).some(x => x._class.has('typing')), 9000);
+  await sleep(200);
+  const n7 = A6.messages(s7.id).length;
+  const v1 = A6.messages(s7.id).slice(-1)[0].text;
+  /* 没配接口时「本地演示」那句是按上一条消息拼的固定文案 —— 重新生成会得到
+     一模一样的一句，addAlt 去重之后就还是一条，验不出「留一版」。
+     塞个每次给不同回法的假接口，才测得到这件事。 */
+  let seq7 = 0;
+  const realAsk7 = A6.askCharacter;
+  A6.askCharacter = async () => '换个回法' + (++seq7);
+  top().find(x => x._class.has('chat-plus')).click();
+  ok('「＋」里有「重新生成」', await waitFor(() => sheetLabels().includes('重新生成')),
+    JSON.stringify(sheetLabels()));
+  clickSheet('重新生成');
+  await sleep(400);      // 换版本不走打字动画，出结果很快
+  ok('重新生成不会多出一条消息', A6.messages(s7.id).length === n7,
+    A6.messages(s7.id).length + ' vs ' + n7);
+  const last7 = A6.messages(s7.id).slice(-1)[0];
+  ok('旧的那一版还在 alts 里', Array.isArray(last7.alts) && last7.alts.length === 2 && last7.alts[0] === v1,
+    JSON.stringify(last7.alts || []).slice(0, 80));
+  ok('气泡下面挂上了翻页器', walk(byId.phone).some(x => x._class.has('alt-pager')));
+  ok('翻页器写着 2 / 2',
+    walk(byId.phone).some(x => x._class.has('alt-n') && x.textContent === '2 / 2'),
+    (walk(byId.phone).find(x => x._class.has('alt-n')) || {}).textContent || 'none');
+  const prevBtn = walk(byId.phone).find(x => x._class.has('alt-prev'));
+  if (prevBtn) prevBtn.click();
+  ok('点左箭头就翻回第一版', !!prevBtn && A6.messages(s7.id).slice(-1)[0].text === v1);
+  ok('翻回来的版本也落了盘',
+    JSON.parse(store.get('xiaoshouji.v1') || '{}').chats[s7.id].slice(-1)[0].text === v1);
+  ok('翻完翻页器跟着变成 1 / 2',
+    walk(byId.phone).some(x => x._class.has('alt-n') && x.textContent === '1 / 2'),
+    (walk(byId.phone).find(x => x._class.has('alt-n')) || {}).textContent || 'none');
+  const nextBtn = walk(byId.phone).find(x => x._class.has('alt-next'));
+  if (nextBtn) nextBtn.click();
+  ok('点右箭头翻回新版', !!nextBtn && A6.messages(s7.id).slice(-1)[0].text === '换个回法1',
+    A6.messages(s7.id).slice(-1)[0].text);
+  A6.askCharacter = realAsk7;
+  sandbox.SHELL.closeAll();
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

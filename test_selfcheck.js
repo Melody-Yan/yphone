@@ -1874,7 +1874,116 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     walk(rApp).filter(n => n._class.has('shop-card')).length + ' 家');
   S.closeTop(true);
 
+  /* ══ 桃桃商城 ══ */
+  App.setGoods(App.normalizeGoods({ goods: [
+    { name: '法式碎花连衣裙', cat: 'dress', sub: '连衣裙', price: 199, oldPrice: 299,
+      emoji: '👗', desc: '雪纺，夏天穿', sales: '月销2000+', brand: '桃夭', tags: ['包邮'], hot: true },
+    { name: '真无线降噪耳机', cat: 'digital', sub: '耳机', price: 499, oldPrice: 699,
+      emoji: '🎧', desc: '主动降噪', sales: '月销8000+', brand: '声动', tags: ['顺丰'], hot: true },
+    { name: '跑步鞋', cat: 'sport', sub: '跑步鞋', price: 329, oldPrice: 0,
+      emoji: '👟', desc: '轻量回弹', sales: '月销300+', brand: '疾风', tags: ['正品'], hot: false },
+    /* 给一个不认识的 cat：必须被归到已知分类，否则筛选按钮点不出东西 */
+    { name: '神秘商品', cat: '不存在的分类', sub: '', price: 50, emoji: '❓', sales: '' }
+  ] }));
+  ok('商城商品归一：不认识的分类落到兜底分类',
+    App.mallGoods().length === 4 && App.mallGoods().every(g => App.MALL_CAT_IDS.includes(g.cat)),
+    App.mallGoods().map(g => g.cat).join(','));
+  ok('商城有 8 个一级分类且每个都有二级子类',
+    App.MALL_CATS.length === 8 && App.MALL_CATS.every(c => c.subs && c.subs.length >= 4));
+
+  const mApp = openFresh('mall');
+  ok('商城首页有商品卡（双列瀑布流）',
+    walk(mApp).filter(n => n._class.has('gd-card')).length === 4,
+    String(walk(mApp).filter(n => n._class.has('gd-card')).length));
+  ok('商城首页有分类入口，数量等于一级分类数',
+    walk(mApp).filter(n => n._class.has('cat-cell')).length === 8,
+    String(walk(mApp).filter(n => n._class.has('cat-cell')).length));
+  ok('商品卡显示折扣角标（原价 299 卖 199 → 6.7折，不能四舍五入成 7折）',
+    !!walk(mApp).find(n => n._class.has('gd-off') && n.textContent === '6.7折'),
+    (walk(mApp).find(n => n._class.has('gd-off')) || {}).textContent);
+  ok('商城底部四个页签', walk(mApp).filter(n => n._class.has('wt')).length === 4);
+  ok('热销榜按销量数字排（8000+ 在 2000+ 前面）', (() => {
+    const hot = walk(mApp).filter(n => n._class.has('hot-card')).map(n => n.textContent);
+    return hot.length === 3 && /耳机/.test(hot[0]);
+  })(), walk(mApp).filter(n => n._class.has('hot-card')).map(n => n.textContent).join(' | '));
+
+  /* 搜索：就地过滤 */
+  const msi = walk(mApp).find(n => n._class.has('shop-search'));
+  msi.value = '耳机'; dispatch(msi, 'input', { target: msi });
+  ok('搜「耳机」只剩耳机那一张卡',
+    walk(mApp).filter(n => n._class.has('gd-card')).length === 1 &&
+    /耳机/.test(walk(mApp).find(n => n._class.has('gd-card')).textContent));
+  msi.value = '不存在的商品xx'; dispatch(msi, 'input', { target: msi });
+  ok('搜不到时给提示而不是空白',
+    walk(mApp).filter(n => n._class.has('gd-card')).length === 0 &&
+    !!walk(mApp).find(n => n._class.has('empty') && /没有符合条件/.test(n.textContent)));
+  msi.value = ''; dispatch(msi, 'input', { target: msi });
+
+  /* 分类页：点一级分类 → 右栏出子类 + 该类商品 */
+  walk(mApp).find(n => n._class.has('cat-cell') && n.textContent.includes('数码')).click();
+  ok('分类页左栏列出 8 个一级分类',
+    walk(mApp).filter(n => n._class.has('cate-side-i')).length === 8);
+  ok('分类页右栏列出「全部」+ 该分类的子类',
+    !!walk(mApp).find(n => n._class.has('cate-sub') && n.textContent === '全部') &&
+    !!walk(mApp).find(n => n._class.has('cate-sub') && n.textContent === '耳机'),
+    walk(mApp).filter(n => n._class.has('cate-sub')).map(n => n.textContent).join(','));
+  ok('分类页只显示该分类的商品',
+    walk(mApp).filter(n => n._class.has('gd-card')).length === 1 &&
+    /耳机/.test(walk(mApp).find(n => n._class.has('gd-card')).textContent));
+  /* 二级子类筛选 */
+  walk(mApp).find(n => n._class.has('cate-sub') && n.textContent === '手机').click();
+  ok('点子类「手机」→ 数码类下没有手机，给空态',
+    walk(mApp).filter(n => n._class.has('gd-card')).length === 0 &&
+    !!walk(mApp).find(n => n._class.has('empty') && /这个分类下暂时没货/.test(n.textContent)));
+
+  /* 商品详情 + 加购 + 收藏 */
+  walk(mApp).find(n => n._class.has('cate-side-i') && n.textContent.includes('女装')).click();
+  walk(mApp).find(n => n._class.has('gd-card')).click();
+  ok('商品详情页有标题和价格',
+    !!walk(mApp).find(n => n._class.has('gd-title') && /连衣裙/.test(n.textContent)) &&
+    !!walk(mApp).find(n => n._class.has('gd-price')));
+  ok('商品详情页有「加入购物车」和「立即购买」',
+    !!walk(mApp).find(n => n._class.has('buy-cart') && n.textContent === '加入购物车') &&
+    !!walk(mApp).find(n => n._class.has('buy-now') && n.textContent === '立即购买'));
+  walk(mApp).find(n => n._class.has('buy-cart')).click();
+  ok('加购后购物车里有这一件',
+    App.state.mall.cart.length === 1 && App.mallCount() === 1,
+    String(App.mallCount()));
+  /* 详情页是专注页（没有页签），所以角标要回首页才看得到。
+     shim 的 _class 是一堆 token，所以查 'back' 而不是 'nav-btn.back'。 */
+  walk(mApp).find(n => n._class.has('back')).click();
+  ok('加购后页签出现角标', !!walk(mApp).find(n => n._class.has('wt-badge')),
+    String(walk(mApp).filter(n => n._class.has('wt-badge')).length));
+
+  /* 购物车：勾选 + 加减 + 合计 */
+  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  ok('购物车页渲染出这一行', walk(mApp).filter(n => n._class.has('mc-row')).length === 1);
+  walk(mApp).find(n => n._class.has('mc-btn') && n.textContent === '＋').click();
+  ok('点＋数量变 2，合计跟着翻倍',
+    App.mallCount() === 2 && App.mallTotal() === 398, App.mallCount() + '/' + App.mallTotal());
+  walk(mApp).find(n => n._class.has('mc-pick')).click();
+  ok('取消勾选后合计归零（但商品还在）',
+    App.mallTotal() === 0 && App.mallCount() === 2, String(App.mallTotal()));
+  walk(mApp).find(n => n._class.has('mc-pick')).click();
+  ok('再勾回来合计恢复', App.mallTotal() === 398, String(App.mallTotal()));
+  /* 结算 */
+  walk(mApp).find(n => n._class.has('cart-go')).click();
+  ok('结算后生成一笔订单、购物车清空',
+    App.state.mall.orders.length === 1 && App.state.mall.cart.length === 0,
+    App.state.mall.orders.length + '/' + App.state.mall.cart.length);
+  ok('订单金额等于刚才的合计',
+    App.state.mall.orders[0].total === 398, String(App.state.mall.orders[0].total));
+  ok('订单有五个进度阶段',
+    walk(mApp).filter(n => n._class.has('od-step')).length === App.MALL_STAGES.length);
+  /* 我的：真数据 */
+  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  const mstat = walk(mApp).filter(n => n._class.has('dl-stat-card')).map(n => n.textContent).join(' ');
+  ok('我的页统计取自真订单',
+    mstat.includes('1') && mstat.includes('398'), mstat);
+  S.closeTop(true);
+
   /* 收摊：别把这一节造的数据留给 [24] */
+  App.state.mall = { goods: [], cart: [], orders: [], fav: [] };
   App.state.moments = [];
   App.state.delivery = { shops: [], cart: [], orders: [] };
   App.state.settings.wallImgs = [];

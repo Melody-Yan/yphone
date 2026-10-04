@@ -2464,13 +2464,14 @@ const APPS = [
         ])));
       }
       /* 首页/自取/订单/我的 都是「主页面」，统一走这个壳：导航栏 + 内容 + 底部页签。
-         购物车条挂在正文顶上、页签上面 —— 不然结算入口会被页签盖住。 */
+         购物车条贴在页签正上方 —— 放顶部会跟着内容滚走，也挡住导航栏，
+         结算入口本来就该在拇指够得到的地方。 */
       function page(active, title, content, { back = null, right = null, cart = true } = {}) {
         if (tick) { clearInterval(tick); tick = null; }
         root.innerHTML = '';
         root.append(navBar(title, { back, right }));
-        if (cart) { const cb = cartBar(); if (cb) root.append(cb); }
         content.forEach(n => n && root.append(n));
+        if (cart) { const cb = cartBar(); if (cb) root.append(cb); }
         root.append(tabBar(active));
       }
 
@@ -2489,19 +2490,19 @@ const APPS = [
       const CRAVINGS = ['随便', '辣的', '清淡的', '日式的', '面食', '烧烤', '甜的', '热汤'];
       const GEN_SYS = '你是一个外卖平台的商家数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
       function genUser(craving) {
-        return '随机生成 4 家风格完全不同的外卖店铺，JSON 格式：\n' +
+        return '随机生成 6 家风格完全不同的外卖店铺，JSON 格式：\n' +
           '{"shops":[{"name":"店名","kind":"品类","emoji":"一个代表这家店的 emoji",' +
           '"eta":"30分钟","rating":"4.7","fee":3,"min":20,"tags":["现炒","老字号"],' +
           '"sold":"月售3000+","dist":"0.6km","rank":"奶茶甜品榜第2名","discount":"低至6折",' +
           '"promo":"满20减3","vip":true,' +
           '"dishes":[{"name":"菜名","desc":"一句话描述","price":28,"emoji":"一个 emoji","hot":true}]}]}\n' +
-          '要求：每家 5 道菜，其中 1~2 道 hot 为 true（招牌）；店名要有人间烟火气，别用「XX美食」这种套话；' +
+          '要求：每家 8 道菜，其中 2 道 hot 为 true（招牌）；店名要有人间烟火气，别用「XX美食」这种套话；' +
           '价格是人民币整数（12~68 之间）；菜名要具体（「黑椒牛柳饭」而不是「牛肉饭」）；' +
           'desc 要勾人，写做法或口感，别超过 18 个字；emoji 要和那道菜对得上；' +
           'sold 写成「月售600+」这种；dist 是距离（0.3~2.5km）；rank 是榜单名次（六到十个字，' +
           '像「南区川菜榜第1名」），没上榜就给空字符串；discount 是折扣（「低至6折」这种）；' +
           'promo 是满减（「满20减3」这种）；vip 表示是否参加会员免运，真话就 true；' +
-          '4 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶…）。' +
+          '6 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶/麻辣烫/粥铺/饺子…）。' +
           (craving && craving !== '随便' ? '这次用户想吃：' + craving + '。' : '');
       }
 
@@ -2667,7 +2668,6 @@ const APPS = [
         const idx = list.indexOf(shop);
         root.innerHTML = '';
         root.append(navBar(shop.name, { back: listView }));
-        const cb = cartBar(); if (cb) root.append(cb);
 
         root.append(SJ.el('div', { class: 'shop-hero' }, [
           SJ.el('div', { class: 'shop-art big', style: { background: shopBg(idx) } }, shop.emoji || '🍽'),
@@ -2701,6 +2701,9 @@ const APPS = [
           box.append(row);
         });
         root.append(box);
+        /* 购物车条放最底 —— 和 page() 一致的规矩：结算入口在拇指够得到的地方，
+           不占导航栏下面的黄金位置。 */
+        const cb = cartBar(); if (cb) root.append(cb);
       }
 
       function cartView() {
@@ -2842,6 +2845,439 @@ const APPS = [
       }
 
       listView();
+    }
+  },
+
+  /* ── 桃桃商城：仿淘宝的购物 App。分类写死（才筛得动），商品 AI 现生成（才不重复）── */
+  {
+    id: 'mall',
+    name: '桃桃商城',
+    icon: 'bag',
+    color: 'linear-gradient(150deg,#f7c9d4,#e08aa4)',
+    render(root) {
+      let busy = false;
+      /* 当前筛选：分类 id + 二级子类 + 关键词。三个都空就是「全部」。 */
+      let cat = '';
+      let sub = '';
+      let q = '';
+      /* 排序：'' 综合 / 'sales' 销量 / 'priceUp' 价格升 / 'priceDown' 价格降 */
+      let sort = '';
+      const mg = () => SJ.state.mall;
+
+      const TABS = [
+        { id: 'home', icon: 'home', label: '首页', go: () => homeView() },
+        { id: 'cate', icon: 'bag', label: '分类', go: () => cateView() },
+        { id: 'cart', icon: 'store', label: '购物车', go: () => cartView() },
+        { id: 'me', icon: 'user', label: '我的', go: () => meView() }
+      ];
+      function tabBar(active) {
+        const n = SJ.mallCount();
+        return SJ.el('div', { class: 'wtab' }, TABS.map(t => SJ.el('button', {
+          class: 'wt' + (t.id === active ? ' on' : ''),
+          onclick: () => t.go()
+        }, [
+          SJ.el('span', { class: 'wt-i' }, [
+            SJ.el('span', { html: svg(t.icon, 22) }),
+            /* 购物车角标：有几件没结算 */
+            (t.id === 'cart' && n) ? SJ.el('i', { class: 'wt-badge' }, n > 99 ? '99+' : String(n)) : null
+          ].filter(Boolean)),
+          SJ.el('span', { class: 'wt-l' }, t.label)
+        ])));
+      }
+      function page(active, title, content, { back = null, right = null } = {}) {
+        root.innerHTML = '';
+        root.append(navBar(title, { back, right }));
+        content.forEach(n => n && root.append(n));
+        root.append(tabBar(active));
+      }
+
+      /* 商品是否命中当前筛选 */
+      function hit(g) {
+        if (cat && g.cat !== cat) return false;
+        if (sub && g.sub !== sub) return false;
+        if (q) {
+          const k = q.toLowerCase();
+          const hay = (g.name + ' ' + g.sub + ' ' + g.brand + ' ' + g.tags.join(' ')).toLowerCase();
+          if (!hay.includes(k)) return false;
+        }
+        return true;
+      }
+      function sorted(list) {
+        const a = list.slice();
+        if (sort === 'sales') a.sort((x, y) => numOf(y.sales) - numOf(x.sales));
+        else if (sort === 'priceUp') a.sort((x, y) => x.price - y.price);
+        else if (sort === 'priceDown') a.sort((x, y) => y.price - x.price);
+        return a;
+      }
+      /* 「月售3000+」这种要能比大小，就把数字抠出来 */
+      const numOf = s => { const m = String(s || '').match(/\d+/); return m ? Number(m[0]) : 0; };
+      /* 折扣角标：199/299 = 6.66 折 → 「6.7折」。
+         不能用 Math.round（会变成 7 折，把折扣说大了），也不能直接显示 6.66 那么长。 */
+      function offText(g) {
+        const d = g.price / g.oldPrice * 10;
+        const s = (Math.round(d * 10) / 10).toFixed(1).replace(/\.0$/, '');
+        return s + '折';
+      }
+
+      /* 商品卡：淘宝那种双列瀑布流 */
+      function goodsCard(g) {
+        const card = SJ.el('div', { class: 'gd-card', onclick: () => goodsView(g.id) });
+        /* 就地切 class，不重画整页 —— 在分类页点收藏不该把人弹回首页。
+           onclick 里引用 favBtn 自己，闭包晚绑定，赋完值才可能被点到。 */
+        let favBtn = null;
+        favBtn = SJ.el('i', {
+          class: 'gd-fav' + (SJ.mallIsFav(g.id) ? ' on' : ''),
+          onclick: ev => {
+            ev.stopPropagation();
+            SJ.mallFav(g.id);
+            favBtn.className = 'gd-fav' + (SJ.mallIsFav(g.id) ? ' on' : '');
+          }
+        }, '♥');
+        card.append(SJ.el('div', { class: 'gd-art' }, [
+          SJ.el('span', { class: 'gd-emoji' }, g.emoji || '📦'),
+          (g.oldPrice && g.oldPrice > g.price)
+            ? SJ.el('i', { class: 'gd-off' }, offText(g)) : null,
+          favBtn
+        ].filter(Boolean)));
+        const info = SJ.el('div', { class: 'gd-info' });
+        info.append(SJ.el('div', { class: 'gd-name' }, g.name));
+        info.append(SJ.el('div', { class: 'gd-tags' },
+          (g.brand ? ['品牌 ' + g.brand] : []).concat(g.tags).slice(0, 2)
+            .map(t => SJ.el('span', { class: 'gd-tag' }, t))));
+        info.append(SJ.el('div', { class: 'gd-price-row' }, [
+          SJ.el('span', { class: 'gd-price' }, [
+            SJ.el('i', {}, '¥'), SJ.el('b', {}, String(g.price))
+          ]),
+          g.oldPrice && g.oldPrice > g.price ? SJ.el('s', { class: 'gd-old' }, '¥' + g.oldPrice) : null,
+          SJ.el('span', { class: 'gd-sales' }, g.sales || '')
+        ].filter(Boolean)));
+        card.append(info);
+        return card;
+      }
+      /* 收藏是就地切 class 的，不需要重画任何东西（原来这里会把人弹回首页） */
+
+      function searchBar(onInput, ph) {
+        return SJ.el('div', { class: 'shop-search-wrap mall-search' }, [
+          SJ.el('span', { class: 'shop-search-ico', html: svg('search', 15) }),
+          SJ.el('input', {
+            class: 'shop-search', placeholder: ph || '搜商品 / 品牌 / 关键词', value: q,
+            oninput: ev => { q = ev.target.value.trim(); onInput(); }
+          })
+        ]);
+      }
+
+      /* ── 首页：搜索 + 分类入口 + 排行 + 双列商品 ── */
+      function homeView(keepScroll) {
+        const body = [];
+        const box = SJ.el('div', { class: 'mall-scroll' });
+        box.append(SJ.el('div', { class: 'mall-banner' }, [
+          SJ.el('div', { class: 'mall-banner-t' }, '桃桃商城'),
+          SJ.el('div', { class: 'mall-banner-s' }, '分类详细一点，逛起来才像回事')
+        ]));
+        box.append(SJ.el('div', { class: 'cat-grid' }, MALL_CATS.map(c =>
+          SJ.el('button', {
+            class: 'cat-cell',
+            onclick: () => { cat = c.id; sub = ''; q = ''; cateView(); }
+          }, [
+            SJ.el('span', { class: 'cat-cell-i' }, c.emoji),
+            SJ.el('span', { class: 'cat-cell-l' }, c.name)
+          ]))));
+
+        const all = mg().goods;
+        if (!all.length) {
+          box.append(SJ.el('div', { class: 'empty big' }, '还没有商品\n点右上角 ⟳ 让 AI 进一批货'));
+        } else {
+          /* 热销榜：固定按「月售」的数字排 —— 不能跟着用户的排序选择走，
+             这里就是「卖得最好的几个」，和排序无关。 */
+          const hot = all.filter(g => numOf(g.sales) > 0)
+            .slice().sort((x, y) => numOf(y.sales) - numOf(x.sales)).slice(0, 6);
+          if (hot.length) {
+            box.append(SJ.el('div', { class: 'mall-sec-t' }, '🔥 今日热销'));
+            const rail = SJ.el('div', { class: 'hot-rail' });
+            hot.forEach(g => rail.append(SJ.el('div', {
+              class: 'hot-card', onclick: () => goodsView(g.id)
+            }, [
+              SJ.el('div', { class: 'hot-art' }, g.emoji || '📦'),
+              SJ.el('div', { class: 'hot-name' }, g.name),
+              SJ.el('div', { class: 'hot-price' }, '¥' + g.price)
+            ])));
+            box.append(rail);
+          }
+          box.append(SJ.el('div', { class: 'mall-sec-t' }, '猜你喜欢'));
+        }
+        const grid = SJ.el('div', { class: 'gd-grid' });
+        const empty = SJ.el('div', { class: 'empty big hide' }, '');
+        /* 商品网格和空态必须放进 .mall-scroll 里面 —— 放外面它们就不是滚动内容，
+           页签会被顶出屏幕（实测 12 件商品时页签跑到 top=1590，视口只有 844）。 */
+        box.append(grid, empty);
+        body.push(searchBar(() => homeView()), box);
+        /* 过滤和排序都在本地算 —— 商品本来就在内存里，没必要过接口 */
+        const shown = sorted(all.filter(hit));
+        empty.textContent = all.length && !shown.length
+          ? '没有符合条件的商品\n换个分类或关键词试试' : '';
+        empty.className = 'empty big' + (shown.length || !all.length ? ' hide' : '');
+        shown.slice(0, 60).forEach(g => grid.append(goodsCard(g)));
+        page('home', '桃桃商城', body, {
+          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
+        });
+      }
+
+      /* ── 分类：左边一级分类，右边二级子类 + 该类的商品 ── */
+      function cateView() {
+        const body = [];
+        const wrap = SJ.el('div', { class: 'cate-wrap' });
+        /* 左栏：一级分类 */
+        const side = SJ.el('div', { class: 'cate-side' });
+        const cur = MALL_CATS.find(c => c.id === cat) || MALL_CATS[0];
+        MALL_CATS.forEach(c => side.append(SJ.el('button', {
+          class: 'cate-side-i' + (c.id === cur.id ? ' on' : ''),
+          onclick: () => { cat = c.id; sub = ''; cateView(); }
+        }, [SJ.el('span', {}, c.emoji), SJ.el('span', {}, c.name)])));
+        /* 右栏：二级子类 + 商品 */
+        const main = SJ.el('div', { class: 'cate-main' });
+        main.append(SJ.el('div', { class: 'cate-sub-t' }, cur.name));
+        const subs = SJ.el('div', { class: 'cate-subs' });
+        subs.append(SJ.el('button', {
+          class: 'cate-sub' + (sub === '' ? ' on' : ''),
+          onclick: () => { sub = ''; cateView(); }
+        }, '全部'));
+        cur.subs.forEach(s => subs.append(SJ.el('button', {
+          class: 'cate-sub' + (sub === s ? ' on' : ''),
+          onclick: () => { sub = s; cateView(); }
+        }, s)));
+        main.append(subs);
+        const inCat = mg().goods.filter(g => g.cat === cur.id && (!sub || g.sub === sub));
+        if (!inCat.length) {
+          main.append(SJ.el('div', { class: 'empty' },
+            mg().goods.length ? '这个分类下暂时没货' : '还没有商品，先去首页 ⟳ 进一批'));
+        } else {
+          const grid = SJ.el('div', { class: 'gd-grid s1' });
+          inCat.slice(0, 40).forEach(g => grid.append(goodsCard(g)));
+          main.append(grid);
+        }
+        wrap.append(side, main);
+        body.push(searchBar(() => cateView()));
+        body.push(wrap);
+        page('cate', '分类', body);
+      }
+
+      /* ── 商品详情：大图 + 价 + 详情 + 加购 ── */
+      function goodsView(id) {
+        const g = mg().goods.find(x => x.id === id);
+        if (!g) return homeView();
+        root.innerHTML = '';
+        root.append(navBar('商品详情', {
+          back: () => homeView(),
+          right: SJ.el('button', {
+            class: 'nav-btn' + (SJ.mallIsFav(g.id) ? ' on' : ''),
+            title: SJ.mallIsFav(g.id) ? '取消收藏' : '收藏',
+            onclick: () => { SJ.mallFav(g.id); goodsView(g.id); }
+          }, SJ.mallIsFav(g.id) ? '♥' : '♡')
+        }));
+        const box = SJ.el('div', { class: 'mall-scroll' });
+        box.append(SJ.el('div', { class: 'gd-hero' }, g.emoji || '📦'));
+        box.append(SJ.el('div', { class: 'gd-detail' }, [
+          SJ.el('div', { class: 'gd-price-row big' }, [
+            SJ.el('span', { class: 'gd-price' }, [SJ.el('i', {}, '¥'), SJ.el('b', {}, String(g.price))]),
+            g.oldPrice && g.oldPrice > g.price ? SJ.el('s', { class: 'gd-old' }, '¥' + g.oldPrice) : null,
+            SJ.el('span', { class: 'gd-sales' }, g.sales || '')
+          ].filter(Boolean)),
+          SJ.el('div', { class: 'gd-title' }, g.name),
+          g.desc ? SJ.el('div', { class: 'gd-desc' }, g.desc) : null,
+          SJ.el('div', { class: 'gd-tags' },
+            (g.brand ? ['品牌 ' + g.brand] : []).concat(g.tags).map(t =>
+              SJ.el('span', { class: 'gd-tag' }, t))),
+          SJ.el('div', { class: 'gd-meta' },
+            [curName(g.cat), g.sub].filter(Boolean).join(' · '))
+        ].filter(Boolean)));
+        /* 同类推荐：让详情页有路可走，而不是死胡同 */
+        const alike = mg().goods.filter(x => x.cat === g.cat && x.id !== g.id).slice(0, 6);
+        if (alike.length) {
+          box.append(SJ.el('div', { class: 'mall-sec-t' }, '同类好物'));
+          const grid = SJ.el('div', { class: 'gd-grid' });
+          alike.forEach(x => grid.append(goodsCard(x)));
+          box.append(grid);
+        }
+        root.append(box);
+        /* 底部购买条：和外卖的购物车一个位置规矩（拇指够得到） */
+        root.append(SJ.el('div', { class: 'buy-bar' }, [
+          SJ.el('button', {
+            class: 'buy-cart', onclick: () => { SJ.mallAddToCart(g); toast('已加入购物车'); }
+          }, '加入购物车'),
+          SJ.el('button', {
+            class: 'buy-now', onclick: () => {
+              /* 立即买：只把这一件放进购物车并勾上，其余不勾 */
+              mg().cart.forEach(x => { x.picked = false; });
+              const hit0 = mg().cart.find(x => x.goodsId === g.id);
+              if (hit0) hit0.picked = true; else { SJ.mallAddToCart(g); }
+              cartView();
+            }
+          }, '立即购买')
+        ]));
+      }
+      const curName = id => (MALL_CATS.find(c => c.id === id) || {}).name || '';
+
+      /* ── 购物车：勾选 + 加减 + 合计结算 ── */
+      function cartView() {
+        const cart = mg().cart;
+        if (!cart.length) {
+          return void page('cart', '购物车', [SJ.el('div', { class: 'empty big' }, '购物车还是空的\n去首页逛逛')]);
+        }
+        const list = SJ.el('div', { class: 'cart-rows' });
+        cart.forEach(it => {
+          const on = it.picked !== false;
+          list.append(SJ.el('div', { class: 'mc-row' + (on ? '' : ' off') }, [
+            SJ.el('button', {
+              class: 'mc-pick' + (on ? ' on' : ''),
+              onclick: () => { SJ.mallPick(it.id); cartView(); }
+            }, on ? '✓' : ''),
+            SJ.el('div', { class: 'mc-name' }, it.name),
+            SJ.el('div', { class: 'mc-price' }, '¥' + it.price),
+            SJ.el('div', { class: 'mc-step' }, [
+              SJ.el('button', { class: 'mc-btn', onclick: () => { SJ.mallCartAdd(it.id, -1); cartView(); } }, '−'),
+              SJ.el('span', { class: 'mc-n' }, String(it.n)),
+              SJ.el('button', { class: 'mc-btn', onclick: () => { SJ.mallCartAdd(it.id, 1); cartView(); } }, '＋')
+            ])
+          ]));
+        });
+        const total = SJ.mallTotal();
+        const pickedN = cart.filter(x => x.picked !== false).reduce((s, x) => s + x.n, 0);
+        page('cart', '购物车', [
+          list,
+          SJ.el('div', { class: 'cart-bar mall-cart-bar' }, [
+            SJ.el('span', { class: 'cart-ico' }, '🛒'),
+            SJ.el('span', {}, pickedN + ' 件'),
+            SJ.el('span', { class: 'cart-total' }, '¥' + total),
+            SJ.el('span', {
+              class: 'cart-go',
+              onclick: () => {
+                if (!pickedN) return toast('还没勾选商品');
+                SJ.mallPlaceOrder();
+                toast('下单成功，桃桃正在打包');
+                ordersView();
+              }
+            }, '结算')
+          ])
+        ]);
+      }
+
+      /* ── 订单 ── */
+      function ordersView() {
+        const os = mg().orders;
+        if (!os.length) {
+          return void page('me', '我的订单', [SJ.el('div', { class: 'empty big done' }, '还没有订单')]);
+        }
+        const list = SJ.el('div', { class: 'list' });
+        os.forEach(o => {
+          const i = SJ.mallStage(o);
+          const done = i >= SJ.MALL_STAGES.length - 1;
+          const card = SJ.el('div', { class: 'order-card' + (done ? ' done' : '') });
+          card.append(SJ.el('div', { class: 'od-head' }, [
+            SJ.el('div', { class: 'od-shop' }, done ? '已签收' : SJ.MALL_STAGES[i]),
+            SJ.el('div', { class: 'od-amt' }, '¥' + o.total)
+          ]));
+          const steps = SJ.el('div', { class: 'od-steps' });
+          SJ.MALL_STAGES.forEach((s, k) => steps.append(SJ.el('div', {
+            class: 'od-step' + (k <= i ? ' on' : '') + (k === i && !done ? ' now' : '')
+          }, [SJ.el('span', { class: 'od-dot' }), SJ.el('span', { class: 'od-lab' }, s)])));
+          card.append(steps);
+          card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
+          list.append(card);
+        });
+        page('me', '我的订单', [list]);
+        /* 和外卖一样：没签收就每 5 秒重画，进度是按虚拟时间现算的 */
+        if (os.some(o => SJ.mallStage(o) < SJ.MALL_STAGES.length - 1)) {
+          setInterval(() => { if (root.isConnected !== false) ordersView(); }, 5000);
+        }
+      }
+
+      /* ── 我的：真数据 + 收藏 ── */
+      function meView() {
+        const os = mg().orders;
+        const spent = os.reduce((s, o) => s + o.total, 0);
+        const body = [];
+        const card = SJ.el('div', { class: 'dl-stat-card' }, [
+          SJ.el('div', { class: 'dl-stat' }, [
+            SJ.el('div', { class: 'dl-stat-n' }, String(os.length)),
+            SJ.el('div', { class: 'dl-stat-l' }, '累计订单')
+          ]),
+          SJ.el('div', { class: 'dl-stat' }, [
+            SJ.el('div', { class: 'dl-stat-n' }, '¥' + spent),
+            SJ.el('div', { class: 'dl-stat-l' }, '累计消费')
+          ]),
+          SJ.el('div', { class: 'dl-stat' }, [
+            SJ.el('div', { class: 'dl-stat-n' }, String(mg().fav.length)),
+            SJ.el('div', { class: 'dl-stat-l' }, '收藏')
+          ])
+        ]);
+        body.push(card);
+        const favs = mg().goods.filter(g => SJ.mallIsFav(g.id));
+        if (favs.length) {
+          body.push(SJ.el('div', { class: 'mall-sec-t' }, '我的收藏'));
+          const grid = SJ.el('div', { class: 'gd-grid' });
+          favs.slice(0, 20).forEach(g => grid.append(goodsCard(g)));
+          body.push(grid);
+        }
+        body.push(SJ.el('div', { class: 'list' }, [
+          SJ.el('div', { class: 'row', onclick: () => ordersView() }, [
+            SJ.el('div', { class: 'row-ico', html: svg('note', 19) }),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '我的订单'),
+              SJ.el('div', { class: 'row-sub' }, os.length ? os.length + ' 笔' : '还没有')
+            ]),
+            SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+          ]),
+          SJ.el('div', { class: 'row', onclick: () => regen() }, [
+            SJ.el('div', { class: 'row-ico', html: svg('sparkle', 19) }),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '换一批商品'),
+              SJ.el('div', { class: 'row-sub' }, '让 AI 重新进一批货')
+            ]),
+            SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+          ])
+        ]));
+        page('me', '我的', body);
+      }
+
+      /* ── AI 进货 ── */
+      const GEN_SYS = '你是一个电商平台的商品数据生成器。只输出 JSON，不要解释文字，不要 Markdown 代码块。';
+      /* 每次指定几个分类去生成，其余分类保留旧货 —— 一次全换会让人白挑半天 */
+      function genUser(cats) {
+        return '随机生成 ' + (cats.length * 3) + ' 件电商商品，覆盖这些分类：' +
+          cats.map(c => c.name + '（' + c.subs.slice(0, 4).join('/') + '）').join('、') + '。\n' +
+          'JSON 格式：\n' +
+          '{"goods":[{"name":"商品名","cat":"分类 id","sub":"二级子类","price":199,"oldPrice":299,' +
+          '"emoji":"一个代表商品的 emoji","desc":"一句话卖点","sales":"月销2000+","brand":"品牌名",' +
+          '"tags":["包邮","7天无理由"],"hot":true}]}\n' +
+          'cat 只能取这些 id：' + cats.map(c => c.id).join('、') + '。每个分类 3 件。\n' +
+          '要求：name 要具体（「法式碎花连衣裙」而不是「裙子」），12 字以内；sub 必须是该分类下面列出的子类之一；' +
+          '价格是人民币整数（19~2999）；oldPrice 是原价（比 price 高 10%~40%），没有就写 0；' +
+          'desc 写材质/功效/场景，18 字以内；sales 写成「月销2000+」这种；brand 编一个像样的牌子名；' +
+          'tags 从「包邮」「7天无理由」「正品」「顺丰」「当日发」「假一赔十」里挑 1~3 个；' +
+          '每类里 1 件 hot 为 true（爆款）；emoji 要和商品对得上。';
+      }
+      async function regen() {
+        if (busy) return;
+        busy = true;
+        /* 一次进 2 个分类，8 个分类轮着来 —— 转几圈就把商城填满了 */
+        const start = Math.floor(Math.random() * MALL_CATS.length);
+        const pick = [MALL_CATS[start], MALL_CATS[(start + 1) % MALL_CATS.length]];
+        homeView();
+        try {
+          const text = await SJ.askOnce(GEN_SYS, genUser(pick));
+          const fresh = SJ.normalizeGoods(SJ.parseJSONLoose(text));
+          if (!fresh.length) throw new Error('这次没进到货，再点一下右上角 ⟳');
+          /* 只替换这两个分类的旧货，别的分类留着 */
+          const keep = mg().goods.filter(g => !pick.some(c => c.id === g.cat));
+          SJ.setGoods(keep.concat(fresh));
+        } catch (e) {
+          toast((e && e.message) || '进货失败');
+        }
+        busy = false;
+        homeView();
+      }
+
+      homeView();
     }
   },
 

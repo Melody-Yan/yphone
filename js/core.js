@@ -207,6 +207,13 @@ const DEFAULTS = {
   music: {
     tracks: [],          // [{id,name,artist,url}, ...]
     now: ''              // 当前播放的曲目 id
+  },
+  /* 桃桃商城：商品 AI 现生成，分类固定几大类（分类写死才搜得动，商品是活的） */
+  mall: {
+    goods: [],           // [{id,name,cat,sub,price,oldPrice,emoji,desc,sales,brand,tags:[],hot}]
+    cart: [],            // [{id,goodsId,name,price,n}]
+    orders: [],          // [{id,items:[{name,n}],total,ts}]
+    fav: []              // 收藏的商品 id
   }
 };
 
@@ -216,7 +223,8 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
-  moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array'
+  moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
+  mall: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -307,6 +315,14 @@ function migrate(saved) {
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
   out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
+  /* 商城：同样是导入存档的信任边界 */
+  const ml = (out.mall && typeof out.mall === 'object' && !Array.isArray(out.mall)) ? out.mall : {};
+  out.mall = {
+    goods: normalizeGoods(ml.goods),
+    cart: normalizeMallCart(ml.cart),
+    orders: normalizeMallOrders(ml.orders),
+    fav: (Array.isArray(ml.fav) ? ml.fav : []).map(x => String(x).slice(0, 40)).slice(0, 200)
+  };
 
   // 角色也是导入边界：以前这里根本没归过，一个 "{name:123}" 就能让后面到处炸
   out.characters = (Array.isArray(out.characters) ? out.characters : [])
@@ -1500,6 +1516,129 @@ function placeOrder() {
   return o;
 }
 
+/* ── 桃桃商城 ──
+   分类是写死的（写死才搜得动、筛得稳），商品是 AI 现生成的。
+   和外卖一个思路：结构固定，内容活。 */
+const MALL_CATS = [
+  { id: 'dress', name: '女装', emoji: '👗', subs: ['连衣裙', '衬衫', '外套', '卫衣', '半身裙', '牛仔裤'] },
+  { id: 'sport', name: '运动', emoji: '👟', subs: ['跑步鞋', '运动服', '瑜伽裤', '篮球', '健身器材'] },
+  { id: 'beauty', name: '美妆', emoji: '💄', subs: ['口红', '粉底', '面膜', '精华', '香水'] },
+  { id: 'digital', name: '数码', emoji: '📱', subs: ['手机', '耳机', '平板', '键盘', '充电宝', '智能手表'] },
+  { id: 'home', name: '家居', emoji: '🛋', subs: ['床品', '收纳', '灯具', '餐具', '香薰'] },
+  { id: 'food', name: '食品', emoji: '🍪', subs: ['零食', '茶饮', '咖啡', '水果', '速食'] },
+  { id: 'baby', name: '母婴', emoji: '🧸', subs: ['纸尿裤', '玩具', '童装', '喂养'] },
+  { id: 'bag', name: '箱包', emoji: '🎒', subs: ['双肩包', '手提包', '行李箱', '钱包'] }
+];
+const MALL_CAT_IDS = MALL_CATS.map(c => c.id);
+const MALL_STAGES = ['待付款', '待发货', '已发货', '运输中', '已签收'];
+const MALL_STEP_MS = 60 * 1000;   // ponytail: 每 60 秒推进一步，和外卖一样按虚拟时间现算
+
+function normalizeGoods(raw) {
+  const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.goods) ? raw.goods : []);
+  return list.filter(g => g && typeof g === 'object').slice(0, 200).map((g, i) => ({
+    id: String(g.id || ('gd-' + i)),
+    name: String(g.name || '一件商品').slice(0, NAME_MAX),
+    /* 分类归一到已知的几大类：AI 可能给「连衣裙」这种子类，找不到就落到「家居」兜底，
+       否则筛选按钮点了筛不出东西。 */
+    cat: MALL_CAT_IDS.indexOf(String(g.cat)) >= 0 ? String(g.cat) : 'home',
+    sub: String(g.sub || '').slice(0, 16),
+    price: Math.max(0, Math.round(Number(g.price) || 0)),
+    oldPrice: Math.max(0, Math.round(Number(g.oldPrice) || 0)),
+    emoji: String(g.emoji || '📦').slice(0, 4),
+    desc: String(g.desc || '').slice(0, 80),
+    sales: String(g.sales || '').slice(0, 16),
+    brand: String(g.brand || '').slice(0, 20),
+    tags: (Array.isArray(g.tags) ? g.tags : []).map(t => String(t).slice(0, 8)).slice(0, 3),
+    hot: !!g.hot
+  })).filter(g => g.name);
+}
+function normalizeMallCart(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(x => x && typeof x === 'object').slice(0, 80).map((x, i) => ({
+    id: String(x.id || ('mc-' + i)),
+    goodsId: String(x.goodsId || ''),
+    name: String(x.name || '').slice(0, NAME_MAX),
+    price: Math.max(0, Math.round(Number(x.price) || 0)),
+    n: Math.max(1, Math.min(99, Number(x.n) || 1)),
+    picked: x.picked !== false
+  }));
+}
+function normalizeMallOrders(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(o => o && typeof o === 'object').slice(0, 40).map((o, i) => ({
+    id: String(o.id || ('mo-' + i)),
+    items: (Array.isArray(o.items) ? o.items : []).slice(0, 60).map(x => ({
+      name: String((x && x.name) || '').slice(0, NAME_MAX),
+      n: Math.max(1, Math.min(99, Number((x && x.n) || 1)))
+    })),
+    total: Math.max(0, Math.round(Number(o.total) || 0)),
+    ts: Number(o.ts) || 0
+  }));
+}
+function mallStage(o, now) {
+  const t = now == null ? virtualNow().getTime() : now;
+  const i = Math.floor((t - (Number(o && o.ts) || 0)) / MALL_STEP_MS);
+  return Math.max(0, Math.min(MALL_STAGES.length - 1, i));
+}
+function setGoods(list) {
+  state.mall.goods = normalizeGoods(list);
+  save();
+  return state.mall.goods;
+}
+function mallGoods() { return state.mall.goods; }
+function mallAddToCart(g) {
+  const m = state.mall;
+  const hit = m.cart.find(x => x.goodsId === g.id);
+  if (hit) hit.n = Math.min(99, hit.n + 1);
+  else m.cart.push({ id: uid(), goodsId: g.id, name: g.name, price: g.price, n: 1, picked: true });
+  save();
+  return m.cart;
+}
+function mallCartAdd(id, delta) {
+  const m = state.mall;
+  const it = m.cart.find(x => x.id === id);
+  if (!it) return m.cart;
+  it.n = Math.min(99, it.n + delta);
+  if (it.n <= 0) m.cart = m.cart.filter(x => x.id !== id);
+  save();
+  return m.cart;
+}
+/* 勾选/取消勾选。没勾的项不下单，也不计入合计。 */
+function mallPick(id) {
+  const it = state.mall.cart.find(x => x.id === id);
+  if (it) it.picked = (it.picked === false);
+  save();
+  return state.mall.cart;
+}
+function mallCount() { return state.mall.cart.reduce((s, x) => s + x.n, 0); }
+/* 只算勾上的那些 —— 淘宝的合计就是这个意思 */
+function mallTotal() {
+  return state.mall.cart.filter(x => x.picked !== false).reduce((s, x) => s + x.price * x.n, 0);
+}
+function mallClearCart() { state.mall.cart = []; save(); }
+function mallPlaceOrder() {
+  const m = state.mall;
+  const picked = m.cart.filter(x => x.picked !== false);
+  if (!picked.length) return null;
+  const o = {
+    id: uid(),
+    items: picked.map(x => ({ name: x.name, n: x.n })),
+    total: picked.reduce((s, x) => s + x.price * x.n, 0),
+    ts: virtualNow().getTime()
+  };
+  m.orders.unshift(o);
+  m.orders = m.orders.slice(0, 40);
+  m.cart = m.cart.filter(x => x.picked === false);   // 没勾的留在购物车里
+  save();
+  return o;
+}
+function mallFav(id) {
+  const f = state.mall.fav;
+  const i = f.indexOf(id);
+  if (i >= 0) f.splice(i, 1); else f.push(id);
+  save();
+  return f;
+}
+function mallIsFav(id) { return state.mall.fav.indexOf(id) >= 0; }
+
 /* ── 音乐 ── */
 function musicTracks() { return state.music.tracks; }
 function musicAdd(list) {
@@ -2546,6 +2685,10 @@ window.SJ = {
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,
+  /* 桃桃商城 */
+  MALL_CATS, MALL_CAT_IDS, MALL_STAGES, MALL_STEP_MS, mallStage,
+  normalizeGoods, setGoods, mallGoods, mallAddToCart, mallCartAdd, mallPick,
+  mallCount, mallTotal, mallClearCart, mallPlaceOrder, mallFav, mallIsFav,
   parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */

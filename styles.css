@@ -774,15 +774,17 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ══════════════════════════════════════════════════════
    外卖 + 音乐：两条横向信息条，和列表行里的两种小件
    ══════════════════════════════════════════════════════ */
-/* 购物车 / 正在播放：贴在导航栏下面，滑列表时也一直看得见 */
+/* 购物车：贴在内容最下方、页签正上方 —— 结算入口在拇指够得到的地方，
+   也不占导航栏下面那块黄金位置。margin-top:auto 把它顶到底。 */
 .cart-bar {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin: 4px 16px 8px; padding: 11px 16px;
-  border-radius: 14px; cursor: pointer;
+  gap: 12px; margin: 8px 16px 10px; padding: 12px 16px;
+  border-radius: 14px; cursor: pointer; flex: 0 0 auto;
   background: var(--accent-soft); color: var(--fg);
   font-size: 14px; box-shadow: var(--shadow-s);
+  animation: riseIn .26s cubic-bezier(.22,1,.36,1) both;
 }
-.cart-bar:active { transform: translateY(1px); }
+.cart-bar:active { transform: translateY(1px) scale(.99); }
 .cart-total { font-weight: 500; color: var(--accent); flex: 0 0 auto; }
 
 .price { font-size: 14px; font-weight: 500; color: var(--accent); flex: 0 0 auto; }
@@ -1034,6 +1036,199 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .od-items { margin-top: 11px; font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
 
 /* ══════════════════════════════════════════════════════
+   桃桃商城
+   分类写死、商品 AI 现生成。配色走回 App 既定的莫兰迪调子，
+   只是把商城的粉调到主色上，跟外卖的橙黄区分开。
+   ══════════════════════════════════════════════════════ */
+/* 商城自己滚动：和 .list/.shop-list 一个规矩，别让内容被裁掉 */
+.mall-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 16px; }
+
+.mall-banner {
+  margin: 6px 16px 14px; padding: 20px 22px; border-radius: 20px;
+  background: linear-gradient(135deg, #f6c9d6, #e79ab4 60%, #d98aa6);
+  color: #fff; box-shadow: 0 8px 22px -12px rgba(200, 120, 150, .8);
+}
+.mall-banner-t { font-size: 21px; font-weight: 600; letter-spacing: 1.5px; }
+.mall-banner-s { margin-top: 6px; font-size: 12.5px; opacity: .88; }
+
+/* 首页金刚区：4 列，比外卖那种横滑一行更适合「分类详细」 */
+.cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 10px 8px; }
+.cat-cell {
+  border: 0; background: none; cursor: pointer; font: inherit; padding: 10px 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  border-radius: 14px; transition: background .16s ease, transform .12s ease;
+}
+.cat-cell:active { background: rgba(75,70,63,.05); transform: scale(.95); }
+.cat-cell-i {
+  width: 44px; height: 44px; border-radius: 16px; font-size: 22px; line-height: 1;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, #fdeaf0, #f6d3dd);
+  box-shadow: var(--shadow-s);
+}
+.cat-cell-l { font-size: 11.5px; color: var(--fg-dim); }
+
+.mall-sec-t {
+  margin: 10px 18px 8px; font-size: 15px; font-weight: 600; letter-spacing: .4px;
+}
+/* 热销横滑：固定高度，别被下面内容压扁 */
+.hot-rail { display: flex; gap: 10px; padding: 2px 16px 10px; overflow-x: auto; flex: 0 0 auto; }
+.hot-rail::-webkit-scrollbar { display: none; }
+.hot-card {
+  flex: 0 0 auto; width: 96px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  padding: 10px 8px; text-align: center; box-shadow: var(--shadow-s);
+  transition: transform .15s ease;
+}
+.hot-card:active { transform: scale(.96); }
+.hot-art { font-size: 30px; line-height: 1.3; }
+.hot-name {
+  font-size: 11.5px; color: var(--fg); margin-top: 4px; line-height: 1.35;
+  height: 2.7em; overflow: hidden;
+}
+.hot-price { font-size: 13.5px; font-weight: 600; color: var(--accent); margin-top: 3px; }
+
+/* 商品双列瀑布流 */
+.gd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 8px; }
+.gd-grid.s1 { grid-template-columns: 1fr; padding: 0; }
+.gd-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+  overflow: hidden; cursor: pointer; box-shadow: var(--shadow-s);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.gd-card:active { transform: scale(.978); }
+.gd-art {
+  position: relative; height: 118px; display: grid; place-items: center;
+  background: linear-gradient(150deg, #faf3f5, #f0e3e7);
+}
+.gd-emoji { font-size: 44px; line-height: 1; }
+/* 折扣角标 */
+.gd-off {
+  position: absolute; left: 8px; top: 8px;
+  font-size: 10.5px; font-style: normal; font-weight: 600;
+  color: #fff; background: #d9707a; border-radius: 8px; padding: 2px 7px;
+}
+/* 收藏心：默认淡，点亮变红 */
+.gd-fav {
+  position: absolute; right: 7px; top: 7px;
+  font-size: 15px; font-style: normal; line-height: 1;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: #c8bfc2; background: rgba(255,255,255,.82);
+  transition: transform .16s cubic-bezier(.22,1,.36,1), color .16s ease;
+}
+.gd-fav.on { color: #e0657a; transform: scale(1.12); }
+.gd-info { padding: 10px 11px 12px; }
+.gd-name {
+  font-size: 13px; color: var(--fg); line-height: 1.45;
+  height: 2.9em; overflow: hidden;
+}
+.gd-tags { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+.gd-tag {
+  font-size: 10px; color: var(--accent-ink);
+  background: var(--accent-soft); border-radius: 6px; padding: 1.5px 6px;
+}
+.gd-price-row { display: flex; align-items: baseline; gap: 6px; margin-top: 9px; }
+.gd-price { color: var(--accent); font-weight: 600; display: flex; align-items: baseline; gap: 1px; }
+.gd-price i { font-style: normal; font-size: 11px; }
+.gd-price b { font-size: 17px; letter-spacing: -.3px; }
+.gd-price-row.big .gd-price b { font-size: 24px; }
+.gd-price-row.big .gd-price i { font-size: 14px; }
+.gd-old { font-size: 11px; color: #b9b1b4; margin-left: 2px; }
+.gd-sales { font-size: 10.5px; color: var(--fg-dim); margin-left: auto; }
+
+/* 商品详情 */
+.gd-hero {
+  height: 210px; display: grid; place-items: center; font-size: 92px;
+  background: linear-gradient(150deg, #fbf4f6, #efe1e6);
+}
+.gd-detail { padding: 14px 18px 4px; }
+.gd-title { font-size: 16.5px; font-weight: 500; line-height: 1.45; margin-top: 8px; }
+.gd-desc { font-size: 13px; color: var(--fg-dim); line-height: 1.6; margin-top: 7px; }
+.gd-meta { font-size: 12px; color: var(--fg-dim); margin-top: 10px; }
+/* 底部购买条：和外卖购物车一个位置规矩 */
+.buy-bar {
+  flex: 0 0 auto; display: flex; gap: 10px; padding: 10px 16px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line); background: rgba(255,255,255,.9);
+  backdrop-filter: blur(14px);
+  animation: riseIn .26s cubic-bezier(.22,1,.36,1) both;
+}
+.buy-cart, .buy-now {
+  flex: 1; border: 0; cursor: pointer; font: inherit; font-size: 14.5px;
+  border-radius: 14px; padding: 12px 0; transition: transform .12s ease, filter .15s ease;
+}
+.buy-cart { background: var(--accent-soft); color: var(--accent-ink); }
+.buy-now { background: linear-gradient(150deg, #eb9cb4, #d7768f); color: #fff; box-shadow: var(--shadow-s); }
+.buy-cart:active, .buy-now:active { transform: scale(.975); }
+
+/* 分类页：左栏一级、右栏二级 + 商品 */
+.cate-wrap { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.cate-side {
+  flex: 0 0 86px; overflow-y: auto; background: rgba(75,70,63,.035);
+  border-right: 1px solid var(--line);
+}
+.cate-side::-webkit-scrollbar { display: none; }
+.cate-side-i {
+  width: 100%; border: 0; background: none; cursor: pointer; font: inherit;
+  padding: 15px 6px; font-size: 12.5px; color: var(--fg-dim);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  position: relative; transition: color .15s ease, background .15s ease;
+}
+.cate-side-i.on { background: var(--paper); color: var(--accent-ink); font-weight: 500; }
+.cate-side-i.on::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.cate-main { flex: 1; min-width: 0; overflow-y: auto; padding: 12px 14px 16px; }
+.cate-sub-t { font-size: 15px; font-weight: 600; margin-bottom: 9px; }
+.cate-subs { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+.cate-sub {
+  border: 1px solid var(--line); background: var(--panel); cursor: pointer; font: inherit;
+  font-size: 12px; color: var(--fg-dim); border-radius: 999px; padding: 6px 12px;
+  transition: background .15s ease, color .15s ease, transform .12s ease;
+}
+.cate-sub:active { transform: scale(.95); }
+.cate-sub.on { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+
+/* 购物车行 */
+.cart-rows { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 6px; }
+.mc-row {
+  display: flex; align-items: center; gap: 10px; padding: 12px 13px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
+  margin-bottom: 9px; box-shadow: var(--shadow-s);
+  transition: opacity .18s ease;
+}
+.mc-row.off { opacity: .52; }
+.mc-pick {
+  flex: 0 0 auto; width: 21px; height: 21px; border-radius: 50%; cursor: pointer;
+  border: 1.5px solid var(--line); background: #fff; color: #fff;
+  font-size: 12px; line-height: 1; display: grid; place-items: center;
+  transition: background .16s ease, border-color .16s ease;
+}
+.mc-pick.on { background: var(--accent); border-color: var(--accent); }
+.mc-name { flex: 1; min-width: 0; font-size: 13.5px; }
+.mc-price { flex: 0 0 auto; font-size: 13.5px; font-weight: 500; color: var(--accent); }
+.mc-step { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
+.mc-btn {
+  width: 25px; height: 25px; border-radius: 9px; cursor: pointer; font: inherit;
+  border: 1px solid var(--line); background: #fff; color: var(--fg-dim); line-height: 1;
+  transition: transform .12s ease, background .15s ease;
+}
+.mc-btn:active { transform: scale(.9); background: var(--accent-soft); }
+.mc-n { min-width: 22px; text-align: center; font-size: 13px; }
+
+/* 购物车角标 */
+.wt-badge {
+  position: absolute; top: -3px; right: -9px;
+  min-width: 15px; height: 15px; padding: 0 4px;
+  background: #df6b7c; color: #fff; border-radius: 999px;
+  font-size: 9.5px; font-style: normal; line-height: 15px; text-align: center;
+}
+.wt-i { position: relative; }
+/* 商城搜索框：和外卖那个同一套壳，只是圆角跟着商城的调子走 */
+.mall-search { margin: 4px 16px 10px; }
+
+/* ══════════════════════════════════════════════════════
    朋友圈
    ══════════════════════════════════════════════════════ */
 .mo {
@@ -1080,6 +1275,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ── 微信底部页签：消息 / 朋友圈 / 主页（进单聊页就收起来） ── */
 .wtab {
   flex: 0 0 auto;
+  /* margin-top: auto 把页签顶到屏幕最底 —— 没有它，内容不满一屏时（订单为空、
+     自取没店）页签会紧跟在内容后面，整栏悬在屏幕中间（实测离底 473px）。
+     有内容的页面本来靠 .list 的 flex:1 撑着，这里补上才是对谁都成立的那一条。 */
+  margin-top: auto;
   display: flex;
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, .84);
@@ -1170,11 +1369,29 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
    ══════════════════════════════════════════════════════ */
 
 /* ── 进场：列表一条一条往上落，而不是整块糊上来 ──
-   nth-child 手写 8 档就够 —— 第 9 条开始本来就在屏幕外了。 */
+   nth-child 手写 8 档就够 —— 第 9 条开始本来就在屏幕外了。
+   容器名单要跟着新页面一起长：外卖的 shop-list / cat-rail / 购物车行不来这里报个到，
+   换页就是硬切（实测过，一个动画都不跑）。 */
 @keyframes riseIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 .app-view.in .list > *,
 .app-view.in .pad > *,
-.app-view.in .wfeed > * { animation: riseIn .34s cubic-bezier(.22,1,.36,1) both; }
+.app-view.in .wfeed > *,
+.app-view.in .shop-list > *,
+.app-view.in .cat-rail > *,
+.app-view.in .chips > *,
+.app-view.in .cart-rows > *,
+.app-view.in .gd-grid > *,
+.app-view.in .cat-grid > *,
+.app-view.in .hot-rail > * { animation: riseIn .34s cubic-bezier(.22,1,.36,1) both; }
+/* 整页淡入：换页（首页→订单→我的）时内容不是「啪」地换掉。
+   页面内层的东西各自还有 riseIn，两层叠着才像有厚度。 */
+@keyframes pageIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.app-view.in > .shop-list,
+.app-view.in > .order-card,
+.app-view.in > .mall-scroll,
+.app-view.in > .cate-wrap,
+.app-view.in > .cart-rows,
+.app-view.in > .empty { animation: pageIn .26s cubic-bezier(.22,1,.36,1) both; }
 .app-view.in .list > .wfeed { animation: none; }   /* 容器别跟里面的行一起动，会走两次 */
 .app-view.in .list > :nth-child(2),  .app-view.in .wfeed > :nth-child(2)  { animation-delay: .035s }
 .app-view.in .list > :nth-child(3),  .app-view.in .wfeed > :nth-child(3)  { animation-delay: .07s }
@@ -1184,6 +1401,17 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .app-view.in .list > :nth-child(7),  .app-view.in .wfeed > :nth-child(7)  { animation-delay: .21s }
 .app-view.in .list > :nth-child(8),  .app-view.in .wfeed > :nth-child(8)  { animation-delay: .245s }
 .app-view.in .list > :nth-child(n+9), .app-view.in .wfeed > :nth-child(n+9) { animation-delay: .28s }
+/* 外卖列表的错位延迟：卡片多，梯度铺开才不显得一坨一起冒出来 */
+.app-view.in .shop-list > :nth-child(2)  { animation-delay: .05s }
+.app-view.in .shop-list > :nth-child(3)  { animation-delay: .1s }
+.app-view.in .shop-list > :nth-child(4)  { animation-delay: .15s }
+.app-view.in .shop-list > :nth-child(5)  { animation-delay: .2s }
+.app-view.in .shop-list > :nth-child(6)  { animation-delay: .25s }
+.app-view.in .shop-list > :nth-child(n+7) { animation-delay: .3s }
+.app-view.in .cat-rail > :nth-child(2) { animation-delay: .04s }
+.app-view.in .cat-rail > :nth-child(3) { animation-delay: .08s }
+.app-view.in .cat-rail > :nth-child(4) { animation-delay: .12s }
+.app-view.in .cat-rail > :nth-child(n+5) { animation-delay: .16s }
 
 /* ── 按压：整行轻轻回弹，右边的时间/箭头跟着让一下 ── */
 .row, .nav-btn, .wt, .mo-act, .dish-add, .st-btn { transition: background .16s ease, transform .12s ease; }

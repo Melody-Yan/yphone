@@ -1388,6 +1388,13 @@ function normalizeShops(raw) {
     tags: (Array.isArray(s.tags) ? s.tags : []).map(t => String(t).slice(0, 10)).slice(0, 3),
     fee: Math.max(0, Math.round(Number(s.fee) || 0)),                                  // 配送费
     min: Math.max(0, Math.round(Number(s.min) || 0)),                                  // 起送价
+    /* 这几项只用来摆那张标签墙（参考外卖 App 的店铺卡）。AI 给了就用，没给就空着不画。 */
+    sold: String(s.sold || '').slice(0, 12),                                           // 月售 3000+
+    dist: String(s.dist || '').slice(0, 8),                                            // 0.6km
+    rank: String(s.rank || '').slice(0, 20),                                           // 奶茶甜品榜第 2 名
+    discount: String(s.discount || '').slice(0, 8),                                    // 低至 6 折
+    promo: String(s.promo || '').slice(0, 16),                                         // 满 ¥20 减 ¥3
+    vip: s.vip === true,                                                               // VIP 已享免运
     dishes: (Array.isArray(s.dishes) ? s.dishes : [])
       .filter(x => x && typeof x === 'object').slice(0, 10).map((x, j) => ({
         id: 'dish-' + i + '-' + j,

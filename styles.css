@@ -358,6 +358,14 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   color: var(--accent-ink); background: var(--accent-soft);
   border-radius: 10px; padding: 7px 11px;
 }
+/* 行尾箭头：矢量图标比「›」这个字符可靠（不同字体下粗细/位置都不一样） */
+.row-arrow { flex: 0 0 auto; display: flex; opacity: .32; color: var(--fg); }
+/* 行首图标：统一一个浅色圆角方块，比裸 emoji 整齐得多 */
+.row-ico {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 11px;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-ink);
+}
 
 /* 分段控件 */
 .seg {
@@ -382,8 +390,9 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .wall:active { transform: scale(.94); }
 .wall.on { border-color: var(--accent); }
 
-/* 聊天 */
-.chat-list { flex: 1; overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+/* 聊天。gap 管「同一轮内」两条之间的缝；两轮之间的呼吸靠 .msg-time 自己的下边距 ——
+   统一 gap 分不出这两种间距，而微信里它们明显不一样。 */
+.chat-list { flex: 1; overflow-y: auto; padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 7px; }
 .bubble {
   max-width: 74%; padding: 11px 15px; border-radius: 19px;
   font-size: 15px; line-height: 1.55; word-break: break-word;
@@ -836,7 +845,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .chat-list .msg .msg-time { padding: 0 2px; }
 .chat-list .msg.me .msg-time { text-align: right; padding-right: 42px; }
 .chat-list .msg.ta .msg-time { text-align: left; padding-left: 42px; }
-.chat-time-sep { align-self: center; margin: 2px auto; font-size: 11px; color: var(--fg-dim); opacity: .78; font-variant-numeric: tabular-nums; }
+/* 挂了时间的那一行是「这一轮的结尾」，下面多留一点 —— 两轮之间的呼吸就靠它，
+   不必让 .chat-list 的 gap 去兼顾两种间距。（用 class 而不是 :has()，省得挑浏览器） */
+.chat-list .msg.at-end { margin-bottom: 6px; }
+.chat-time-sep { align-self: center; margin: 8px auto; font-size: 11px; color: var(--fg-dim); opacity: .78; font-variant-numeric: tabular-nums; }
 .call-summary { display: flex; align-items: center; gap: 9px; min-width: 180px; cursor: pointer; }
 .call-summary-ico { font-size: 21px; }
 .call-summary-sub { margin-top: 3px; font-size: 11.5px; opacity: .72; }
@@ -857,6 +869,20 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ══════════════════════════════════════════════════════
    外卖：商家卡片 / 菜品行 / 购物车步进器 / 订单时间轴
    ══════════════════════════════════════════════════════ */
+/* 搜索框：胶囊形，跟参考图一样 */
+.shop-search-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 16px 10px;
+  background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 9px 15px; }
+.shop-search-ico { display: flex; opacity: .45; flex: 0 0 auto; }
+.shop-search { flex: 1; min-width: 0; border: 0; outline: none; background: none;
+  font: inherit; font-size: 14px; color: var(--fg); }
+.shop-search::placeholder { color: #b6aea4; }
+/* 「我的」页上面那张统计卡。注意别叫 .me-card —— 那是微信主页自己的白卡片 */
+.dl-stat-card { display: flex; margin: 6px 16px 14px; border-radius: 20px; overflow: hidden;
+  background: linear-gradient(150deg,#5c5348,#3d372f); color: #fff; box-shadow: var(--shadow-m); }
+.dl-stat { flex: 1; padding: 16px 18px; }
+.dl-stat + .dl-stat { border-left: 1px solid rgba(255,255,255,.14); }
+.dl-stat-n { font-size: 21px; font-weight: 600; letter-spacing: .3px; }
+.dl-stat-l { font-size: 11.5px; opacity: .7; margin-top: 4px; }
 .shop-list { padding: 4px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 .shop-card {
   display: flex; align-items: center; gap: 13px; padding: 12px;
@@ -881,11 +907,23 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .shop-meta.dim { opacity: .72; }
+/* 时间/距离同一行两端分开：距离靠右，跟参考图一致 */
+.shop-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.shop-dist { flex: 0 0 auto; }
+/* 榜单名次：棕字浅棕底，比满减标签轻一档 */
+.shop-rank {
+  display: inline-block; margin-top: 5px; font-size: 10.5px;
+  color: #a5763f; background: rgba(200, 150, 90, .14);
+  border-radius: 5px; padding: 2px 7px;
+}
 .shop-tags { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
 .tag {
   font-size: 11px; color: var(--accent-ink); background: var(--accent-soft);
   border-radius: 6px; padding: 2px 7px;
 }
+/* 满减/折扣：红字红框，全是优惠信号；VIP 走紫，跟会员色呼应 */
+.tag-sale { color: #c05f52; background: rgba(196, 117, 107, .12); border: 1px solid rgba(196, 117, 107, .3); }
+.tag-vip { color: #7d6aa8; background: rgba(150, 130, 200, .14); border: 1px solid rgba(150, 130, 200, .32); }
 .shop-hero { display: flex; align-items: center; gap: 14px; padding: 16px 20px 6px; }
 
 .dish { display: flex; align-items: center; gap: 12px; padding: 11px 14px 11px 16px; }
@@ -1041,7 +1079,53 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .me-info { min-width: 0; }
 .me-name { font-size: 17px; font-weight: 600; }
 .me-sub { font-size: 12.5px; color: var(--fg-dim); margin-top: 3px; }
-.row-ico { font-size: 19px; width: 26px; text-align: center; flex: 0 0 auto; }
+
+/* ══════════════════════════════════════════════════════
+   视觉精修：层次与呼吸
+   全 CSS，不动结构、不加依赖。目标是「一眼看过去不像 demo」：
+   卡片有真实的光影、分隔线不顶到屏幕边、控件有按压反馈。
+   ══════════════════════════════════════════════════════ */
+
+/* ── 导航栏：标题更有存在感，按钮不再是一堆等距小方块 ── */
+.nav { border-bottom: 1px solid rgba(75, 70, 63, .07); }
+.nav-title { font-size: 16.5px; letter-spacing: .5px; }
+.nav-btn { border-radius: 12px; padding: 8px 9px; }
+/* 右侧图标按钮之间留一点气，不然几个图标糊成一团 */
+.nav-right { gap: 3px; }
+
+/* ── 列表行：分隔线从左边起（真微信就是这样），而不是贯穿整屏。
+   不用 :has() 判有没有头像 —— 一律缩进，规则只有一条，还更统一。 ── */
+.row { position: relative; border-bottom: 0; }
+.row::after {
+  content: ''; position: absolute; left: 74px; right: 0; bottom: 0; height: 1px;
+  background: var(--line);
+}
+/* 最后一行不画分隔线 */
+.list > .row:last-child::after, .wfeed > .row:last-child::after { display: none; }
+
+/* ── 卡片：给一点真实的光影方向，而不是一圈糊的阴影 ── */
+.shop-card, .order-card {
+  box-shadow: 0 1px 2px rgba(96, 88, 78, .05), 0 6px 16px -8px rgba(96, 88, 78, .18);
+}
+.me-card { box-shadow: 0 1px 2px rgba(96, 88, 78, .05), 0 6px 16px -8px rgba(96, 88, 78, .16); }
+
+/* ── 底部页签：选中的那一项脚下给一条短横线，比单纯变色清楚 ── */
+.wt { position: relative; }
+.wt::after {
+  content: ''; position: absolute; left: 50%; bottom: 3px;
+  width: 16px; height: 2px; border-radius: 2px;
+  background: var(--accent); opacity: 0; transform: translateX(-50%) scaleX(.4);
+  transition: opacity .18s ease, transform .18s ease;
+}
+.wt.on::after { opacity: 1; transform: translateX(-50%) scaleX(1); }
+
+/* ── 按压反馈：所有可点的地方都给一点位移，手感立刻不一样 ── */
+.nav-btn:active, .row:active, .wt:active, .btn:active { transform: translateY(1px); }
+
+/* 尊重系统设置：用户要求减少动效就全关掉 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 
 /* ══════════════════════════════════════════════════════
    手感层：进场动效、按压反馈、层级细节

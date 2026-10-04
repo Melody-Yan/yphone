@@ -11,30 +11,55 @@ const SJ = window.SJ;
 /* 建角色时可挑的头像与配色（莫兰迪那批，跟壁纸一个调子） */
 const AVATARS = ['🙂','😀','😎','🥰','😺','🐰','🦊','🐼','🌙','⭐','🎧','📚','🍵','🌸','🧋','👾'];
 const AV_COLORS = ['#9cb9c2','#c7dcc4','#e5bcae','#d9c6e3','#e8d9a8','#b9aa9a','#aebfd6','#d6b8b0'];
-
-/* ── 图标：内联 SVG，不依赖任何图标库 ── */
+/* ── 图标：内联 SVG，不依赖任何图标库 ──
+   路径取自 Lucide（ISC 许可，可商用）：只搬 path 数据、不引依赖。
+   这是 PWA，离线也要能用 —— 几十个 .svg 请求是纯粹的成本。
+   要加新图标：去 lucide.dev 找，把里面的 <path> 原样贴进来就行。 */
 const ICON = {
-  gear: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.4-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
-  note: '<path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M14 4v6h6"/><path d="M8 13h7M8 17h5"/>',
-  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18.5h7"/>',
-  chat: '<path d="M21 11.5a7.5 7.5 0 0 1-10.9 6.7L4 20l1.8-5.6A7.5 7.5 0 1 1 21 11.5Z"/>',
-  wechat: '<path d="M9 4C5.1 4 2 6.6 2 9.8c0 1.8 1 3.4 2.6 4.5l-.6 2 2.3-1.2c.8.2 1.6.3 2.4.3h.5"/><path d="M22 15.3c0-2.7-2.6-4.9-5.8-4.9s-5.8 2.2-5.8 4.9 2.6 4.9 5.8 4.9c.7 0 1.4-.1 2-.3l2 1-.5-1.7c1.4-.9 2.3-2.3 2.3-3.9Z"/>',
-  people: '<circle cx="9.5" cy="8" r="3.2"/><path d="M3 19.5c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><path d="M16.6 5.4a3.2 3.2 0 0 1 0 6.3"/><path d="M18.2 14.2c2 .6 3.3 2 3.3 3.9"/>',
-  photo: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m4 17 4.5-4.5 3.5 3.5 3-2.5L20 17"/>',
-  music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
-  wallet: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14" r="1.2"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.6"/><path d="M3.5 9.6h17M8 3.4v3.2M16 3.4v3.2"/><path d="M7.6 13h2M11 13h2M14.4 13h2M7.6 16.6h2M11 16.6h2"/>',
-  book: '<path d="M12 6.6C10.4 5.1 8 4.3 4.5 4.3v13.2c3.5 0 5.9.8 7.5 2.3 1.6-1.5 4-2.3 7.5-2.3V4.3c-3.5 0-5.9.8-7.5 2.3Z"/><path d="M12 6.6v13.2"/>',
-  bowl: '<path d="M3.5 11h17a8.5 8.5 0 0 1-17 0Z"/><path d="M2.5 20.5h19"/><path d="M9 7.8c0-1.6 1.1-2.1 1.1-3.6M14 7.8c0-1.6 1.1-2.1 1.1-3.6"/>',
-  play: '<path d="M8.5 5.6v12.8L19 12Z"/>',
-  pause: '<path d="M9.5 5.5v13M14.5 5.5v13"/>',
-  link: '<path d="M10.2 13.8a4 4 0 0 0 5.9.3l2.6-2.6a4 4 0 1 0-5.7-5.6l-1.2 1.2"/><path d="M13.8 10.2a4 4 0 0 0-5.9-.3l-2.6 2.6a4 4 0 1 0 5.7 5.6l1.2-1.2"/>',
-  palette: '<path d="M12 3.2c-4.9 0-8.8 3.9-8.8 8.8s3.9 8.8 8.8 8.8c1 0 1.7-.7 1.7-1.6 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.6 1.7-1.6h1.9c2.5 0 4.5-2 4.5-4.5 0-4.1-3.9-7.5-8.8-7.5Z"/><circle cx="7.8" cy="11.2" r="1.2"/><circle cx="10.6" cy="7.4" r="1.2"/><circle cx="15.4" cy="7.8" r="1.2"/>',
-  sparkle: '<path d="M12 3.5 13.7 9l5.5 1.7-5.5 1.7L12 18l-1.7-5.6L4.8 10.7 10.3 9Z"/><path d="M18.6 16.4l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7Z"/>',
-  image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.6" cy="10" r="1.6"/><path d="m3.6 16.8 4.6-4.4 3.4 3.2 2.8-2.4 5.6 4.8"/>',
-  heart: '<path d="M12 20.2s-7.6-4.6-7.6-9.6a4.2 4.2 0 0 1 7.6-2.5 4.2 4.2 0 0 1 7.6 2.5c0 5-7.6 9.6-7.6 9.6Z"/>',
-  comment: '<path d="M20.5 11.6c0 4-3.8 7.2-8.5 7.2-1 0-2-.2-2.9-.5L4 20l1.4-3.6A6.9 6.9 0 0 1 3.5 11.6c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2Z"/>'
+  gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" />',
+  note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" />',
+  clock: '<circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" />',
+  calc: '<rect width="16" height="20" x="4" y="2" rx="2" /> <line x1="8" x2="16" y1="6" y2="6" /> <line x1="16" x2="16" y1="14" y2="18" /> <path d="M16 10h.01" /> <path d="M12 10h.01" /> <path d="M8 10h.01" /> <path d="M12 14h.01" /> <path d="M8 14h.01" /> <path d="M12 18h.01" /> <path d="M8 18h.01" />',
+  chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />',
+  people: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" />',
+  photo: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />',
+  music: '<path d="M9 18V5l12-2v13" /> <circle cx="6" cy="18" r="3" /> <circle cx="18" cy="16" r="3" />',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" /> <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />',
+  calendar: '<path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" />',
+  book: '<path d="M12 7v14" /> <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />',
+  bowl: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /> <path d="M7 2v20" /> <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />',
+  play: '<polygon points="6 3 20 12 6 21 6 3" />',
+  pause: '<rect x="14" y="4" width="4" height="16" rx="1" /> <rect x="6" y="4" width="4" height="16" rx="1" />',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /> <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />',
+  palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />',
+  sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /> <path d="M20 3v4" /> <path d="M22 5h-4" /> <path d="M4 17v2" /> <path d="M5 18H3" />',
+  image: '<path d="M18 22H4a2 2 0 0 1-2-2V6" /> <path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18" /> <circle cx="12" cy="8" r="2" /> <rect width="16" height="16" x="6" y="2" rx="2" />',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />',
+  comment: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />',
+  store: '<path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7" /> <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /> <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4" /> <path d="M2 7h20" /> <path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7" />',
+  search: '<circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" />',
+  plus: '<path d="M5 12h14" /> <path d="M12 5v14" />',
+  close: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
+  check: '<path d="M20 6 9 17l-5-5" />',
+  left: '<path d="m15 18-6-6 6-6" />',
+  right: '<path d="m9 18 6-6-6-6" />',
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />',
+  video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /> <rect x="2" y="6" width="14" height="12" rx="2" />',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" />',
+  pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" />',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1" /> <path d="M12 8v13" /> <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /> <path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" />',
+  ticket: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" />',
+  bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /> <path d="M3 6h18" /> <path d="M16 10a4 4 0 0 1-8 0" />',
+  bike: '<circle cx="18.5" cy="17.5" r="3.5" /> <circle cx="5.5" cy="17.5" r="3.5" /> <circle cx="15" cy="5" r="1" /> <path d="M12 17.5V14l-3-3 4-3 2 3h2" />',
+  trash: '<path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /> <line x1="10" x2="10" y1="11" y2="17" /> <line x1="14" x2="14" y1="11" y2="17" />',
+  edit: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" />',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" />',
+  home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /> <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />',
+  sun: '<circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" />',
+  volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" />',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <line x1="12" x2="12" y1="19" y2="22" />',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />',
 };
 
 function svg(name, size = 30) {
@@ -522,15 +547,17 @@ const APPS = [
             SJ.el('button', {
               class: 'nav-btn',
               title: '发起群聊',
+              html: svg('people', 17),
               onclick: () => (SJ.state.characters.length < 2
                 ? toast('至少要有两个角色才能建群')
                 : newGroup())
-            }, '👥'),
+            }),
             SJ.el('button', {
               class: 'nav-btn',
               title: '去通讯录加人',
+              html: svg('plus', 18),
               onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
-            }, '＋')
+            })
           ])
         }));
         const box = SJ.el('div', { class: 'list' });
@@ -591,20 +618,20 @@ const APPS = [
           ])
         ]));
         [
-          ['🎨', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],
-          ['👥', '通讯录', `${SJ.state.characters.length} 个角色`, 'contacts'],
-          ['⚙️', '设置', 'AI 接口 / 生图 / 存档', 'settings']
+          ['palette', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],
+          ['people', '通讯录', `${SJ.state.characters.length} 个角色`, 'contacts'],
+          ['gear', '设置', 'AI 接口 / 生图 / 存档', 'settings']
         ].forEach(([ic, title, sub, app]) => {
           box.append(SJ.el('div', {
             class: 'row',
             onclick: () => { if (window.SHELL) window.SHELL.openApp(app); }
           }, [
-            SJ.el('div', { class: 'row-ico' }, ic),
+            SJ.el('div', { class: 'row-ico', html: svg(ic, 19) }),
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, title),
               SJ.el('div', { class: 'row-sub' }, sub)
             ]),
-            SJ.el('div', { class: 'row-time' }, '›')
+            SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
           ]));
         });
         root.append(box, tabBar('me'));
@@ -1367,6 +1394,7 @@ const APPS = [
             /* 这一轮还没结束：刚画的那条不是最后一条，时间不该留在它下面 */
             lastTimeEl.remove();
             lastTimeEl = null;
+            if (lastRow) lastRow.classList.remove('at-end');
           }
           list.append(r);
           if (curTs) {
@@ -1374,6 +1402,8 @@ const APPS = [
                进了行里才能跟着气泡同侧收在它下沿（跨期的那条才归中缝，见上面）。 */
             lastTimeEl = SJ.el('div', { class: 'msg-time' }, SJ.fmtTime(new Date(curTs)));
             r.append(lastTimeEl);
+            /* 这一轮到此为止：下面多留一点，跟「同一轮内」的窄间距区分开 */
+            r.classList.add('at-end');
             lastTs = curTs;
           }
           list.scrollTop = list.scrollHeight;
@@ -2416,6 +2446,44 @@ const APPS = [
       ];
       const shopBg = i => SHOP_BG[i % SHOP_BG.length];
 
+      /* 底部四个页签，照参考图（首页 / 自取 / 订单 / 我的）。
+         复用微信那套 .wtab，不另做一份。 */
+      const TABS = [
+        { id: 'home', icon: 'bowl', label: '首页', go: () => listView() },
+        { id: 'pick', icon: 'store', label: '自取', go: () => pickupView() },
+        { id: 'order', icon: 'note', label: '订单', go: () => ordersView() },
+        { id: 'me', icon: 'people', label: '我的', go: () => mineView() }
+      ];
+      function tabBar(active) {
+        return SJ.el('div', { class: 'wtab' }, TABS.map(t => SJ.el('button', {
+          class: 'wt' + (t.id === active ? ' on' : ''),
+          onclick: () => t.go()
+        }, [
+          SJ.el('span', { class: 'wt-i', html: svg(t.icon, 22) }),
+          SJ.el('span', { class: 'wt-l' }, t.label)
+        ])));
+      }
+      /* 首页/自取/订单/我的 都是「主页面」，统一走这个壳：导航栏 + 内容 + 底部页签。
+         购物车条挂在正文顶上、页签上面 —— 不然结算入口会被页签盖住。 */
+      function page(active, title, content, { back = null, right = null, cart = true } = {}) {
+        if (tick) { clearInterval(tick); tick = null; }
+        root.innerHTML = '';
+        root.append(navBar(title, { back, right }));
+        if (cart) { const cb = cartBar(); if (cb) root.append(cb); }
+        content.forEach(n => n && root.append(n));
+        root.append(tabBar(active));
+      }
+
+      /* 搜索：只在已经生成出来的店里过滤，不新增接口 —— 本地筛就够快，
+         而且空关键字时行为和以前完全一样（还是那批店）。 */
+      let q = '';
+      function hitShop(s) {
+        if (!q) return true;
+        const k = q.toLowerCase();
+        return (s.name + ' ' + s.kind + ' ' + s.tags.join(' ') + ' ' +
+          s.dishes.map(d => d.name).join(' ')).toLowerCase().includes(k);
+      }
+
       /* 每次换一批时随口点一个由头。同样的提示词问十次会拿回十批差不多的店，
          加一句「这次想吃…」结果就散开了 —— 比做一套筛选 UI 便宜得多。 */
       const CRAVINGS = ['随便', '辣的', '清淡的', '日式的', '面食', '烧烤', '甜的', '热汤'];
@@ -2424,10 +2492,15 @@ const APPS = [
         return '随机生成 4 家风格完全不同的外卖店铺，JSON 格式：\n' +
           '{"shops":[{"name":"店名","kind":"品类","emoji":"一个代表这家店的 emoji",' +
           '"eta":"30分钟","rating":"4.7","fee":3,"min":20,"tags":["现炒","老字号"],' +
+          '"sold":"月售3000+","dist":"0.6km","rank":"奶茶甜品榜第2名","discount":"低至6折",' +
+          '"promo":"满20减3","vip":true,' +
           '"dishes":[{"name":"菜名","desc":"一句话描述","price":28,"emoji":"一个 emoji","hot":true}]}]}\n' +
           '要求：每家 5 道菜，其中 1~2 道 hot 为 true（招牌）；店名要有人间烟火气，别用「XX美食」这种套话；' +
           '价格是人民币整数（12~68 之间）；菜名要具体（「黑椒牛柳饭」而不是「牛肉饭」）；' +
           'desc 要勾人，写做法或口感，别超过 18 个字；emoji 要和那道菜对得上；' +
+          'sold 写成「月售600+」这种；dist 是距离（0.3~2.5km）；rank 是榜单名次（六到十个字，' +
+          '像「南区川菜榜第1名」），没上榜就给空字符串；discount 是折扣（「低至6折」这种）；' +
+          'promo 是满减（「满20减3」这种）；vip 表示是否参加会员免运，真话就 true；' +
           '4 家的品类要分散（日料/川菜/面馆/烘焙/轻食/烧烤/奶茶…）。' +
           (craving && craving !== '随便' ? '这次用户想吃：' + craving + '。' : '');
       }
@@ -2461,52 +2534,92 @@ const APPS = [
       }
 
       function listView() {
-        root.innerHTML = '';
-        root.append(navBar('外卖', {
-          left: SJ.el('button', { class: 'nav-btn', title: '我的订单', html: svg('note', 17), onclick: ordersView }),
-          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
-        }));
-        const cb = cartBar(); if (cb) root.append(cb);
-
         /* 口味横滑条：点一下就是「这次想吃 X」，直接换一批。 */
         const chips = SJ.el('div', { class: 'chips' });
         CRAVINGS.forEach(c => chips.append(SJ.el('button', {
           class: 'chip', onclick: () => regen(c)
         }, c)));
-        root.append(chips);
 
-        if (busy) return void root.append(SJ.el('div', { class: 'empty big' }, '正在给你张罗商家…\n（AI 现编，头一次慢几秒）'));
+        const body = [];
+        /* 搜索框：就地显隐卡片，不重画 —— 重画会把焦点和光标一起弄丢。
+           和列表共用同一个 hit 数组，下标一一对应。 */
+        const search = SJ.el('input', {
+          class: 'shop-search', placeholder: '搜索店铺或菜品', value: q,
+          oninput: ev => {
+            q = ev.target.value.trim();
+            let n = 0;
+            /* children 是 HTMLCollection，真浏览器里没有 forEach —— 自检的 DOM shim 是数组，
+               所以只有真机冒烟才抓得到这个错。用下标循环，两边都能跑。 */
+            for (let k = 0; k < list.children.length; k++) {
+              const on = hitShop(hit[k].s);
+              list.children[k].className = 'shop-card' + (on ? '' : ' hide');
+              if (on) n++;
+            }
+            none.className = 'empty big' + (n ? ' hide' : '');
+            none.textContent = n ? '' : '没搜到「' + q + '」\n换个词，或者点右上角 ⟳ 换一批';
+          }
+        });
+        body.push(SJ.el('div', { class: 'shop-search-wrap' }, [
+          SJ.el('span', { class: 'shop-search-ico', html: svg('chat', 15) }),
+          search
+        ]));
+        body.push(chips);
+
+        if (busy) {
+          body.push(SJ.el('div', { class: 'empty big' }, '正在给你张罗商家…\n（AI 现编，头一次慢几秒）'));
+          return void page('home', '外卖', body, {
+            right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
+          });
+        }
         const shops = dl().shops;
         if (!shops.length) {
-          root.append(SJ.el('div', { class: 'empty big' }, '还没有商家'));
-          root.append(SJ.el('div', { class: 'pad' }, [
+          body.push(SJ.el('div', { class: 'empty big' }, '还没有商家'));
+          body.push(SJ.el('div', { class: 'pad' }, [
             SJ.el('button', { class: 'btn', onclick: () => regen() }, '生成一批商家'),
             SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
               '商家和菜是 AI 现编的，每点一次都不一样。需要先在「设置 → AI 接口」里配好接口和模型。')
           ]));
-          return;
+          return void page('home', '外卖', body, {
+            right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
+          });
         }
+        const hit = shops.map((s, i) => ({ s, i }));
         const list = SJ.el('div', { class: 'shop-list' });
-        shops.forEach((s, i) => {
+        const none = SJ.el('div', { class: 'empty big hide' }, '');
+        hit.forEach(({ s, i }) => {
           const card = SJ.el('div', { class: 'shop-card', onclick: () => shopView(s.id) });
           card.append(SJ.el('div', { class: 'shop-art', style: { background: shopBg(i) } }, s.emoji || '🍽'));
           const info = SJ.el('div', { class: 'shop-info' });
           info.append(SJ.el('div', { class: 'shop-name' }, [
             SJ.el('span', {}, s.name),
-            s.rating ? SJ.el('span', { class: 'shop-star' }, '★ ' + s.rating) : null
+            s.rating ? SJ.el('span', { class: 'shop-star' }, '★ ' + s.rating + '分') : null
           ].filter(Boolean)));
+          /* 评分/月售/品类一行 —— 参考外卖 App 的信息流顺序 */
           info.append(SJ.el('div', { class: 'shop-meta' },
-            [s.kind, s.eta, s.fee ? '配送 ¥' + s.fee : '', s.min ? '起送 ¥' + s.min : ''].filter(Boolean).join(' · ')));
-          if (s.tags.length) {
-            const tg = SJ.el('div', { class: 'shop-tags' });
-            s.tags.forEach(t => tg.append(SJ.el('span', { class: 'tag' }, t)));
-            info.append(tg);
-          }
-          info.append(SJ.el('div', { class: 'shop-meta dim' }, s.dishes.length + ' 道菜在卖'));
+            [s.rating ? s.rating + '分' : '', s.sold, s.kind].filter(Boolean).join(' · ')));
+          /* 时间与距离：距离靠右 —— 这也是参考图里那种「同一行但两端分开」的排法 */
+          info.append(SJ.el('div', { class: 'shop-meta dim shop-line' }, [
+            SJ.el('span', {}, [s.eta, s.fee ? '配送 ¥' + s.fee : '免配送费',
+              s.min ? '起送 ¥' + s.min : ''].filter(Boolean).join(' · ')),
+            s.dist ? SJ.el('span', { class: 'shop-dist' }, s.dist) : null
+          ].filter(Boolean)));
+          /* 榜单那一条单独占一行，底色比满减浅一档 */
+          if (s.rank) info.append(SJ.el('div', { class: 'shop-rank' }, s.rank));
+          /* 标签墙：满减 / 折扣 / VIP / 自填标签 */
+          const tg = SJ.el('div', { class: 'shop-tags' });
+          if (s.discount) tg.append(SJ.el('span', { class: 'tag tag-sale' }, s.discount));
+          if (s.promo) tg.append(SJ.el('span', { class: 'tag tag-sale' }, s.promo));
+          if (s.vip) tg.append(SJ.el('span', { class: 'tag tag-vip' }, 'VIP 已享免运'));
+          s.tags.forEach(t => tg.append(SJ.el('span', { class: 'tag' }, t)));
+          if (tg.children.length) info.append(tg);
           card.append(info);
           list.append(card);
         });
-        root.append(list);
+        body.push(list);
+        body.push(none);
+        page('home', '外卖', body, {
+          right: SJ.el('button', { class: 'nav-btn', title: '换一批', onclick: () => regen() }, '⟳')
+        });
       }
 
       function shopView(id) {
@@ -2579,6 +2692,72 @@ const APPS = [
         ]));
       }
 
+      /* 自取：和首页同一批店，只是换成「多久能取 / 走多远」的说法。
+         参考图里自取页是「地图 + 富信息卡片」，这里不画地图 ——
+         一张假地图除了好看没有任何用，真要点的是「去哪家、走几步」。 */
+      function pickupView() {
+        const body = [];
+        const shops = dl().shops;
+        if (!shops.length) {
+          body.push(SJ.el('div', { class: 'empty big' }, '还没有商家\n先在「首页」生成一批'));
+          return void page('pick', '到店自取', body);
+        }
+        const list = SJ.el('div', { class: 'shop-list' });
+        /* 自取价按店铺下标算个稳定的折扣，同一家每次进来看到的一样 */
+        shops.forEach((s, i) => {
+          const off = 0.78 + (i % 4) * 0.05;
+          const card = SJ.el('div', { class: 'shop-card', onclick: () => shopView(s.id) });
+          card.append(SJ.el('div', { class: 'shop-art', style: { background: shopBg(i) } }, s.emoji || '🍽'));
+          const info = SJ.el('div', { class: 'shop-info' });
+          info.append(SJ.el('div', { class: 'shop-name' }, [
+            SJ.el('span', {}, s.name),
+            s.rating ? SJ.el('span', { class: 'shop-star' }, '★ ' + s.rating + '分') : null
+          ].filter(Boolean)));
+          info.append(SJ.el('div', { class: 'shop-meta' },
+            [s.sold, s.kind].filter(Boolean).join(' · ')));
+          info.append(SJ.el('div', { class: 'shop-meta dim shop-line' }, [
+            SJ.el('span', {}, '自取 ' + Math.round(off * 10) + ' 折 · ' + (s.eta || '30分钟')),
+            s.dist ? SJ.el('span', { class: 'shop-dist' }, s.dist) : null
+          ].filter(Boolean)));
+          if (s.rank) info.append(SJ.el('div', { class: 'shop-rank' }, s.rank));
+          card.append(info);
+          list.append(card);
+        });
+        body.push(list);
+        page('pick', '到店自取', body);
+      }
+
+      /* 我的：只放真数据 —— 订单统计和收藏的店。
+         参考图里那张「余额 53 亿」的卡是别人家的假数，这里不编。 */
+      function mineView() {
+        const body = [];
+        const os = dl().orders;
+        const spent = os.reduce((a, o) => a + (Number(o.total) || 0), 0);
+        const stat = (n, l) => SJ.el('div', { class: 'dl-stat' }, [
+          SJ.el('div', { class: 'dl-stat-n' }, n),
+          SJ.el('div', { class: 'dl-stat-l' }, l)
+        ]);
+        body.push(SJ.el('div', { class: 'dl-stat-card' }, [
+          stat(String(os.length), '累计订单'),
+          stat('¥' + spent, '累计消费')
+        ]));
+        const rows = [
+          { t: '我的订单', s: os.length ? os.length + ' 单' : '还没有', go: ordersView },
+          { t: '到店自取', s: '看哪家近', go: pickupView },
+          { t: '换一批商家', s: 'AI 现编', go: () => regen() }
+        ];
+        const list = SJ.el('div', { class: 'list' });
+        rows.forEach(r => list.append(SJ.el('div', { class: 'row', onclick: r.go }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, r.t),
+            SJ.el('div', { class: 'row-sub' }, r.s)
+          ]),
+          SJ.el('span', { class: 'row-go' }, '>')
+        ])));
+        body.push(list);
+        page('me', '我的', body);
+      }
+
       function checkout() {
         if (!SJ.placeOrder()) return;
         toast('下单成功，骑手正在赶来');
@@ -2589,11 +2768,12 @@ const APPS = [
          存档里不存进度：存了就得有定时器到处改存档，关掉 App 再进来还会断。 */
       let tick = null;
       function ordersView() {
-        if (tick) { clearInterval(tick); tick = null; }
-        root.innerHTML = '';
-        root.append(navBar('我的订单', { back: listView }));
+        const body = [];
         const orders = dl().orders;
-        if (!orders.length) return void root.append(SJ.el('div', { class: 'empty big' }, '还没点过外卖'));
+        if (!orders.length) {
+          body.push(SJ.el('div', { class: 'empty big done' }, '还没点过外卖'));
+          return void page('order', '我的订单', body, { cart: false });
+        }
         const list = SJ.el('div', { class: 'list' });
         orders.forEach(o => {
           const i = SJ.orderStage(o);
@@ -2615,8 +2795,10 @@ const APPS = [
           card.append(SJ.el('div', { class: 'od-items' }, o.items.map(x => x.name + '×' + x.n).join('、')));
           list.append(card);
         });
-        root.append(list);
-        if (orders.some(o => SJ.orderStage(o) < SJ.ORDER_STAGES.length - 1)) {
+        body.push(list);
+        page('order', '我的订单', body, { cart: false });
+        /* 进度是按时间现算的，没送到就每 5 秒重画一次 */
+        if (dl().orders.some(o => SJ.orderStage(o) < SJ.ORDER_STAGES.length - 1)) {
           tick = setInterval(() => { if (root.isConnected !== false) ordersView(); }, 5000);
         }
       }

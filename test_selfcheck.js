@@ -1780,21 +1780,66 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     JSON.stringify(App.state.delivery.cart));
   App.addToCart(App.state.delivery.shops[0].id, App.state.delivery.shops[0].dishes[0]);
   App.placeOrder();
-  const oApp = openFresh('delivery');
-  walk(oApp).find(n => n.attrs && n.attrs.title === '我的订单').click();
-  ok('订单是一张卡片，不是一行字', !!walk(oApp).find(n => n._class.has('order-card')));
+  /* 外卖现在也是底部四个页签（首页/自取/订单/我的），照参考图那套。
+     「我的订单」不再是导航栏按钮，走「订单」页签。 */
+  const dHome = openFresh('delivery');
+  ok('外卖有底部四个页签：首页 / 自取 / 订单 / 我的',
+    walk(dHome).filter(n => n._class.has('wt')).length === 4,
+    String(walk(dHome).filter(n => n._class.has('wt')).length));
+  ok('有搜索框（本地筛店，不烧接口）', !!walk(dHome).find(n => n._class.has('shop-search')));
+  const oTab = walk(dHome).find(n => n._class.has('wt') && n.textContent.includes('订单'));
+  oTab.click();
+  ok('订单是一张卡片，不是一行字', !!walk(dHome).find(n => n._class.has('order-card')));
   ok('订单有 5 格时间轴，才下单只亮第一格',
-    walk(oApp).filter(n => n._class.has('od-step')).length === 5 &&
-    walk(oApp).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 1,
-    walk(oApp).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length + ' 格亮');
-  /* 订单进度是按时间现算的，把时间拨到 10 分钟后再看，时间轴应该走完。
-     重开一次 App（订单页导航栏里没有「我的订单」按钮，点不回去）。 */
+    walk(dHome).filter(n => n._class.has('od-step')).length === 5 &&
+    walk(dHome).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 1,
+    walk(dHome).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length + ' 格亮');
+  /* 订单进度是按时间现算的，把时间拨到 10 分钟后再看，时间轴应该走完。 */
   App.state.delivery.orders[0].ts = App.virtualNow().getTime() - 10 * 60 * 1000;
   const oApp2 = openFresh('delivery');
-  walk(oApp2).find(n => n.attrs && n.attrs.title === '我的订单').click();
+  walk(oApp2).find(n => n._class.has('wt') && n.textContent.includes('订单')).click();
   ok('时间走完 → 5 格全亮 + 卡片变已送达',
     walk(oApp2).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 5 &&
     !!walk(oApp2).find(n => n._class.has('order-card') && n._class.has('done')));
+
+  /* 参考图那套店铺卡信息：榜单 / 月售 / 距离 / 满减 / VIP 标签墙 */
+  App.setShops(App.normalizeShops({ shops: [{
+    name: '云朵茶铺', kind: '奶茶甜品', emoji: '🧋', rating: '4.9', eta: '17分钟', fee: 3, min: 15,
+    sold: '月售3000+', dist: '0.6km', rank: '奶茶甜品榜第2名', discount: '低至6折', promo: '满20减3',
+    vip: true, tags: ['现做'],
+    dishes: [{ name: '芋泥波波奶茶', desc: '一口软糯', price: 9, emoji: '🧋', hot: true }]
+  }] }));
+  const rApp = openFresh('delivery');
+  ok('店铺卡上有月售和距离',
+    !!walk(rApp).find(n => n._class.has('shop-meta') && /月售3000\+/.test(n.textContent)) &&
+    !!walk(rApp).find(n => n._class.has('shop-dist') && n.textContent === '0.6km'));
+  ok('店铺卡上有榜单名次', !!walk(rApp).find(n => n._class.has('shop-rank') && /榜第2名/.test(n.textContent)));
+  ok('标签墙上有满减/折扣/VIP 三种标签',
+    !!walk(rApp).find(n => n._class.has('tag-sale') && n.textContent === '满20减3') &&
+    !!walk(rApp).find(n => n._class.has('tag-sale') && n.textContent === '低至6折') &&
+    !!walk(rApp).find(n => n._class.has('tag-vip') && /VIP/.test(n.textContent)));
+  /* 搜索：输入就就地显隐卡片，不重画（重画会把焦点弄丢） */
+  const si = walk(rApp).find(n => n._class.has('shop-search'));
+  si.value = '不存在的店'; dispatch(si, 'input', { target: si });
+  ok('搜不到时卡片都藏起来、并给出提示',
+    walk(rApp).filter(n => n._class.has('shop-card')).every(n => n._class.has('hide')) &&
+    !!walk(rApp).find(n => n._class.has('empty') && /没搜到/.test(n.textContent)));
+  si.value = '奶茶'; dispatch(si, 'input', { target: si });
+  ok('搜到了就把卡片放出来', walk(rApp).filter(n => n._class.has('shop-card')).some(n => !n._class.has('hide')));
+  si.value = ''; dispatch(si, 'input', { target: si });
+
+  /* 我的页：只放从真订单算出来的统计，不编假余额 */
+  walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  ok('我的页有累计订单/累计消费的统计卡（数字来自真订单）',
+    !!walk(rApp).find(n => n._class.has('dl-stat-card')));
+  const mineTxt = walk(rApp).filter(n => n._class.has('dl-stat-card')).map(n => n.textContent).join(' ');
+  ok('统计里的订单数和 state 里的一致',
+    mineTxt.includes(String(App.state.delivery.orders.length)), mineTxt);
+  /* 自取页 */
+  walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('自取')).click();
+  ok('自取页按「几折 / 多远」列出同一批店',
+    walk(rApp).filter(n => n._class.has('shop-card')).length === 1 &&
+    !!walk(rApp).find(n => n._class.has('shop-line') && /自取/.test(n.textContent)));
   S.closeTop(true);
 
   /* 收摊：别把这一节造的数据留给 [24] */
@@ -2774,7 +2819,8 @@ console.log('\n[34] 群聊');
 
   /* ── 建群入口 ── */
   let wx = openFresh('chat');
-  const gbtn = findBtn(wx, '👥');
+  /* 图标换成矢量之后没有文字了，按 title 找 */
+  const gbtn = walk(wx).find(n => n.attrs && n.attrs.title === '发起群聊');
   ok('微信右上角有「发起群聊」', !!gbtn);
   if (gbtn) gbtn.click();
   /* 前面的用例在同一个 localStorage 里留了别的角色，所以只断言这三个人在里面 */

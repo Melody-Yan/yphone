@@ -16,7 +16,9 @@ const AV_COLORS = ['#9cb9c2','#c7dcc4','#e5bcae','#d9c6e3','#e8d9a8','#b9aa9a','
    这是 PWA，离线也要能用 —— 几十个 .svg 请求是纯粹的成本。
    要加新图标：去 lucide.dev 找，把里面的 <path> 原样贴进来就行。 */
 const ICON = {
-  gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" />',
+  /* Lucide 原版 gear 有 8 个齿 + 一圈复杂轮廓，36px 下挤成一团黑。换成齿更少、
+     更疏朗的画法：环形 + 8 根短齿，小尺寸下反而认得出是齿轮。 */
+  gear: '<circle cx="12" cy="12" r="3.3" /> <path d="M12 2.5v3.2" /> <path d="M12 18.3v3.2" /> <path d="M2.5 12h3.2" /> <path d="M18.3 12h3.2" /> <path d="m5.2 5.2 2.3 2.3" /> <path d="m16.5 16.5 2.3 2.3" /> <path d="m18.8 5.2-2.3 2.3" /> <path d="m7.5 16.5-2.3 2.3" />',
   note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" />',
   clock: '<circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" />',
   calc: '<rect width="16" height="20" x="4" y="2" rx="2" /> <line x1="8" x2="16" y1="6" y2="6" /> <line x1="16" x2="16" y1="14" y2="18" /> <path d="M16 10h.01" /> <path d="M12 10h.01" /> <path d="M8 10h.01" /> <path d="M12 14h.01" /> <path d="M8 14h.01" /> <path d="M12 18h.01" /> <path d="M8 18h.01" />',
@@ -62,9 +64,11 @@ const ICON = {
   phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />',
 };
 
+/* 默认 1.9：1.7 在 22~24px 的页签/导航图标上偏细，一整排看着就单薄。
+   桌面大图标另有 CSS 把它再压到 2.05~2.15（见 .icon-art svg）。 */
 function svg(name, size = 30) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none"
-    stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
     ${ICON[name] || ICON.note}</svg>`;
 }
 
@@ -606,6 +610,130 @@ const APPS = [
       }
 
       /* ── 主页：我的头像 / 昵称 + 三个常去的入口 ── */
+      /* ── 钱包 ──
+         外卖和商城的钱都从这一个余额里扣，所以这一页就是唯一的账本视图。
+         进出都记流水，余额只认 state.wallet.balance。 */
+      /* 这一页里所有金额一律 2 位小数 —— 13.14 和 6.66 这种数不能显示成 13 和 7 */
+      const money = v => '¥' + Number(v || 0).toFixed(2);
+      const fmtWhen = ts => {
+        if (!ts) return '';
+        const d = new Date(Number(ts) || 0);
+        const p = n => (n < 10 ? '0' : '') + n;
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      };
+
+      function walletView() {
+        root.innerHTML = '';
+        root.append(navBar('钱包', { back: () => meView() }));
+        const box = SJ.el('div', { class: 'list' });
+
+        /* 余额卡：点一下能充值 */
+        const bal = SJ.walletBalance();
+        box.append(SJ.el('div', { class: 'wal-bal', onclick: () => walletCharge() }, [
+          SJ.el('div', { class: 'wal-bal-l' }, '零钱余额'),
+          SJ.el('div', { class: 'wal-bal-n' }, money(bal)),
+          SJ.el('div', { class: 'wal-bal-hint' }, '点这里充值 · 外卖和桃桃商城都从这儿扣')
+        ]));
+
+        /* 进出汇总：真实数字来自流水，不编 */
+        const log = SJ.walletEntries();
+        const sumIn = log.filter(e => e.kind === 'in').reduce((s, e) => s + e.amount, 0);
+        const sumOut = log.filter(e => e.kind === 'out').reduce((s, e) => s + e.amount, 0);
+        box.append(SJ.el('div', { class: 'wal-sum' }, [
+          SJ.el('div', { class: 'wal-sum-i' }, [
+            SJ.el('div', { class: 'wal-sum-n in' }, money(sumIn)),
+            SJ.el('div', { class: 'wal-sum-l' }, '累计收入')
+          ]),
+          SJ.el('div', { class: 'wal-sum-i' }, [
+            SJ.el('div', { class: 'wal-sum-n out' }, money(sumOut)),
+            SJ.el('div', { class: 'wal-sum-l' }, '累计支出')
+          ])
+        ]));
+
+        box.append(SJ.el('div', { class: 'row', onclick: () => walletCharge() }, [
+          SJ.el('div', { class: 'row-ico', html: svg('plus', 19) }),
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '充值'),
+            SJ.el('div', { class: 'row-sub' }, '给零钱加点钱')
+          ]),
+          SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+        ]));
+        box.append(SJ.el('div', { class: 'row', onclick: () => walletLogView() }, [
+          SJ.el('div', { class: 'row-ico', html: svg('note', 19) }),
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '收支明细'),
+            SJ.el('div', { class: 'row-sub' }, log.length ? log.length + ' 笔' : '还没有流水')
+          ]),
+          SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
+        ]));
+
+        /* 最近几笔，省得每次都点进明细 */
+        if (log.length) {
+          box.append(SJ.el('div', { class: 'wal-sec-t' }, '最近'));
+          log.slice(0, 6).forEach(e => box.append(walletRow(e)));
+        } else {
+          box.append(SJ.el('div', { class: 'empty' }, '还没有任何流水\n去外卖下个单，或者充点钱'));
+        }
+        root.append(box, tabBar('me'));
+      }
+
+      /* 一笔流水的行。进账绿色 +，出账普通色 −。 */
+      function walletRow(e) {
+        const isIn = e.kind === 'in';
+        return SJ.el('div', { class: 'wal-row' }, [
+          SJ.el('div', { class: 'wal-ico' + (isIn ? ' in' : ''), html: svg(isIn ? 'plus' : 'wallet', 17) }),
+          SJ.el('div', { class: 'wal-main' }, [
+            SJ.el('div', { class: 'wal-title' }, e.title || (isIn ? '进账' : '支出')),
+            SJ.el('div', { class: 'wal-sub' }, [e.note, fmtWhen(e.ts)].filter(Boolean).join(' · '))
+          ]),
+          SJ.el('div', { class: 'wal-amt' + (isIn ? ' in' : '') },
+            (isIn ? '+' : '−') + Number(e.amount).toFixed(2))
+        ]);
+      }
+
+      function walletLogView() {
+        root.innerHTML = '';
+        root.append(navBar('收支明细', { back: () => walletView() }));
+        const log = SJ.walletEntries();
+        if (!log.length) {
+          root.append(SJ.el('div', { class: 'empty big' }, '还没有流水'), tabBar('me'));
+          return;
+        }
+        const box = SJ.el('div', { class: 'list' });
+        log.forEach(e => box.append(walletRow(e)));
+        root.append(box, tabBar('me'));
+      }
+
+      /* 充值：给几个常用档位，也能自己填。金额一律 2 位小数。 */
+      function walletCharge() {
+        const amt = SJ.el('input', {
+          class: 'field money-amt', type: 'number', inputmode: 'decimal',
+          step: '0.01', min: '0.01', placeholder: '0.00'
+        });
+        const chips = SJ.el('div', { class: 'chips money-chips' },
+          [50, 100, 200, 500, 1000].map(v => SJ.el('button', {
+            class: 'chip', type: 'button',
+            onclick: () => { amt.value = v.toFixed(2); amt.focus(); }
+          }, v.toFixed(2))));
+        let mask = null;
+        const go = () => {
+          const v = Math.round(Number(amt.value) * 100) / 100;
+          if (!(v > 0)) { toast('先填个金额'); amt.focus(); return; }
+          if (v > 99999999) { toast('一次别超过 1 亿'); amt.focus(); return; }
+          SJ.walletIn(v, '充值', '零钱充值');
+          if (mask) mask.remove();
+          toast('充值成功 ' + money(v));
+          walletView();
+        };
+        const form = SJ.el('div', { class: 'money-form' }, [
+          SJ.el('div', { class: 'sheet-head' }, '充值'),
+          chips, amt,
+          SJ.el('button', { class: 'btn money-go', onclick: go }, '确认充值')
+        ]);
+        mask = sheet([], form);
+        setTimeout(() => { if (amt.focus) amt.focus(); }, 60);
+      }
+
       function meView() {
         root.innerHTML = '';
         root.append(navBar('主页'));
@@ -618,13 +746,19 @@ const APPS = [
           ])
         ]));
         [
+          ['wallet', '钱包', '余额 ¥' + SJ.walletBalance().toFixed(2) + ' · 外卖和购物都从这儿扣', 'wallet'],
           ['palette', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],
           ['people', '通讯录', `${SJ.state.characters.length} 个角色`, 'contacts'],
           ['gear', '设置', 'AI 接口 / 生图 / 存档', 'settings']
         ].forEach(([ic, title, sub, app]) => {
           box.append(SJ.el('div', {
             class: 'row',
-            onclick: () => { if (window.SHELL) window.SHELL.openApp(app); }
+            onclick: () => {
+              /* 钱包不是独立 App，是微信里的一页 —— 直接在这层换页更顺，
+                 绕去 openApp('wallet') 反而要做个空壳 App。 */
+              if (app === 'wallet') return walletView();
+              if (window.SHELL) window.SHELL.openApp(app);
+            }
           }, [
             SJ.el('div', { class: 'row-ico', html: svg(ic, 19) }),
             SJ.el('div', { class: 'row-main' }, [
@@ -2800,6 +2934,12 @@ const APPS = [
       }
 
       function checkout() {
+        const total = SJ.cartTotal();
+        /* 余额不够就别让 placeOrder 白跑一趟，直接说清楚差多少 —— 钱的事要明说 */
+        if (!SJ.walletEnough(total)) {
+          toast('零钱不够，还差 ' + (total - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
+          return;
+        }
         if (!SJ.placeOrder()) return;
         toast('下单成功，骑手正在赶来');
         ordersView();
@@ -3152,6 +3292,10 @@ const APPS = [
               class: 'cart-go',
               onclick: () => {
                 if (!pickedN) return toast('还没勾选商品');
+                const need = SJ.mallTotal();
+                if (!SJ.walletEnough(need)) {
+                  return toast('零钱不够，还差 ' + (need - SJ.walletBalance()).toFixed(2) + '，去微信「钱包」充值');
+                }
                 SJ.mallPlaceOrder();
                 toast('下单成功，桃桃正在打包');
                 ordersView();

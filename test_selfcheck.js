@@ -1489,9 +1489,25 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('换一家店点，上一家的车会被清掉（一次只能点一家）',
     App.state.delivery.cart.length === 1 && App.state.delivery.cart[0].shopId === shopB.id);
 
-  /* ── 下单 + 订单进度跟着虚拟时间走 ── */
+  /* ── 下单 + 订单进度跟着虚拟时间走 ──
+     钱现在从钱包走，所以先把余额清零，断言「没钱下不了单」，再充值、再下单。 */
+  App.state.wallet = { balance: 0, log: [] };
+  ok('钱包是空的：没钱下不了单，且一分钱都不动、车也还在',
+    App.state.wallet.balance === 0 && App.placeOrder() === null &&
+    App.state.delivery.orders.length === 0 && App.cartCount() === 1,
+    'bal=' + App.state.wallet.balance + ' 车=' + App.cartCount());
+  App.walletIn(1000, '充值', '测试');
+  ok('充值后余额正确、流水记了一笔进账',
+    App.walletBalance() === 1000 && App.walletEntries()[0].kind === 'in',
+    String(App.walletBalance()));
+
   const o = App.placeOrder();
   ok('下单后订单进了列表、购物车清空', !!o && App.state.delivery.orders.length === 1 && App.cartCount() === 0);
+  ok('订单的钱真的从钱包扣了', App.walletBalance() === 1000 - o.total,
+    '余额=' + App.walletBalance() + ' 订单=' + o.total);
+  ok('钱包流水里有这一笔外卖支出',
+    App.walletEntries().some(e => e.kind === 'out' && e.amount === o.total),
+    JSON.stringify(App.walletEntries().map(e => e.kind + e.amount)));
   ok('订单里记的是商家的名字和城实总价', o.shopName === shopB.name && o.total === shopB.dishes[0].price, JSON.stringify([o.shopName, o.total]));
   ok('订单时间用的是虚拟时间（跟手机上的钟一致）', Math.abs(o.ts - App.virtualNow().getTime()) < 2000);
   ok('刚下单是「商家接单中」', App.orderStage(o) === 0, App.ORDER_STAGES[App.orderStage(o)]);
@@ -1875,6 +1891,8 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   S.closeTop(true);
 
   /* ══ 桃桃商城 ══ */
+  /* 钱包从 0 起测 —— 上一节外卖留了余额，不清掉这节的「余额不足」就测不准 */
+  App.state.wallet = { balance: 0, log: [] };
   App.setGoods(App.normalizeGoods({ goods: [
     { name: '法式碎花连衣裙', cat: 'dress', sub: '连衣裙', price: 199, oldPrice: 299,
       emoji: '👗', desc: '雪纺，夏天穿', sales: '月销2000+', brand: '桃夭', tags: ['包邮'], hot: true },
@@ -1966,13 +1984,19 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     App.mallTotal() === 0 && App.mallCount() === 2, String(App.mallTotal()));
   walk(mApp).find(n => n._class.has('mc-pick')).click();
   ok('再勾回来合计恢复', App.mallTotal() === 398, String(App.mallTotal()));
-  /* 结算 */
+  /* 结算 —— 商城的钱也走钱包 */
+  ok('商城结算前余额不足就下不了单',
+    App.state.wallet.balance === 0 && App.mallPlaceOrder() === null && App.state.mall.orders.length === 0,
+    String(App.state.wallet.balance));
+  App.walletIn(2000, '充值', '测试');
   walk(mApp).find(n => n._class.has('cart-go')).click();
   ok('结算后生成一笔订单、购物车清空',
     App.state.mall.orders.length === 1 && App.state.mall.cart.length === 0,
     App.state.mall.orders.length + '/' + App.state.mall.cart.length);
   ok('订单金额等于刚才的合计',
     App.state.mall.orders[0].total === 398, String(App.state.mall.orders[0].total));
+  ok('商城的钱也从钱包扣了（余额 = 充值 − 订单）',
+    App.walletBalance() === 2000 - 398, String(App.walletBalance()));
   ok('订单有五个进度阶段',
     walk(mApp).filter(n => n._class.has('od-step')).length === App.MALL_STAGES.length);
   /* 我的：真数据 */
@@ -1982,8 +2006,35 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     mstat.includes('1') && mstat.includes('398'), mstat);
   S.closeTop(true);
 
+  /* 钱包：老存档（没有 wallet 字段）迁移上来必须自动带一笔余额，
+     否则老用户一升级就「零钱不够」，等于被锁在门外。
+     导入存档走的就是 migrate，所以直接喂一份没有 wallet 的存档进去看结果。 */
+  const migSave = { settings: { userName: '老用户' }, characters: [], chats: {} };
+  App.importState(JSON.stringify(migSave));
+  ok('老存档（没有 wallet 字段）迁移后自带余额，不会被锁在门外',
+    App.walletBalance() > 0 && App.state.delivery.orders.length === 0,
+    '余额=' + App.walletBalance());
+  /* 反例：存档里明确写了 wallet（余额真的是 0，说明花完了），不能再补礼金 */
+  App.importState(JSON.stringify({ wallet: { balance: 0, log: [] } }));
+  ok('存档里已有 wallet 且余额为 0 时不再补礼金（不重复发钱）',
+    App.walletBalance() === 0, String(App.walletBalance()));
+  /* 脏数据：负余额、NaN、几十万字的标题都要被归位 */
+  App.importState(JSON.stringify({ wallet: { balance: -50, log: [
+    { kind: 'out', amount: -999, title: '负的', note: 'x', ts: 0 },
+    { kind: '怪东西', amount: 12.345, title: 'y', note: 'z', ts: 0 },
+    null, '我不是对象'
+  ] } }));
+  ok('钱包余额为负 → 归 0',
+    App.walletBalance() === 0, String(App.walletBalance()));
+  ok('流水里的垃圾项被丢掉、坏 kind 归到 out、金额保留 2 位小数',
+    App.walletLog().length === 2 &&
+    App.walletLog().every(e => e.kind === 'in' || e.kind === 'out') &&
+    App.walletLog()[1].amount === 12.35,
+    JSON.stringify(App.walletLog().map(e => e.kind + ':' + e.amount)));
+
   /* 收摊：别把这一节造的数据留给 [24] */
   App.state.mall = { goods: [], cart: [], orders: [], fav: [] };
+  App.state.wallet = { balance: 0, log: [] };
   App.state.moments = [];
   App.state.delivery = { shops: [], cart: [], orders: [] };
   App.state.settings.wallImgs = [];

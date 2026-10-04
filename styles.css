@@ -101,6 +101,14 @@ html, body {
 #phone.charging .sb-batt-icon { opacity: 1; }
 
 /* ══ 桌面 ══ */
+/* 图标底色补一层「上亮下深」的内影：app.color 是内联的平涂渐变，
+   光靠渐变本身不够——真机上看就是一块平色。这层加完，60px 的块才有厚度。 */
+.icon-art::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,.30), rgba(255,255,255,0) 42%, rgba(70,62,52,.10));
+  mix-blend-mode: soft-light;
+}
+.icon-art svg { position: relative; z-index: 1; }
 #home {
   position: absolute; inset: 0;
   background-size: cover;
@@ -158,7 +166,12 @@ html, body {
 .widget-time { font-size: 46px; font-weight: 300; letter-spacing: -1.5px; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .widget-date { font-size: 13px; opacity: .62; margin-top: 3px; }
 
-/* 图标：莫兰迪色块 + 深灰线性图标 */
+/* 图标：莫兰迪色块 + 深灰线性图标。
+   精致感靠三层叠出来，不是画得更复杂：
+     ① 底色本身是 app.color 的渐变（各 App 自带）
+     ② ::after 压一层「上亮下暗」的玻璃光，纯平涂才是简陋的来源
+     ③ 笔画加重到 2.05 并去掉透明度 —— 1.7px 的淡笔画在一整块色底上飘得厉害
+   这三层全是纯 CSS，所以「关掉动画」照样生效，也不用碰 17 个 App 的配色。 */
 .icon {
   background: none; border: 0; padding: 0; color: var(--fg);
   display: flex; flex-direction: column; align-items: center; gap: 7px;
@@ -167,15 +180,31 @@ html, body {
 }
 .icon:active { transform: scale(.88); }
 .icon-art {
-  width: 60px; height: 60px; border-radius: 19px;
+  position: relative; overflow: hidden;
+  width: 60px; height: 60px; border-radius: 21px;
   display: grid; place-items: center;
-  color: #46423c;                                   /* 图标笔画：暖炭灰，压在粉彩色块上 */
+  color: #3f3b36;                                   /* 图标笔画：暖炭灰，压在粉彩色块上 */
   box-shadow:
-    0 6px 14px rgba(96, 88, 78, .18),
-    inset 0 1px 0 rgba(255, 255, 255, .55);
+    0 7px 16px -4px rgba(96, 88, 78, .30),          /* 外投影：色块离桌面站起来 */
+    0 2px 5px rgba(96, 88, 78, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .62),         /* 顶部内高光：模拟受光边 */
+    inset 0 -1px 0 rgba(96, 88, 78, .10);           /* 底部内阴影：托住整个块 */
 }
-.icon-art svg { opacity: .82; }
-.icon.small .icon-art { width: 56px; height: 56px; border-radius: 18px; }
+/* 玻璃光：上半部亮、下半部略暗，色块立刻从「平涂」变成「有厚度」 */
+.icon-art::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, .34), rgba(255, 255, 255, .06) 46%, rgba(96, 88, 78, .07));
+}
+/* 图标本体提到图层上面，否则会被 ::after 的玻璃光罩住。
+   描边加权 + 一层柔和的暗投影：图形才是「浮在色块上」而不是贴纸贴上去的。
+   drop-shadow 只作用于笔画本身（跟着 path 的 alpha 走），不会糊成一个方块。 */
+.icon-art svg {
+  position: relative; z-index: 1;
+  stroke-width: 2.05;
+  filter: drop-shadow(0 1px 1.5px rgba(70, 62, 52, .26));
+}
+.icon.small .icon-art { width: 56px; height: 56px; border-radius: 19px; }
 .icon-name {
   font-size: 11.5px; letter-spacing: .2px; color: #4b463f; font-weight: 500;
   text-shadow: 0 1px 3px rgba(255, 255, 255, .8);
@@ -227,8 +256,14 @@ html, body {
 }
 #phone.dark-wall #statusbar { color: #fff; }
 #phone.dark-wall .icon { color: #fff; }
-#phone.dark-wall .icon-art { color: #fff; }
-#phone.dark-wall .icon-art svg { opacity: .95; }
+/* 深色壁纸下：图标名字要白（它直接压在壁纸上），但图标里的笔画**不能**跟着白 ——
+   笔画压在的是 App 自带的浅色莫兰迪底块，白压浅实测对比度只有 1.52:1，图标基本看不见。
+   壁纸深浅跟「笔画该什么颜色」无关，跟着底块走才对。 */
+#phone.dark-wall .icon-art { color: #3f3b36; }
+#phone.dark-wall .icon-art svg {
+  opacity: 1;
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .5));   /* 给足和底块的分离度 */
+}
 #phone.dark-wall .icon-name { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 #phone.dark-wall .widget { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.16); color: #fff; }
 #phone.dark-wall #dock { background: rgba(30, 28, 26, .42); border-color: rgba(255, 255, 255, .16); }
@@ -704,9 +739,17 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
 }
 .qk-art {
-  width: 42px; height: 42px; border-radius: 13px; color: #fff;
-  display: grid; place-items: center; box-shadow: 0 4px 12px rgba(0, 0, 0, .10);
+  position: relative; overflow: hidden;
+  width: 42px; height: 42px; border-radius: 14px; color: #fff;
+  display: grid; place-items: center;
+  box-shadow: 0 5px 13px -3px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .35);
 }
+/* 和桌面图标同一套玻璃光，锁屏快捷区才不会显得是两个年代的产物 */
+.qk-art::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .30), rgba(255, 255, 255, .04) 50%, rgba(0, 0, 0, .10));
+}
+.qk-art svg { position: relative; z-index: 1; stroke-width: 2; }
 .qk-name { font-size: 10.5px; opacity: .62; }
 #lock-quick .qk:active .qk-art { transform: scale(.92); }
 
@@ -1034,6 +1077,56 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .od-step.on .od-lab { color: var(--fg); }
 .od-step.now .od-lab { color: var(--accent-ink); font-weight: 500; }
 .od-items { margin-top: 11px; font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
+
+/* ══════════════════════════════════════════════════════
+   钱包（微信里的零钱）
+   外卖和商城的钱都从这一个余额扣，这里是唯一的账本视图。
+   ══════════════════════════════════════════════════════ */
+.wal-bal {
+  margin: 6px 16px 12px; padding: 20px 20px 18px; border-radius: 20px; cursor: pointer;
+  color: #fff; position: relative; overflow: hidden;
+  background: linear-gradient(140deg, #8fae9f, #6d8f85 62%, #5d7f76);
+  box-shadow: 0 10px 24px -12px rgba(80, 110, 100, .75);
+  transition: transform .14s ease;
+}
+.wal-bal:active { transform: scale(.985); }
+/* 一道斜向高光，别让余额卡看着像一块死色 */
+.wal-bal::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, rgba(255,255,255,.20), rgba(255,255,255,0) 46%);
+}
+.wal-bal-l { font-size: 12.5px; opacity: .86; letter-spacing: .4px; }
+.wal-bal-n { font-size: 33px; font-weight: 600; letter-spacing: -.5px; margin: 6px 0 8px; }
+.wal-bal-hint { font-size: 11.5px; opacity: .8; }
+
+.wal-sum { display: flex; gap: 10px; padding: 0 16px 4px; }
+.wal-sum-i {
+  flex: 1; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 13px 14px; box-shadow: var(--shadow-s);
+}
+.wal-sum-n { font-size: 17px; font-weight: 600; }
+.wal-sum-n.in { color: #4f8a70; }
+.wal-sum-n.out { color: var(--fg); }
+.wal-sum-l { font-size: 11.5px; color: var(--fg-dim); margin-top: 3px; }
+
+.wal-sec-t { margin: 14px 18px 6px; font-size: 13px; color: var(--fg-dim); letter-spacing: .3px; }
+.wal-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 14px; margin: 0 16px 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
+  box-shadow: var(--shadow-s);
+}
+.wal-ico {
+  flex: 0 0 auto; width: 33px; height: 33px; border-radius: 12px;
+  display: grid; place-items: center; color: var(--fg-dim);
+  background: rgba(75,70,63,.06);
+}
+.wal-ico.in { color: #4f8a70; background: rgba(79,138,112,.13); }
+.wal-main { flex: 1; min-width: 0; }
+.wal-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wal-sub { font-size: 11px; color: var(--fg-dim); margin-top: 2px; }
+.wal-amt { flex: 0 0 auto; font-size: 14.5px; font-weight: 600; }
+.wal-amt.in { color: #4f8a70; }
 
 /* ══════════════════════════════════════════════════════
    桃桃商城
@@ -1534,10 +1627,13 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 #phone.dark-wall #statusbar { text-shadow: 0 1px 6px rgba(0, 0, 0, .45); }
 #phone.dark-wall #sb-notch { background: rgba(22, 22, 24, .84); }
 #phone.dark-wall .icon-art {
+  /* 深色壁纸下投影要更沉，但结构得和基础层一致（外投影两层 + 内高光 + 内底影），
+     以前这里只写一层纯黑影，把 ::after 的玻璃光和内高光全顶掉了。 */
   box-shadow:
-    0 9px 22px rgba(0, 0, 0, .36),
-    inset 0 1px 0 rgba(255, 255, 255, .5),
-    inset 0 -1px 0 rgba(0, 0, 0, .06);
+    0 9px 22px -5px rgba(0, 0, 0, .38),
+    0 2px 6px rgba(0, 0, 0, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    inset 0 -1px 0 rgba(0, 0, 0, .10);
 }
 #phone:not(.dark-wall) #statusbar { text-shadow: 0 1px 6px rgba(255, 255, 255, .72); }
 /* 浅色照片上的黑字：光晕比阴影管用 —— 照片哪块亮哪块暗说不准，一圈白边两头都兜得住 */
@@ -1696,24 +1792,51 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 
 /* 图标质感三档。.icon-art 的底色是 app.js 里内联写上去的（style.background = app.color），
-   所以换色必须 !important，否则内联样式永远赢。 */
+   所以换色必须 !important，否则内联样式永远赢。
+   三档都要好看 —— 之前只有基础层做过打磨，这三档各写各的，把打磨全盖掉了：
+   玻璃档只剩一片惨白，扁平档只剩一个空描边框。 */
 #phone.ico-glass .icon-art {
-  background: linear-gradient(160deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .2)) !important;
-  -webkit-backdrop-filter: blur(9px) saturate(1.35);
-  backdrop-filter: blur(9px) saturate(1.35);
+  /* 玻璃档以前直接拿白色 !important 盖掉内联的 app.color —— 13 个 App 的颜色差
+     被抹得一干二净，整屏图标长成一个样，这就是「发灰、发闷」的来源。
+     现在改成不碰底色：让 app.color 透上来，磨砂白高光交给 ::after 叠。
+     底色是 app.js 内联的，这里不能再写 background，否则又把它盖了。 */
+  -webkit-backdrop-filter: blur(9px) saturate(1.4);
+  backdrop-filter: blur(9px) saturate(1.4);
   box-shadow:
-    0 8px 20px rgba(60, 54, 46, .18),
+    0 8px 20px -5px rgba(60, 54, 46, .30),
+    0 2px 6px rgba(60, 54, 46, .10),
     inset 0 1px 0 rgba(255, 255, 255, .95),
-    inset 0 -9px 15px -11px rgba(255, 255, 255, .95) !important;
+    inset 0 -1px 0 rgba(60, 54, 46, .06),
+    inset 0 -10px 16px -12px rgba(255, 255, 255, .95) !important;
+}
+/* 磨砂白高光单独一层，压在半透明的 app.color 上：既有玻璃感又保住色相 */
+#phone.ico-glass .icon-art::after {
+  display: block !important;
+  background: linear-gradient(160deg,
+    rgba(255, 255, 255, .58), rgba(255, 255, 255, .20) 52%, rgba(255, 255, 255, .04)) !important;
 }
 #phone.ico-flat .icon-art {
-  background: rgba(255, 255, 255, .30) !important;
+  background: rgba(255, 255, 255, .42) !important;
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .52) !important;
+  box-shadow:
+    0 6px 16px -5px rgba(60, 54, 46, .26),
+    inset 0 0 0 1px rgba(255, 255, 255, .62),
+    inset 0 1px 0 rgba(255, 255, 255, .85) !important;
 }
-#phone.dark-wall.ico-flat .icon-art { background: rgba(28, 26, 24, .34) !important; }
-#phone.ico-glass .icon-art svg, #phone.ico-flat .icon-art svg { opacity: .95; }
+#phone.dark-wall.ico-flat .icon-art {
+  background: rgba(28, 26, 24, .34) !important;
+  /* 这一档的底块真的是深色，笔画才该跟着反过来 —— 唯一需要白笔画的情况 */
+  color: #fff;
+}
+#phone.ico-glass .icon-art svg, #phone.ico-flat .icon-art svg {
+  opacity: 1;                       /* 笔画不再被调淡 —— 淡笔画是「飘」的主因 */
+  stroke-width: 2.05;
+}
+/* 玻璃档的白高光会把笔画压得不够重，这里单独再加深一点 */
+#phone.ico-glass .icon-art svg { stroke-width: 2.15; }
+/* 扁平档自带的是一圈白描边，不需要第二层玻璃光 */
+#phone.ico-flat .icon-art::after { display: none !important; }
 
 /* ══ 外观：字体 / 状态栏 ══ */
 /* --font 由 app.js 的 applyLook() 从 SJ.FONT_STACKS 里取整条字体栈内联塞进来；

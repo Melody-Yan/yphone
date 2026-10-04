@@ -147,7 +147,9 @@ function appOrder() {
 
 function iconNode(app, { small = false } = {}) {
   return SJ.el('button', { class: 'icon' + (small ? ' small' : ''), onclick: () => openApp(app.id) }, [
-    SJ.el('span', { class: 'icon-art', html: window.ICONSVG(app.icon, small ? 24 : 30), style: { background: app.color } }),
+    /* 图标 36、块 60：图形撑到 60% 才不空。以前 30（50%）四周留一大圈白，
+       这是「简陋」最直观的一条。 */
+    SJ.el('span', { class: 'icon-art', html: window.ICONSVG(app.icon, small ? 27 : 36), style: { background: app.color } }),
     SJ.el('span', { class: 'icon-name' }, app.name)
   ]);
 }

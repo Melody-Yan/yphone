@@ -214,6 +214,14 @@ const DEFAULTS = {
     cart: [],            // [{id,goodsId,name,price,n}]
     orders: [],          // [{id,items:[{name,n}],total,ts}]
     fav: []              // 收藏的商品 id
+  },
+  /* 钱包：微信里的钱。外卖和商城的每一笔都从这儿走 —— 余额只有一个真相来源，
+     各处（外卖/商城/微信）都读它，不各存各的。
+     初始给一笔「新机礼金」：余额 0 的话第一次点外卖就卡在「零钱不够」，
+     开箱即用的体验是坏的。够点几十顿外卖，花完了自己充。 */
+  wallet: {
+    balance: 1000,
+    log: [{ id: 'wl-init', kind: 'in', amount: 1000, title: '新机礼金', note: '欢迎使用小手机', ts: 0 }]
   }
 };
 
@@ -224,7 +232,7 @@ const SCHEMA = {
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
-  mall: 'object'
+  mall: 'object', wallet: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -323,6 +331,18 @@ function migrate(saved) {
     orders: normalizeMallOrders(ml.orders),
     fav: (Array.isArray(ml.fav) ? ml.fav : []).map(x => String(x).slice(0, 40)).slice(0, 200)
   };
+  /* 钱包：钱是最不能信任导入的一项，余额和流水逐条归一。
+     注意读的是 saved.wallet（用户存档里的），不是 out.wallet —— out 在函数开头就被
+     clone(DEFAULTS) 填满了，永远不是 undefined，拿它判断「老存档」会永远为真（或永远为假）。
+     老存档没有 wallet 这一块时，保留 DEFAULTS 里那笔礼金，不然迁移完余额是 0，
+     第一次点外卖就撞上「零钱不够」，等于把老用户锁在门外。
+     已经有 wallet 的（哪怕余额是 0，说明人家花完了）按存档来，不再补。 */
+  if (saved.wallet && typeof saved.wallet === 'object' && !Array.isArray(saved.wallet)) {
+    out.wallet = {
+      balance: normalizeMoney(saved.wallet.balance),
+      log: normalizeWalletLog(saved.wallet.log)
+    };
+  }
 
   // 角色也是导入边界：以前这里根本没归过，一个 "{name:123}" 就能让后面到处炸
   out.characters = (Array.isArray(out.characters) ? out.characters : [])
@@ -1502,11 +1522,16 @@ function placeOrder() {
   const d = state.delivery;
   if (!d.cart.length) return null;
   const shop = d.shops.find(s => s.id === d.cart[0].shopId);
+  const total = cartTotal();
+  /* 钱从钱包走。余额不够就整单不下 —— 返回 null，调用方提示去充值。
+     顺序很要紧：先扣钱成功再落订单，中途失败不会出现「有订单没扣钱」。 */
+  const pay = walletPay(total, shop ? shop.name : '外卖', '外卖订单');
+  if (!pay) return null;
   const o = {
     id: uid(),
     shopName: shop ? shop.name : '外卖',
     items: d.cart.map(x => ({ name: x.name, n: x.n })),
-    total: cartTotal(),
+    total,
     ts: virtualNow().getTime()   // 用虚拟时间，订单进度才跟这台手机上的钟一致
   };
   d.orders.unshift(o);
@@ -1515,6 +1540,77 @@ function placeOrder() {
   save();
   return o;
 }
+
+/* ── 钱包 ──
+   钱只有一个真相来源：state.wallet。外卖下单、商城结算都走 pay()，
+   各 App 不许自己记一套「我花了多少」，否则对不上账是迟早的事。
+   金额单位全程是「元」的整数（和外卖/商城一致），不做浮点累加。 */
+const WALLET_LOG_MAX = 200;
+
+/* 金额归一：负数抹平、NaN 归零、上限掐住（防止一个坏存档把余额撑到 1e308）。
+   保留 2 位小数 —— 转账和红包本来就有 13.14、6.66 这种数，
+   和聊天里那套 Math.round(x*100)/100 的舍入保持一致，每次运算都收敛一次，
+   误差不会在流水里累积。 */
+function normalizeMoney(v) {
+  const n = Math.round(Number(v) * 100) / 100;
+  if (!isFinite(n) || n < 0) return 0;
+  return Math.min(n, 99999999);
+}
+/* 上限写在这儿就好。**别拿它当 const 用在 migrate 里** ——
+   migrate 在 load() 期间就跑，那时文件还只执行到一半，TDZ 会让整个存档读取炸掉
+   （真炸过：ReferenceError: Cannot access 'WALLET_LOG_MAX' before initialization）。 */
+function normalizeWalletLog(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(x => x && typeof x === 'object').slice(0, 200).map((x, i) => ({
+    id: String(x.id || ('wl-' + i)),
+    kind: x.kind === 'in' ? 'in' : 'out',
+    amount: normalizeMoney(x.amount),
+    title: String(x.title || '').slice(0, NAME_MAX),
+    note: String(x.note || '').slice(0, 60),
+    ts: Number(x.ts) || 0
+  }));
+}
+function walletBalance() { return normalizeMoney(state.wallet.balance); }
+function walletLog() { return state.wallet.log; }
+/* 收支明细：进账给正数、出账给负数，方便各处自己算合计 */
+function walletEntries() {
+  return state.wallet.log.map(e => ({ ...e, signed: e.kind === 'in' ? e.amount : -e.amount }));
+}
+
+function walletSet(v) {
+  state.wallet.balance = normalizeMoney(v);
+  save();
+  return state.wallet.balance;
+}
+/* 进账（充值 / 收红包 / 收款）。amount 必须是正数，否则什么都不做。 */
+function walletIn(amount, title, note) {
+  const n = normalizeMoney(amount);
+  if (!n) return null;
+  const e = { id: uid(), kind: 'in', amount: n, title: String(title || '进账').slice(0, NAME_MAX),
+    note: String(note || '').slice(0, 60), ts: virtualNow().getTime() };
+  state.wallet.balance = normalizeMoney(state.wallet.balance + n);
+  state.wallet.log.unshift(e);
+  state.wallet.log = state.wallet.log.slice(0, WALLET_LOG_MAX);
+  save();
+  return e;
+}
+/* 出账。余额不够就返回 null 并且**一分钱都不动** —— 花钱的地方必须检查这个返回值，
+   别先扣了再补，那中间态一旦被打断就是凭空的账。 */
+function walletOut(amount, title, note) {
+  const n = normalizeMoney(amount);
+  if (!n) return null;
+  if (n > walletBalance()) return null;   // 余额不足：拒绝，不改余额也不记流水
+  const e = { id: uid(), kind: 'out', amount: n, title: String(title || '支出').slice(0, NAME_MAX),
+    note: String(note || '').slice(0, 60), ts: virtualNow().getTime() };
+  state.wallet.balance = normalizeMoney(state.wallet.balance - n);
+  state.wallet.log.unshift(e);
+  state.wallet.log = state.wallet.log.slice(0, WALLET_LOG_MAX);
+  save();
+  return e;
+}
+/* 够不够付。给 UI 用来提前禁用按钮 / 提示充值，不要等到点了才失败。 */
+function walletEnough(amount) { return normalizeMoney(amount) <= walletBalance(); }
+/* 外卖 / 商城都要用的一句话付账。够就扣、返回流水；不够返回 null（调用方负责提示）。 */
+function walletPay(amount, title, note) { return walletOut(amount, title, note); }
 
 /* ── 桃桃商城 ──
    分类是写死的（写死才搜得动、筛得稳），商品是 AI 现生成的。
@@ -1618,10 +1714,14 @@ function mallPlaceOrder() {
   const m = state.mall;
   const picked = m.cart.filter(x => x.picked !== false);
   if (!picked.length) return null;
+  const total = picked.reduce((s, x) => s + x.price * x.n, 0);
+  /* 和外卖同一条规矩：先扣钱、再落单，钱不够整单不成立 */
+  const pay = walletPay(total, '桃桃商城', picked.length + ' 件商品');
+  if (!pay) return null;
   const o = {
     id: uid(),
     items: picked.map(x => ({ name: x.name, n: x.n })),
-    total: picked.reduce((s, x) => s + x.price * x.n, 0),
+    total,
     ts: virtualNow().getTime()
   };
   m.orders.unshift(o);
@@ -2689,6 +2789,9 @@ window.SJ = {
   MALL_CATS, MALL_CAT_IDS, MALL_STAGES, MALL_STEP_MS, mallStage,
   normalizeGoods, setGoods, mallGoods, mallAddToCart, mallCartAdd, mallPick,
   mallCount, mallTotal, mallClearCart, mallPlaceOrder, mallFav, mallIsFav,
+  /* 钱包：外卖和商城的钱都走这儿 */
+  WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
+  walletSet, walletIn, walletOut, walletEnough, walletPay,
   parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */

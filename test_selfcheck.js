@@ -3161,6 +3161,14 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   ok('最后一条下面挂的就是这条消息的时间',
     lastLab.textContent === App.fmtTime(new Date(th[2].ts)),
     lastLab.textContent + ' vs ' + App.fmtTime(new Date(th[2].ts)));
+  /* 时间要长在气泡那一行里（贴着它下沿收边），不能是 list 的兄弟节点 —— 挂在外面只能整条居中。 */
+  ok('时间挂在消息行内、贴着气泡下沿', lastLab.parentNode && lastLab.parentNode._class.has('msg'),
+    lastLab.parentNode ? Array.from(lastLab.parentNode._class).join(' ') : 'no parent');
+  ok('时间挂在 ta 那一侧（左）', lastLab.parentNode && lastLab.parentNode._class.has('ta'),
+    lastLab.parentNode ? Array.from(lastLab.parentNode._class).join(' ') : 'no parent');
+  /* 跨期的那条时间仍然走分隔条、留在正中间 */
+  const sepEl = sep(tchat)[0];
+  ok('隔久了重新聊，时间才画到中缝（分隔条）', !!sepEl && sepEl._class.has('chat-time-sep'));
 
   const tc2 = App.makeCharacter({ name: '连发角色', greeting: '' });
   App.saveCharacter(tc2);
@@ -3171,6 +3179,10 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   const t2chat = openFresh('chat', tc2.id);
   ok('同一轮里连说三句，一条分隔条都没有', sep(t2chat).length === 0, String(sep(t2chat).length));
   ok('同一轮里连说三句，只有最后一条有时间', lab(t2chat).length === 1, String(lab(t2chat).length));
+  /* 我发的那侧时间要靠在右边（贴着气泡右下角） */
+  const meLab = lab(t2chat)[0];
+  ok('我发的那条，时间挂在 me 那一侧（右）', meLab.parentNode && meLab.parentNode._class.has('me'),
+    meLab.parentNode ? Array.from(meLab.parentNode._class).join(' ') : 'no parent');
 
   /* ── 2. 通话摘要气泡 ── */
   const kc = App.makeCharacter({ name: '通话摘要角色', greeting: '' });

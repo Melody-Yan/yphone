@@ -830,7 +830,12 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .chat-list .msg > .bubble.transfer,
 .chat-list .msg > .bubble.media { max-width: 78%; }
 .chat-list .msg { position: relative; }
-.msg-time { font-size: 10.5px; color: var(--fg-dim); opacity: .72; margin: -7px 7px 0; align-self: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 时间收在气泡那一侧的下沿：整行占满再靠边，并把头像的宽度让出来（34+8），
+   否则右对齐会落到头像底下、左对齐会被头像顶开。跨期的那条走 .chat-time-sep，仍然居中。 */
+.msg-time { flex-basis: 100%; margin: -4px 0 0; font-size: 10.5px; color: var(--fg-dim); opacity: .72; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chat-list .msg .msg-time { padding: 0 2px; }
+.chat-list .msg.me .msg-time { text-align: right; padding-right: 42px; }
+.chat-list .msg.ta .msg-time { text-align: left; padding-left: 42px; }
 .chat-time-sep { align-self: center; margin: 2px auto; font-size: 11px; color: var(--fg-dim); opacity: .78; font-variant-numeric: tabular-nums; }
 .call-summary { display: flex; align-items: center; gap: 9px; min-width: 180px; cursor: pointer; }
 .call-summary-ico { font-size: 21px; }
@@ -1406,10 +1411,11 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* ══════════════════════════════════════════════════════
    引用回复 / 已读
    ══════════════════════════════════════════════════════ */
-/* 「已读」要占满一整行挂到气泡下面，所以这一行允许换行 */
+/* 「已读」要占满一整行挂到气泡下面，所以这一行允许换行。
+   右边距跟 .msg-time 对齐（让出头像那 34+8），不然「10:25」和「已读」会错开 40px。 */
 .chat-list .msg { flex-wrap: wrap; }
-.msg-read { flex-basis: 100%; font-size: 10px; color: var(--fg-dim); text-align: right; padding: 0 2px; }
-.chat-list .msg.ta .msg-read { text-align: left; }
+.msg-read { flex-basis: 100%; font-size: 10px; color: var(--fg-dim); text-align: right; padding: 0 42px 0 2px; }
+.chat-list .msg.ta .msg-read { text-align: left; padding: 0 2px 0 42px; }
 
 .bubble.has-qt { padding-top: 6px; }
 .qt {

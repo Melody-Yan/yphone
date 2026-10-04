@@ -1370,8 +1370,10 @@ const APPS = [
           }
           list.append(r);
           if (curTs) {
+            /* 挂进这一行、而不是挂到 list 上 —— 挂在 list 上只能整条居中，
+               进了行里才能跟着气泡同侧收在它下沿（跨期的那条才归中缝，见上面）。 */
             lastTimeEl = SJ.el('div', { class: 'msg-time' }, SJ.fmtTime(new Date(curTs)));
-            list.append(lastTimeEl);
+            r.append(lastTimeEl);
             lastTs = curTs;
           }
           list.scrollTop = list.scrollHeight;

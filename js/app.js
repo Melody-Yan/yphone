@@ -912,6 +912,11 @@ function applyLook() {
   phone.classList.toggle('no-status', s.showStatus === false);
   phone.classList.toggle('sb-dark', s.sbColor === 'dark');
   phone.classList.toggle('sb-light', s.sbColor === 'light');
+  /* 深色主题：'auto' 跟系统。样式表里只有一段 #phone.dark 的令牌覆盖，
+     组件零改动 —— 这是第一轮就把令牌层做掉换来的。 */
+  phone.classList.toggle('dark',
+    s.theme === 'dark' || (s.theme === 'auto'
+      && !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)));
   phone.style.setProperty('--lock-scale', String(s.lockScale || 1));
   /* 头像大小 / 形状：只写两个变量，全站 .avatar 一起变（样式表末尾那段） */
   phone.style.setProperty('--av-k', s.avSize === 's' ? '.88' : s.avSize === 'l' ? '1.18' : '1');
@@ -1029,7 +1034,7 @@ function boot() {
   SJ.onSaveError(msg => { if (msg && window.toast) window.toast(msg); });
 
   // 暴露给调试和自检
-  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper,
+  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper, applyLook,
                    setDebug, mountDebug, setDebugHost, debugPaint };
   // 设置页开启锁屏后，立刻锁上给用户看一眼
   window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };

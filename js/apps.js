@@ -5046,6 +5046,22 @@ const APPS = [
         }));
         const box = SJ.el('div', { class: 'list' });
 
+        box.append(SJ.el('div', { class: 'group-title' }, '深浅'));
+        const THEMES = [['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']];
+        const themeNow = () => SJ.state.settings.theme || 'light';
+        const themeRow = SJ.el('div', { class: 'seg' }, THEMES.map(([k, label]) =>
+          SJ.el('button', {
+            class: themeNow() === k ? 'on' : '',
+            onclick: () => {
+              SJ.state.settings.theme = k;
+              SJ.save();
+              if (window.SHELL) window.SHELL.applyLook();
+              main();
+            }
+          }, label)));
+        box.append(themeRow);
+        box.append(SJ.el('div', { class: 'hint' }, '深色只改界面，不动你挑的壁纸和桌面图标。'));
+
         box.append(SJ.el('div', { class: 'group-title' }, '桌面壁纸'));
         box.append(wallStrip(
           () => SJ.state.wallpaper,

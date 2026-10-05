@@ -145,6 +145,7 @@ const DEFAULTS = {
   split: [],             // 每页放几个图标：[n0, n1, n2]，空数组=自动排（每页 24）
   notes: [],             // 备忘录：[{id,title,body,ts}, ...]
   settings: {
+    /* 深色主题：'light' | 'dark' | 'auto' */
     theme: 'light',      // light | dark（莫兰迪浅色是默认）
     clock24: true,
     userName: '我',
@@ -172,6 +173,7 @@ const DEFAULTS = {
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
     /* 锁屏 */
     lockWallpaper: 'p9', // 默认「亚麻」（素材里的浅中性图）
+  theme: 'light',       // 'light' | 'dark' | 'auto'（auto = 跟系统）
     lockWidgets: true,   // 锁屏上显示「今日安排」
     lockQuick: true,     // 锁屏底部快捷按钮
     /* 外观 */

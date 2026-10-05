@@ -1332,6 +1332,20 @@ rmBtn.click();
 ok('面板里点移除 → 插件没了', wgOn(0).length === 1, wgOn(0).length + ' 个');
 ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringify(wk.state.widgets[0]));
 
+/* ── 深色主题：开关落在 #phone.dark 上，三种取值 ── */
+{
+  const keepT = sandbox.SJ.state.settings.theme;
+  const cls = () => (sandbox.SJ.$('#phone')._class || new Set()).has('dark');
+  sandbox.SJ.state.settings.theme = 'dark'; S.SHELL.applyLook();
+  ok('主题=深色 → #phone 挂上 dark', cls() === true);
+  sandbox.SJ.state.settings.theme = 'light'; S.SHELL.applyLook();
+  ok('主题=浅色 → 摘掉 dark', cls() === false);
+  /* auto 跟系统：自检环境没有 matchMedia 时应当按浅色处理，而不是抛错 */
+  sandbox.SJ.state.settings.theme = 'auto'; S.SHELL.applyLook();
+  ok('主题=跟随系统也不会炸（没有 matchMedia 时按浅色）', cls() === false);
+  sandbox.SJ.state.settings.theme = keepT; S.SHELL.applyLook();
+}
+
 /* ── 未读 ── */
 {
   const keepU = JSON.stringify(wk.state.unread || {});

@@ -4858,13 +4858,49 @@ const APPS = [
       /* 播放器挂在视图外面：从列表切到导入页再切回来，歌不会断 */
       const a = getPlayer();
 
-      function nowBar() {
+      /* ── 正在播放卡 ──
+       原来这一条借的是购物车的 .cart-bar，图标还是 ⏸/▶ 两个 emoji。
+       现在是一张真卡：封面位 + 歌名/歌手 + 进度条 + 上一首/播放/下一首。
+       进度条不走 React 那套 —— 音频的 timeupdate 直接改一个 <i> 的宽度，
+       整卡不重绘（重绘会把滚动位置也带回去）。 */
+      function nowCard() {
         const t = SJ.musicNow();
         if (!t) return null;
-        const playing = a && !a.paused && a.src;
-        return SJ.el('div', { class: 'cart-bar', onclick: togglePlay }, [
-          SJ.el('span', {}, (playing ? '⏸ ' : '▶ ') + t.name + (t.artist ? ' · ' + t.artist : '')),
-          SJ.el('span', { class: 'cart-total' }, playing ? '正在播放' : '已暂停')
+        const tracks = SJ.musicTracks();
+        const i = tracks.findIndex(x => x.id === t.id);
+        const playing = !!(a && !a.paused && a.src);
+        const ic = n => (window.ICONSVG ? window.ICONSVG(n, 20) : '');
+        const jump = d => {
+          const n = tracks[i + d];
+          if (n) playTrack(n);
+          else toast(d < 0 ? '已经是第一首' : '已经是最后一首');
+        };
+        const dur = (a && isFinite(a.duration) && a.duration > 0) ? a.duration : 0;
+        const cur = (a && isFinite(a.currentTime)) ? a.currentTime : 0;
+        const bar = SJ.el('div', { class: 'np-bar' }, [
+          SJ.el('i', { style: { width: (dur ? Math.min(100, cur / dur * 100) : 0) + '%' } })
+        ]);
+        /* 只绑一次：每次进列表都会重建卡片，监听器挂在音频元素上不会重复 */
+        if (a && !a._npBars) {
+          a._npBars = [];
+          a.addEventListener('timeupdate', () => {
+            const el = document.querySelector('.np-bar i');
+            if (el && a.duration) el.style.width = Math.min(100, a.currentTime / a.duration * 100) + '%';
+          });
+        }
+        return SJ.el('div', { class: 'np-card' }, [
+          SJ.el('div', { class: 'np-art' + (playing ? ' on' : ''), html: ic('music') }),
+          SJ.el('div', { class: 'np-main' }, [
+            SJ.el('div', { class: 'np-title' }, t.name),
+            SJ.el('div', { class: 'np-sub' }, (t.artist || '未知歌手') + (tracks.length > 1 ? ' · ' + (i + 1) + '/' + tracks.length : '')),
+            bar
+          ]),
+          SJ.el('div', { class: 'np-ctl' }, [
+            SJ.el('button', { class: 'np-btn', title: '上一首', onclick: () => jump(-1) }, ic('left')),
+            SJ.el('button', { class: 'np-btn play' + (playing ? ' on' : ''), title: playing ? '暂停' : '播放',
+              onclick: togglePlay }, ic(playing ? 'pause' : 'play')),
+            SJ.el('button', { class: 'np-btn', title: '下一首', onclick: () => jump(1) }, ic('right'))
+          ])
         ]);
       }
 
@@ -4873,15 +4909,12 @@ const APPS = [
         root.append(navBar('音乐', {
           right: SJ.el('button', { class: 'nav-btn', title: '导入歌单', html: svg('link', 17), onclick: importView })
         }));
-        const bar = nowBar(); if (bar) root.append(bar);
+        const bar = nowCard(); if (bar) root.append(bar);
         const tracks = SJ.musicTracks();
         if (!tracks.length) {
-          root.append(SJ.el('div', { class: 'empty big' }, '歌单还是空的'));
-          root.append(SJ.el('div', { class: 'pad' }, [
-            SJ.el('button', { class: 'btn', onclick: importView }, '粘贴歌单导入'),
-            SJ.el('div', { class: 'hint', style: { marginTop: '12px' } },
-              '每行一首：「歌名 - 歌手 | 音频直链」。网易云的歌单/歌曲页面链接浏览器放不出来（接口跨域、要登录），这里只留能播的 mp3 这类直链。')
-          ]));
+          root.append(emptyState('music', '歌单还是空的',
+            '每行一首：「歌名 - 歌手 | 音频直链」。网易云的歌单页面链接浏览器放不出来（接口跨域、要登录），这里只留能播的 mp3 直链。',
+            '粘贴歌单导入', importView));
           return;
         }
         const list = SJ.el('div', { class: 'list' });

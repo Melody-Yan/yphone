@@ -3239,6 +3239,51 @@ input.field[type="range"]::-webkit-slider-thumb {
 .lw-batt-bar { margin-top: 7px; height: 4px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
 .lw-batt-bar i { display: block; height: 100%; background: var(--ink); border-radius: 3px; }
 
+/* ── 旧空态统一 ──
+   审计数过：还有 30 处在用 .empty / .empty.big（新代码用的是 .empty-state 组件）。
+   逐个 App 去改 JS 不值当 —— 在样式里把 .empty 调成同一套语言：
+   圆角方图标底（原来是圆形渐变，跟 .es-ico 不一样）+ 副标题式的说明文字。 */
+#phone .empty {
+  text-align: center; padding: 48px var(--sp-8) 40px;
+  font-size: var(--fs-base); color: var(--ink-2); line-height: 1.75;
+}
+#phone .empty.big { white-space: pre-line; padding-top: 64px; font-size: var(--fs-md); }
+#phone .empty::before {
+  content: ''; display: block; width: 56px; height: 56px; margin: 0 auto 14px;
+  border-radius: 18px; background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--line), var(--el-1);
+}
+
+/* ── 正在播放卡（音乐）── */
+.np-card {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  margin: var(--sp-2) var(--sp-3); padding: 13px 14px;
+  border-radius: var(--r-l); background: var(--card);
+  box-shadow: var(--el-2), var(--edge);
+}
+.np-art {
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: var(--r-s);
+  display: grid; place-items: center;
+  background: var(--bg-2); color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: color var(--dur-2) var(--ease-soft);
+}
+.np-art.on { color: var(--ink); }
+.np-main { flex: 1 1 auto; min-width: 0; }
+.np-title { font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-sub { margin-top: 2px; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-bar { margin-top: 8px; height: 3px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.np-bar i { display: block; height: 100%; border-radius: 2px; background: var(--ink); transition: width 240ms linear; }
+.np-ctl { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.np-btn {
+  width: 34px; height: 34px; border: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; background: none; color: var(--ink-2);
+  transition: background var(--dur-1) var(--ease-soft), transform var(--dur-1) var(--ease-out);
+}
+.np-btn:active { transform: scale(.92); background: var(--accent-soft); }
+.np-btn.play { width: 40px; height: 40px; background: var(--accent-soft); color: var(--ink); }
+.np-btn.play.on { background: var(--accent-solid); color: var(--bg); }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

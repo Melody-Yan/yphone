@@ -844,42 +844,53 @@ function paintLockWidgets() {
     ])
   ]));
 
-  /* ── 今日安排：跨两列。原来的实现只能用「一张大卡」，
-     进了马赛克之后改成列表行，跟别的卡同一套规格。 ── */
-  const evs = (typeof SJ.todayEvents === 'function') ? SJ.todayEvents() : [];
-  if (evs.length) {
-    const ev = SJ.el('div', { class: 'lw-card lw-w lw-ev' }, [
-      SJ.el('div', { class: 'lw-k' }, '今天 · ' + evs.length + ' 条')
-    ]);
-    evs.slice(0, 3).forEach(e => ev.append(SJ.el('div', { class: 'lw-ev-row' + (e.done ? ' done' : '') }, [
-      SJ.el('span', { class: 'lw-ev-t' }, e.time || '全天'),
-      SJ.el('span', { class: 'lw-ev-n' }, e.title || '（没写标题）')
-    ])));
-    if (evs.length > 3) ev.append(SJ.el('div', { class: 'lw-ev-more' }, '还有 ' + (evs.length - 3) + ' 条'));
-    grid.append(ev);
-  }
-
-  /* ── 电量环 / 未读：两张方卡；只剩一张时跨两列 ── */
+  /* ── 第二行：电量（左）+ 今天剩余（右）──
+     用户点名的排布：一行长进度、第二行两块并排、第三行备忘。 */
   const bl = (typeof batteryLevel === 'function') ? batteryLevel() : null;
   const hasBatt = (bl !== null && bl !== undefined);
-  const un = SJ.unreadTotal();
-  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
-  const hasUn = un > 0 && rows.length > 0;
-  const lone = (hasBatt && !hasUn) || (!hasBatt && hasUn) ? ' lw-w' : '';
-
   if (hasBatt) {
-    const pct = Math.round(bl);   /* batteryLevel() 已经是百分比 */
-    grid.append(card('lw-s lw-ring' + (hasUn ? '' : lone), [
+    const pct = Math.round(bl);   /* batteryLevel() 已经是百分比，别再乘 100 */
+    grid.append(card('lw-s lw-ring', [
       SJ.el('div', { class: 'lw-ring-ico', html: ring(pct, 46, 4) }),
       SJ.el('div', { class: 'lw-ring-b' }, [
         SJ.el('div', { class: 'lw-k' }, '电量'),
-        SJ.el('div', { class: 'lw-v' }, pct + '%' + (batteryCharging() ? ' ↑' : ''))
+        SJ.el('div', { class: 'lw-v' }, pct + '%' + (batteryCharging() ? ' \u2191' : ''))
       ])
     ]));
   }
-  if (hasUn) {
+  {
+    /* 今天：还剩几个小时 + 今天已过的进度。原来是跨两列的长条，收成方卡跟电量并排 */
+    const leftH = Math.max(0, 24 - now.getHours() - now.getMinutes() / 60);
+    const arcC = Math.PI * 7;
+    grid.append(card('lw-s lw-day', [
+      SJ.el('div', { class: 'lw-day-top' }, [
+        SJ.el('span', { class: 'lw-day-art', html: '<svg viewBox="0 0 18 18" width="18" height="18">' +
+          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.6" stroke-linecap="round"/>' +
+          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+          'stroke-dasharray="' + arcC.toFixed(1) + '" stroke-dashoffset="' + (arcC * (1 - dayPct / 200)).toFixed(1) + '"/>' +
+          '</svg>' }),
+        SJ.el('span', { class: 'lw-k' }, '今天')
+      ]),
+      SJ.el('div', { class: 'lw-day-n' }, '还剩 ' + leftH.toFixed(1) + ' 小时'),
+      SJ.el('div', { class: 'lw-bar' }, [SJ.el('i', { style: { width: Math.max(2, dayPct) + '%' } })])
+    ]));
+  }
+
+  /* ── 第三行：最近的备忘（跨两列）── */
+  const nt = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+  if (nt && (nt.title || nt.body)) {
+    grid.append(card('lw-w lw-nt', [
+      SJ.el('div', { class: 'lw-k' }, '最近的备忘'),
+      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 28))
+    ]));
+  }
+
+  /* ── 其余：未读 / 音乐 / 今日安排，有内容才占地方 ── */
+  const un = SJ.unreadTotal();
+  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
+  if (un > 0 && rows.length) {
     const last = rows[0];
-    grid.append(card('lw-s lw-un' + (hasBatt ? '' : lone), [
+    grid.append(card('lw-s lw-un', [
       SJ.el('div', { class: 'lw-un-n' }, un > 99 ? '99+' : String(un)),
       SJ.el('div', { class: 'lw-k' }, '条未读'),
       SJ.el('div', { class: 'lw-un-who' }, String(last.c.name).slice(0, 8) +
@@ -887,7 +898,6 @@ function paintLockWidgets() {
     ]));
   }
 
-  /* ── 正在听的歌：跨两列 ── */
   const mu = SJ.state.music || {};
   const tr = mu.playing
     ? (mu.title || mu.name || (Array.isArray(mu.list) && mu.list[mu.index || 0]
@@ -903,32 +913,18 @@ function paintLockWidgets() {
     ]));
   }
 
-  /* ── 最近的备忘：跨两列 ── */
-  const nt = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
-  if (nt && (nt.title || nt.body)) {
-    grid.append(card('lw-w lw-nt', [
-      SJ.el('div', { class: 'lw-k' }, '最近的备忘'),
-      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 28))
-    ]));
+  const evs = (typeof SJ.todayEvents === 'function') ? SJ.todayEvents() : [];
+  if (evs.length) {
+    const ev = SJ.el('div', { class: 'lw-card lw-w lw-ev' }, [
+      SJ.el('div', { class: 'lw-k' }, '今天 · ' + evs.length + ' 条')
+    ]);
+    evs.slice(0, 3).forEach(e => ev.append(SJ.el('div', { class: 'lw-ev-row' + (e.done ? ' done' : '') }, [
+      SJ.el('span', { class: 'lw-ev-t' }, e.time || '全天'),
+      SJ.el('span', { class: 'lw-ev-n' }, e.title || '（没写标题）')
+    ])));
+    if (evs.length > 3) ev.append(SJ.el('div', { class: 'lw-ev-more' }, '还有 ' + (evs.length - 3) + ' 条'));
+    grid.append(ev);
   }
-
-    /* ── 今天：原来这里是一张纯装饰卡，用户说「没看懂最下面那个是什么」——
-       换成有信息的一行：今天已过多少、还剩几个小时。装饰只留左边一个小弧。 ── */
-    const leftH = Math.max(0, 24 - now.getHours() - now.getMinutes() / 60);
-    const arcC = Math.PI * 7;
-    grid.append(card('lw-w lw-day', [
-      SJ.el('div', { class: 'lw-day-row' }, [
-        SJ.el('span', { class: 'lw-day-art', html: '<svg viewBox="0 0 18 18" width="18" height="18">' +
-          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.6" stroke-linecap="round"/>' +
-          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
-          'stroke-dasharray="' + arcC.toFixed(1) + '" stroke-dashoffset="' + (arcC * (1 - dayPct / 200)).toFixed(1) + '"/>' +
-          '</svg>' }),
-        SJ.el('span', { class: 'lw-k' }, '今天'),
-        SJ.el('span', { class: 'lw-day-n' }, '已过 ' + Math.round(dayPct) + '%'),
-        SJ.el('span', { class: 'lw-day-r' }, '还剩 ' + leftH.toFixed(1) + ' 小时')
-      ]),
-      SJ.el('div', { class: 'lw-bar' }, [SJ.el('i', { style: { width: Math.max(2, dayPct) + '%' } })])
-    ]));
 
   box.append(grid);
 }

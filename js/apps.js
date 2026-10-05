@@ -572,12 +572,20 @@ function getPlayer() {
 /* 开关行：右边是一个真的滑动开关（用户：「不要只点一下就切换开关了，没有交互」）。
    整行照样能点（手指够大），开关本身也可点 —— 两处都进同一个 onClick。 */
 function toggleRow(title, sub, on, onClick) {
+  /* 先让开关自己动，再回调 —— 调用方多半会重画整页，等它回来才动就会「嗖」一下。 */
+  let cur = !!on;
+  const flip = () => {
+    cur = !cur;
+    sw.classList.toggle('on', cur);
+    sw.setAttribute('aria-pressed', cur ? 'true' : 'false');
+    if (onClick) onClick();
+  };
   const sw = SJ.el('button', {
     class: 'sw' + (on ? ' on' : ''), type: 'button',
     'aria-pressed': on ? 'true' : 'false',
-    onclick: e => { if (e && e.stopPropagation) e.stopPropagation(); if (onClick) onClick(); }
+    onclick: e => { if (e && e.stopPropagation) e.stopPropagation(); flip(); }
   }, [SJ.el('i')]);
-  return SJ.el('div', { class: 'row' + (on ? ' row-on' : ''), onclick: onClick }, [
+  return SJ.el('div', { class: 'row' + (on ? ' row-on' : ''), onclick: flip }, [
     SJ.el('div', { class: 'row-main' }, [
       SJ.el('div', { class: 'row-title' }, title),
       sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
@@ -3315,9 +3323,12 @@ const APPS = [
           SJ.el('span', { class: 'wb-top-l' }, '世界书总开关'),
           SJ.el('button', {
             class: 'sw' + (SJ.state.settings.wbOn !== false ? ' on' : ''), type: 'button',
-            onclick: () => {
-              SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
-              SJ.save(); homeView();
+            /* 以前这里回家重画（homeView）—— 整页闪一下。现在只翻开关自己。 */
+            onclick: e => {
+              const on = SJ.state.settings.wbOn === false;
+              SJ.state.settings.wbOn = on;
+              SJ.save();
+              if (e && e.currentTarget) e.currentTarget.classList.toggle('on', on);
             }
           }, [SJ.el('i')])
         ].filter(Boolean)));

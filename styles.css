@@ -3377,6 +3377,13 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone .app-worldbook > .pad,
 #phone .app-worldbook > .seg,
 #phone .app-worldbook > .nav { flex: 0 0 auto; }
+/* 搜索框的文字居中（占位文字跟着居中） */
+#phone .app-worldbook .field { text-align: center; }
+
+/* 锁屏「今天」收成方卡：上面一行图标+标签，中间一句话，下面细进度 */
+.lw-day-top { display: flex; align-items: center; gap: 7px; }
+.lw-day-n { margin: 6px 0 2px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
 /* 顶上那一行：筛选 chip + 注入开关（原来是两块，占掉一大截高度） */
 .wb-top { display: flex; align-items: center; gap: 8px; padding: 2px 16px 8px; }
 .wb-top-sp { flex: 1 1 auto; }

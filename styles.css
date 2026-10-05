@@ -142,6 +142,9 @@
 
 html, body {
   margin: 0; height: 100%; overflow: hidden;
+  /* 下拉刷新、左右滑动后退：这两个会把手机里的手势吃掉，
+     用户反馈的「一划就刷新或者返回」就是它们。整页都不许。 */
+  overscroll-behavior: none;
   font-family: var(--font);
   background: #e9e5de;
   color: var(--fg);
@@ -267,6 +270,9 @@ html, body {
 
 #pages {
   flex: 1;
+  /* pan-y：纵向滚动还归浏览器，横向手势交给我们 ——
+     不这么写，横划会被当成「后退/前进」直接抢走，翻页永远划不动。 */
+  touch-action: pan-y;
   display: flex;
   transition: transform var(--dur-3) var(--spring);
 }
@@ -3164,13 +3170,28 @@ input.field[type="range"]::-webkit-slider-thumb {
   display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
 }
 .lw-card {
-  background: rgba(255, 255, 255, .55);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border-radius: 18px; padding: 11px 13px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .05);
+  /* 立体感：柔光面 + 外投影 + 上沿高光，跟 App 里的卡片同一套做法 */
+  background: linear-gradient(168deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, .46));
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border-radius: 18px; padding: 12px 14px;
+  box-shadow:
+    0 10px 24px -10px rgba(0, 0, 0, .30),
+    0 2px 6px rgba(0, 0, 0, .08),
+    inset 0 1px 0 rgba(255, 255, 255, .65);
   color: var(--ink); text-align: left;
 }
-#phone.dark-wall .lw-card { background: rgba(38, 36, 34, .5); color: #fff; }
+/* 深色壁纸 → 深卡浅字；深色主题 + 浅壁纸是最糟的组合（浅玻璃 + 浅字 = 看不见），
+   所以主题是深色时锁屏卡也跟着深。 */
+#phone.dark-wall .lw-card {
+  background: linear-gradient(168deg, rgba(44, 42, 40, .70), rgba(30, 29, 28, .54));
+  color: #fff;
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+#phone.dark .lw-card {
+  background: linear-gradient(168deg, rgba(44, 44, 46, .74), rgba(28, 28, 30, .58));
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .1);
+}
+#phone.dark .lw-k, #phone.dark .lw-year-sub, #phone.dark .lw-un-who { color: #a8a8a8; }
 .lw-w { grid-column: span 2; }
 .lw-s { grid-column: span 1; }
 .lw-k { font-size: 11px; color: var(--ink-3); letter-spacing: .3px; }
@@ -3179,7 +3200,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .lw-year-top { display: flex; align-items: baseline; gap: 6px; }
 .lw-year-n { font-size: 26px; font-weight: 600; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
 .lw-year-t { font-size: 12px; color: var(--ink-2); }
-.lw-bar { margin-top: 9px; height: 4px; border-radius: 3px; background-color: rgba(0, 0, 0, .09); overflow: hidden; }
+.lw-bar { margin-top: 10px; height: 6px; border-radius: 4px; background-color: rgba(0, 0, 0, .09); overflow: hidden; }
 #phone.dark-wall .lw-bar { background-color: rgba(255, 255, 255, .16); }
 .lw-bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
 .lw-year-sub { margin-top: 7px; display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); }

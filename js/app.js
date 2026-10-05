@@ -728,18 +728,63 @@ document.addEventListener('touchend', onDragEnd);
 /* ── 桌面横向翻页 ── */
 let currentPage = 0;
 let pageSwipe = null;
-SJ.$('#pages').addEventListener('touchstart', e => {
-  if (dragging) return;
-  pageSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-}, { passive: true });
-SJ.$('#pages').addEventListener('touchend', e => {
-  if (!pageSwipe || dragging) return;
-  const dx = e.changedTouches[0].clientX - pageSwipe.x;
-  const dy = e.changedTouches[0].clientY - pageSwipe.y;
-  pageSwipe = null;
-  if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;
-  goPage(currentPage + (dx < 0 ? 1 : -1));
-});
+  /* 翻页手势。原来只有 touchstart + touchend（而且 passive）：
+     横划会被浏览器当成「后退 / 下拉刷新」抢走 —— 用户说的「划不动 / 一划就刷新或返回」就是这个。
+     现在横划归我们（样式里写了 touch-action: pan-y）、跟手拖、松手按位移或甩动吸附到最近页。 */
+  let pageDrag = null;
+  SJ.$('#pages').addEventListener('touchstart', e => {
+    if (dragging) return;
+    const t = e.touches[0];
+    pageDrag = { x: t.clientX, y: t.clientY, dx: 0, axis: '', t0: Date.now() };
+  }, { passive: true });
+  SJ.$('#pages').addEventListener('touchmove', e => {
+    if (!pageDrag || dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - pageDrag.x;
+    const dy = t.clientY - pageDrag.y;
+    if (!pageDrag.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      pageDrag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (pageDrag.axis !== 'x') return;                 /* 纵向留给列表自己滚 */
+    if (e.cancelable) e.preventDefault();              /* 别让它变成后退手势 */
+    const total = SJ.$$('.page').length;
+    let d = dx;
+    /* 到头了给点阻尼：手感上知道已经到底，而不是干巴巴停住 */
+    if ((currentPage === 0 && d > 0) || (currentPage === total - 1 && d < 0)) d *= 0.32;
+    pageDrag.dx = d;
+    const track = SJ.$('#pages');
+    track.style.transition = 'none';
+    track.style.transform = 'translateX(calc(' + (-currentPage * 100) + '% + ' + d + 'px))';
+  }, { passive: false });
+  function pageSwipeEnd() {
+    if (!pageDrag) return;
+    const d = pageDrag.dx;
+    const dt = Math.max(1, Date.now() - pageDrag.t0);
+    pageDrag = null;
+    const track = SJ.$('#pages');
+    track.style.transition = '';
+    track.style.transform = '';
+    const flung = Math.abs(d) / dt > 0.45;             /* 甩一下：不用拖很远也翻页 */
+    if (d < -(flung ? 24 : 60)) goPage(currentPage + 1);
+    else if (d > (flung ? 24 : 60)) goPage(currentPage - 1);
+    else goPage(currentPage);
+  }
+  SJ.$('#pages').addEventListener('touchend', pageSwipeEnd);
+  SJ.$('#pages').addEventListener('touchcancel', pageSwipeEnd);
+  /* 鼠标也能拖（桌面上调试用） */
+  SJ.$('#pages').addEventListener('mousedown', e => {
+    if (dragging || e.button !== 0) return;
+    pageDrag = { x: e.clientX, y: e.clientY, dx: 0, axis: 'x', t0: Date.now() };
+  });
+  document.addEventListener('mousemove', e => {
+    if (!pageDrag || pageDrag.axis !== 'x') return;
+    pageDrag.dx = e.clientX - pageDrag.x;
+    const track = SJ.$('#pages');
+    track.style.transition = 'none';
+    track.style.transform = 'translateX(calc(' + (-currentPage * 100) + '% + ' + pageDrag.dx + 'px))';
+  });
+  document.addEventListener('mouseup', () => { if (pageDrag) pageSwipeEnd(); });
 
 /* ── 页面切换：横向 translate，不是 display ── */
 function goPage(i) {
@@ -823,7 +868,7 @@ function paintLockWidgets() {
   const lone = (hasBatt && !hasUn) || (!hasBatt && hasUn) ? ' lw-w' : '';
 
   if (hasBatt) {
-    const pct = Math.round(bl * 100);
+    const pct = Math.round(bl);   /* batteryLevel() 已经是百分比 */
     grid.append(card('lw-s lw-ring' + (hasUn ? '' : lone), [
       SJ.el('div', { class: 'lw-ring-ico', html: ring(pct, 46, 4) }),
       SJ.el('div', { class: 'lw-ring-b' }, [
@@ -867,25 +912,23 @@ function paintLockWidgets() {
     ]));
   }
 
-  /* ── 一块纯装饰：同心弧 + 点阵。不承载信息，只负责让这一屏不呆板 ── */
-  grid.append(card('lw-w lw-deco', [
-    SJ.el('div', {
-      class: 'lw-deco-art',
-      html: '<svg viewBox="0 0 300 40" preserveAspectRatio="none" width="100%" height="40">' +
-        '<circle cx="26" cy="20" r="13" fill="none" stroke="currentColor" stroke-opacity=".28" stroke-width="1"/>' +
-        '<circle cx="26" cy="20" r="7" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1"/>' +
-        '<circle cx="26" cy="20" r="2" fill="currentColor" fill-opacity=".8"/>' +
-        '<path d="M52 20 H 96" stroke="currentColor" stroke-opacity=".22" stroke-width="1"/>' +
-        '<path d="M104 20 h 6 M118 20 h 6 M132 20 h 6 M146 20 h 6 M160 20 h 6" ' +
-        'stroke="currentColor" stroke-opacity=".34" stroke-width="2" stroke-linecap="round"/>' +
-        '<path d="M182 6 A 14 14 0 0 1 182 34" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1"/>' +
-        '<path d="M192 12 A 8 8 0 0 1 192 28" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1"/>' +
-        '<circle cx="252" cy="14" r="1.6" fill="currentColor" fill-opacity=".35"/>' +
-        '<circle cx="266" cy="20" r="1.6" fill="currentColor" fill-opacity=".5"/>' +
-        '<circle cx="280" cy="26" r="1.6" fill="currentColor" fill-opacity=".28"/>' +
-        '</svg>'
-    })
-  ]));
+    /* ── 今天：原来这里是一张纯装饰卡，用户说「没看懂最下面那个是什么」——
+       换成有信息的一行：今天已过多少、还剩几个小时。装饰只留左边一个小弧。 ── */
+    const leftH = Math.max(0, 24 - now.getHours() - now.getMinutes() / 60);
+    const arcC = Math.PI * 7;
+    grid.append(card('lw-w lw-day', [
+      SJ.el('div', { class: 'lw-day-row' }, [
+        SJ.el('span', { class: 'lw-day-art', html: '<svg viewBox="0 0 18 18" width="18" height="18">' +
+          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.6" stroke-linecap="round"/>' +
+          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+          'stroke-dasharray="' + arcC.toFixed(1) + '" stroke-dashoffset="' + (arcC * (1 - dayPct / 200)).toFixed(1) + '"/>' +
+          '</svg>' }),
+        SJ.el('span', { class: 'lw-k' }, '今天'),
+        SJ.el('span', { class: 'lw-day-n' }, '已过 ' + Math.round(dayPct) + '%'),
+        SJ.el('span', { class: 'lw-day-r' }, '还剩 ' + leftH.toFixed(1) + ' 小时')
+      ]),
+      SJ.el('div', { class: 'lw-bar' }, [SJ.el('i', { style: { width: Math.max(2, dayPct) + '%' } })])
+    ]));
 
   box.append(grid);
 }

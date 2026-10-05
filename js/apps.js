@@ -5210,6 +5210,10 @@ const APPS = [
             else toast('没拿到权限');
             main();
           }));
+        box.append(toggleRow('显示消息内容',
+          '关掉之后，横幅和系统通知只提示收到一条新消息，不显示正文',
+          SJ.state.settings.notifyText !== false,
+          () => { SJ.state.settings.notifyText = SJ.state.settings.notifyText === false; SJ.save(); main(); }));
         box.append(toggleRow('显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
           SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
         }));

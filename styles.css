@@ -3474,6 +3474,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 .wb-tag.pick { border: 0; font: inherit; font-size: var(--fs-cap); cursor: pointer; }
 .wb-tag.pick:active { opacity: .6; }
 
+/* 右划回复：跟手拖的时候不要有过渡，松手才弹回去 */
+#phone .chat-list .row.swiping, #phone .list .row.swiping { transition: none; }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

@@ -1542,6 +1542,28 @@ ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringi
   ok('短标题行不会被误判成标题（正文里有逗号的长句不切）',
     wb.wbSections('凌晨两点前不睡。早上九点前基本不回消息，回了也是三个字以内。', 'fine').length === 1);
 }
+/* ── 语音消息删除：删的必须是它本身 ── */
+{
+  const c = wb.makeCharacter({ name: '语音甲' }); wb.saveCharacter(c);
+  const S2 = wb.state;
+  S2.chats = S2.chats || {};
+  S2.chats[c.id] = [
+    { id: 'v1', me: false, text: '', kind: 'voice', dur: 3 },
+    { id: 'v2', me: false, text: '', kind: 'voice', dur: 5 },
+    { id: 't1', me: true, text: '嗯' }
+  ];
+  const list = wb.messages(c.id);
+  ok('语音条也在消息列表里', list.length === 3 && list[0].kind === 'voice');
+  /* 按对象定位：删掉第二条语音 */
+  const at = list.indexOf(S2.chats[c.id][1]);
+  ok('按对象能找到它在哪', at === 1, String(at));
+  wb.deleteMessage(c.id, at);
+  const after = wb.messages(c.id);
+  ok('删掉的是那一条（剩下 3 秒的那条还在）', after.length === 2 && after[0].dur === 3, JSON.stringify(after.map(x => x.dur)));
+  ok('两条空文本的语音不会互相顶替', after.filter(x => x.kind === 'voice').length === 1,
+    JSON.stringify(after.map(x => x.kind)));
+  S2.chats[c.id] = [];
+}
 /* ── 未读 ── */
 {
   const keepU = JSON.stringify(wk.state.unread || {});

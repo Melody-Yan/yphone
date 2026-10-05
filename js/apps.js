@@ -2128,6 +2128,52 @@ const APPS = [
         let quote = null;
         let readTag = null;
         let regen = null;      // 点「重新生成」时记住要改哪条，回值到了就并成它的另一版
+          /* 右划一条消息 = 引用回复它。
+             和左右翻页一个脾气：跟手拖（阻尼 0.55），松手时超过 52px 才算，
+             没到就弹回去。只认横向右划，竖着滚照旧。 */
+          function swipeReply(row, m) {
+            if (!row || !row.addEventListener) return;
+            const TH = 52;
+            let sx = 0, sy = 0, dx = 0, on = false, moved = false;
+            row.style.touchAction = 'pan-y';
+            const reset = () => { row.style.transform = ''; row.classList.remove('swiping'); };
+            const start = (x, y) => { sx = x; sy = y; dx = 0; on = true; moved = false; };
+            const move = (x, y) => {
+              if (!on) return;
+              dx = x - sx;
+              const dy = Math.abs(y - sy);
+              /* 竖着动得比横着多，就当他是在滚列表 */
+              if (dx <= 0 || dy > Math.abs(dx) * 1.2) { if (moved) reset(); dx = 0; moved = false; return; }
+              moved = true;
+              row.classList.add('swiping');
+              row.style.transform = 'translateX(' + Math.min(TH * 1.6, dx * 0.55).toFixed(1) + 'px)';
+            };
+            const end = () => {
+              if (!on) return;
+              on = false;
+              const hit = moved && dx >= TH;
+              reset();
+              if (hit) {
+                setQuote(m);
+                toast('回复这条');
+                if (input && input.focus) input.focus();
+              }
+              dx = 0; moved = false;
+            };
+            row.addEventListener('touchstart', e => {
+              const t = e.touches && e.touches[0]; if (t) start(t.clientX, t.clientY);
+            }, { passive: true });
+            row.addEventListener('touchmove', e => {
+              const t = e.touches && e.touches[0]; if (t) move(t.clientX, t.clientY);
+            }, { passive: true });
+            row.addEventListener('touchend', end, { passive: true });
+            row.addEventListener('touchcancel', end, { passive: true });
+            row.addEventListener('mousedown', e => { if (e.button === 0) start(e.clientX, e.clientY); });
+            row.addEventListener('mousemove', e => { if (on) move(e.clientX, e.clientY); });
+            row.addEventListener('mouseup', end);
+            row.addEventListener('mouseleave', end);
+          }
+
         function setQuote(q) {
           quote = q || null;
           quoteBar.innerHTML = '';
@@ -2256,11 +2302,20 @@ const APPS = [
                    ⚠️ 刚打出来的那条没经过 redraw，它的 index 是旧的 —— 这时候退化成
                    「按内容 + 方向找最后一条」。找不到才算它真的没了。 */
                 const list2 = SJ.messages(id);
-                let at = Number(m.index);
-                if (!(at >= 0 && at < list2.length) || String(list2[at].text) !== String(m.text)) {
+                /* 先按「这条对象本身」找 —— 长按拿到的是消息对象，引用比对不会认错。
+                   以前一上来按文本找，语音条（文本空 / 跟别的条重了）就会删错人：
+                   数据里少一条、界面上的语音还在，再删还提示「已经不在了」。 */
+                let at = list2.indexOf(m);
+                if (at < 0) at = Number(m.index);
+                if (!(at >= 0 && at < list2.length) || list2[at] !== m) {
                   at = -1;
                   for (let k = list2.length - 1; k >= 0; k--) {
-                    if (String(list2[k].text) === String(m.text) && !!list2[k].me === !!m.me) { at = k; break; }
+                    if (list2[k] === m) { at = k; break; }
+                  }
+                  if (at < 0) {
+                    for (let k = list2.length - 1; k >= 0; k--) {
+                      if (String(list2[k].text) === String(m.text) && !!list2[k].me === !!m.me) { at = k; break; }
+                    }
                   }
                 }
                 if (at < 0) return toast('这条已经不在了');
@@ -2476,7 +2531,12 @@ const APPS = [
           for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
           h.forEach((m, i) => {
             curIndex = i;
+            /* 记一下画之前有几行 —— 画完把新加的那几行挂上「右划回复」 */
+            const hadRows = list.children ? list.children.length : 0;
             renderMsg(m);
+            if (list.children) {
+              for (let k = hadRows; k < list.children.length; k++) swipeReply(list.children[k], m);
+            }
             /* 有好几版的回复，末尾挂个 ‹ 1/2 › —— 翻版本不用重问一次 */
             if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
               lastRow.append(altPager(m));

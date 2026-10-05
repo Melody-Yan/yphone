@@ -319,7 +319,13 @@ function giftAfterOrder(o) {
   if (!o || !o.gift || !o.to) return Promise.resolve(null);
   SJ.giftPushCard(o, true);
   const c = SJ.state.characters.find(x => x.id === o.to);
-  return SJ.giftReact(c);
+  if (!c) return Promise.resolve(null);
+  /* 她回话可能要几秒，回来的时候用户已经回到别的页面了 —— 弹一句告诉他去看，
+     不然那条回复就静静地躺在聊天里没人知道。 */
+  return SJ.giftReact(c).then(rep => {
+    if (rep && rep.text) toast('「' + c.name + '」回你了');
+    return rep;
+  }).catch(() => null);
 }
 
 

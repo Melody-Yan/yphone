@@ -120,6 +120,7 @@ const WIDGET_SIZES = [
    migrate 里的 e.title.slice(0, NAME_MAX) 就抛 ReferenceError，
    被 load() 的 catch 吃掉 → 整台手机看起来像被清空（角色、聊天、备忘录全没了）。 */
 const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+const SMS_KEEP = 300;   // 短信每个会话最多留多少条
 /* 世界书卡自己的上限，比 TEXT_MAX 宽得多：一张卡就是一整节设定，
    导一份进来就被静默砍到 4000 字是不能接受的。
    （聊天消息、人设那些还是 4000，那边的上限是为了提示词不爆，不是同一回事。） */
@@ -231,6 +232,7 @@ const DEFAULTS = {
   events: [],            // 日历：[{id,date,time,title,done}, ...]
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
   unread: {},            // 未读消息数：{角色id: 条数}。打开那个聊天就清零
+  sms: {},               // YMessage：{角色id: [{id,me,text,ts,read,unread}]}，跟 chats 是两条独立的流
   personas: [],          // 我的人设面具：[{id,name,nick,gender,age,mbti,birthday,rel,tone,bound,bio,avatar,ts}]
   personaId: '',         // 当前用哪一套（空 = 还没建过，退回 settings.userName 那套老数据）
   /* 朋友圈：角色自己发的生活动态 */
@@ -281,7 +283,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
-  personas: 'array', personaId: 'string',
+  personas: 'array', personaId: 'string', sms: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
   mall: 'object', wallet: 'object', addresses: 'array'
 };
@@ -543,6 +545,27 @@ function migrate(saved) {
       const pid = pk(c.personaId);
       if (pid && !out.personas.some(p => p.id === pid)) c.personaId = '';
     });
+  }
+
+  /* 短信（YMessage）：跟 chats 同构，单独归一一次 —— 也是导入存档的信任边界 */
+  {
+    const raw = (out.sms && typeof out.sms === 'object' && !Array.isArray(out.sms)) ? out.sms : {};
+    const clean = {};
+    Object.keys(raw).slice(0, 200).forEach(k => {
+      const arr = Array.isArray(raw[k]) ? raw[k] : [];
+      clean[k] = arr
+        .filter(m => m && typeof m === 'object' && !Array.isArray(m))
+        .slice(-SMS_KEEP)
+        .map(m => ({
+          id: String(m.id || ''),
+          me: m.me === true,
+          text: String(m.text == null ? '' : m.text).slice(0, 4000),
+          ts: Number(m.ts) || 0,
+          read: m.read !== false,
+          unread: m.unread === true && m.me !== true
+        }));
+    });
+    out.sms = clean;
   }
 
   /* 群聊：成员是角色 id 的集合。角色被删掉的就从群里摘掉 —— 留着会在渲染时找不到人。
@@ -1103,6 +1126,61 @@ function pushMessage(id, me, text, extra) {
   save();
   return state.chats[id];
 }
+/* ── YMessage：短信那一路 ──────────────────────────────
+   微信（chats）和短信（sms）是两条独立的消息流：同一个人，两个渠道，互不串台。
+   形状跟 chats 一样，省得发明新花样。未读靠每条自带的 unread 标记 ——
+   删掉那条就自然不计了，不用另外维护一个计数。 */
+function smsList(id) {
+  const k = String(id || '');
+  if (!k) return [];
+  if (!Array.isArray(state.sms[k])) state.sms[k] = [];
+  return state.sms[k];
+}
+function smsPush(id, me, text, extra) {
+  const list = smsList(id);
+  list.push(Object.assign({
+    id: 'sm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    me: !!me, text: String(text == null ? '' : text), ts: Date.now(),
+    unread: !me && !(extra && extra.unread === false)
+  }, extra || {}));
+  state.sms[id] = list.slice(-SMS_KEEP);
+  save();
+  return state.sms[id];
+}
+function smsLast(id) {
+  const l = state.sms[id];
+  return l && l.length ? l[l.length - 1] : null;
+}
+function smsDelete(id, index) {
+  const list = smsList(id);
+  const i = Math.round(Number(index));
+  if (!(i >= 0 && i < list.length)) return null;
+  const gone = list.splice(i, 1)[0];
+  save();
+  return gone;
+}
+function smsClear(id) { delete state.sms[id]; save(); }
+function smsUnread(id) { return smsList(id).filter(m => !m.me && m.unread).length; }
+function smsTotal() {
+  return Object.keys(state.sms || {}).reduce((n, k) => n + smsUnread(k), 0);
+}
+/* 打开会话就算读了 */
+function smsRead(id) {
+  const list = smsList(id);
+  let n = 0;
+  list.forEach(m => { if (m.unread) { m.unread = false; n++; } });
+  if (n) save();
+  return n;
+}
+/* 有短信的会话，按最后一条排序（列表页用） */
+function smsThreads() {
+  return Object.keys(state.sms || {})
+    .filter(k => Array.isArray(state.sms[k]) && state.sms[k].length)
+    .map(k => ({ id: k, last: smsLast(k) }))
+    .filter(x => x.last)
+    .sort((a, b) => (b.last.ts || 0) - (a.last.ts || 0));
+}
+
 function lastMessage(id) {
   const list = state.chats[id];
   return list && list.length ? list[list.length - 1] : null;
@@ -4354,6 +4432,7 @@ window.SJ = {
   makeCharacter, saveCharacter, deleteCharacter,
   setBlocked, isBlocked,
   messages, pushMessage, lastMessage, clearChat, chatList, truncateChat, deleteMessage,
+  smsList, smsPush, smsLast, smsDelete, smsClear, smsUnread, smsTotal, smsRead, smsThreads,
   callsOf, pushCall, deleteCall, clearCalls, callLog,
   chatBgOf, setChatBg,
   stickersOf, addSticker, removeSticker, STICKER_MAX,

@@ -6039,6 +6039,192 @@ const APPS = [
       listView();
     }
   },
+    /* ── YMessage：像 iMessage 那样的短信 ──
+       同一个角色，微信一条流、短信另一条流（用户要的就是这个）。
+       配色还是我们的近黑/浅灰 —— 没有蓝色，近黑就是我们的强调色。
+       自己那侧深底白字，对面浅底深字；没有头像、没有名字，时间按天居中插一条。 */
+    {
+      id: 'ymessage',
+      name: 'YMessage',
+      icon: 'chat',
+      art: '1F4AC',
+      color: 'linear-gradient(150deg,#dedee2,#a8a8ae)',
+      render(root) {
+        const all = () => SJ.state.characters || [];
+        const faceOf = id => all().find(x => x.id === id) || { name: '未知', avatar: '🙂', color: '#c9c4bd' };
+        const shortTime = ts => {
+          const d = new Date(Number(ts) || Date.now());
+          const now = new Date();
+          const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+          if (d.toDateString() === now.toDateString()) return hm;
+          if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + '/' + d.getDate();
+          return (d.getFullYear() % 100) + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+        };
+        const dayLabel = d => {
+          const now = new Date();
+          if (d.toDateString() === now.toDateString()) return '今天 ' + shortTime(d.getTime());
+          const y = new Date(now.getTime() - 864e5);
+          if (d.toDateString() === y.toDateString()) return '昨天 ' + shortTime(d.getTime());
+          return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 ' + shortTime(d.getTime());
+        };
+
+        /* ── 列表页 ── */
+        function listView() {
+          root.innerHTML = '';
+          root.append(navBar('YMessage', {
+            right: SJ.el('button', { class: 'nav-btn', title: '发新短信', html: svg('chat', 17), onclick: pickView })
+          }));
+          const box = SJ.el('div', { class: 'list ym-list' });
+          const th = SJ.smsThreads();
+          if (!th.length) {
+            box.append(emptyState('chat', '还没有短信',
+              '短信和微信是两条独立的流 —— 同一个人，你可以在这儿另开一条线聊。',
+              '选个人发一条', pickView));
+          }
+          th.forEach(t => {
+            const c = faceOf(t.id);
+            const n = SJ.smsUnread(t.id);
+            box.append(SJ.el('div', { class: 'row ym-row', onclick: () => chatView(t.id) }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, c.name),
+                SJ.el('div', { class: 'row-sub ym-prev' },
+                  (t.last.me ? '我：' : '') + String(t.last.text || '').slice(0, 30))
+              ]),
+              SJ.el('div', { class: 'ym-side' }, [
+                SJ.el('div', { class: 'row-time' }, shortTime(t.last.ts)),
+                n ? SJ.el('span', { class: 'ym-dot' }, n > 9 ? '9+' : String(n)) : null
+              ].filter(Boolean))
+            ]));
+          });
+          root.append(box);
+        }
+
+        /* ── 选个人开新线 ── */
+        function pickView() {
+          root.innerHTML = '';
+          root.append(navBar('发给谁', { back: listView }));
+          const box = SJ.el('div', { class: 'list' });
+          if (!all().length) {
+            box.append(emptyState('user', '还没有角色', '先去微信那边建一个角色', '去微信', () => {
+              if (window.SHELL) window.SHELL.openApp('chat');
+            }));
+          }
+          all().forEach(c => {
+            const n = SJ.smsList(c.id).length;
+            box.append(SJ.el('div', { class: 'row', onclick: () => chatView(c.id) }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, c.name),
+                SJ.el('div', { class: 'row-sub' }, n ? '已经聊过 ' + n + ' 条' : '还没发过短信')
+              ]),
+              SJ.el('div', { class: 'row-time' }, n ? '继续 ›' : '发 ›')
+            ]));
+          });
+          root.append(box);
+        }
+
+        /* ── 会话页 ── */
+        function chatView(id) {
+          const c = faceOf(id);
+          SJ.smsRead(id);
+          root.innerHTML = '';
+          root.append(navBar(c.name, {
+            back: listView,
+            right: SJ.el('button', {
+              class: 'nav-btn', title: '清空', html: svg('trash', 17),
+              onclick: () => confirmBox('清空跟「' + c.name + '」的短信？', () => { SJ.smsClear(id); listView(); })
+            })
+          }));
+          const view = SJ.el('div', { class: 'ym-view' });
+          const msgs = SJ.el('div', { class: 'ym-msgs' });
+          view.append(msgs);
+
+          const inp = SJ.el('input', { class: 'field ym-in', placeholder: '短信', autocomplete: 'off' });
+          const sendBtn = SJ.el('button', { class: 'ym-send', disabled: 'true' }, '↑');
+          const syncSend = () => {
+            if (String(inp.value || '').trim()) sendBtn.removeAttribute('disabled');
+            else sendBtn.setAttribute('disabled', 'true');
+          };
+          inp.addEventListener('input', syncSend);
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+          sendBtn.addEventListener('click', doSend);
+          view.append(SJ.el('div', { class: 'ym-bar' }, [inp, sendBtn]));
+          root.append(view);
+          setTimeout(() => { try { inp.focus(); } catch (e) {} }, 80);
+
+          let busy = false;
+          function paint() {
+            msgs.innerHTML = '';
+            const list = SJ.smsList(id);
+            let lastDay = '';
+            list.forEach(m => {
+              const d = new Date(Number(m.ts) || Date.now());
+              if (d.toDateString() !== lastDay) {
+                lastDay = d.toDateString();
+                msgs.append(SJ.el('div', { class: 'ym-day' }, dayLabel(d)));
+              }
+              const b = SJ.el('div', { class: 'ym-b ' + (m.me ? 'me' : 'ta') }, m.text || '');
+              /* 长按删：按**这条对象**定位（跟聊天页踩过的坑一样 —— 别用下标） */
+              let hold = null;
+              const go = () => {
+                clearTimeout(hold);
+                hold = setTimeout(() => {
+                  window.popover([{
+                    svg: 'trash', label: '删除这条', hint: String(m.text || '').slice(0, 14),
+                    run: () => confirmBox('删掉这条短信？', () => {
+                      const at = SJ.smsList(id).indexOf(m);
+                      if (at < 0) return toast('这条已经不在了');
+                      SJ.smsDelete(id, at);
+                      paint();
+                    })
+                  }], { head: '这条短信' });
+                }, 480);
+              };
+              const stop = () => clearTimeout(hold);
+              b.addEventListener('mousedown', go);
+              b.addEventListener('touchstart', go);
+              ['mouseup', 'mouseleave', 'touchend', 'touchmove'].forEach(ev2 => b.addEventListener(ev2, stop));
+              msgs.append(b);
+            });
+            if (list.length && list[list.length - 1].me) {
+              msgs.append(SJ.el('div', { class: 'ym-sent' }, '已送达'));
+            }
+            msgs.scrollTop = msgs.scrollHeight;
+          }
+
+          async function doSend() {
+            const t = String(inp.value || '').trim();
+            if (!t || busy) return;
+            inp.value = '';
+            syncSend();
+            SJ.smsPush(id, true, t);
+            paint();
+            busy = true;
+            const tip = SJ.el('div', { class: 'ym-b ta typing' }, '…');
+            msgs.append(tip);
+            msgs.scrollTop = msgs.scrollHeight;
+            try {
+              const h = SJ.smsList(id).map(m => ({ me: m.me, text: m.text }));
+              const reply = await SJ.askCharacter(c, h);
+              if (tip.remove) tip.remove();
+              /* 我正在看着，就不算未读 */
+              SJ.smsPush(id, false, reply, { unread: false });
+            } catch (e) {
+              if (tip.remove) tip.remove();
+              SJ.smsPush(id, false, '（没发出去：' + (e.message || '接口没通') + '）', { unread: false });
+            }
+            busy = false;
+            paint();
+          }
+
+          paint();
+        }
+
+        listView();
+      }
+    },
+
   /* ── 存储 ── */
   {
     id: 'storage',

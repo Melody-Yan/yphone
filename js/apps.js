@@ -2722,7 +2722,7 @@ const APPS = [
               for (const how of said.slice(0, 1)) {
                 try {
                   if (tip) tip.textContent = '在画一张图…';
-                  const src = await SJ.genImage(how + '。像手机随手拍的照片，自然、不摆拍。');
+                  const src = await SJ.genImage(SJ.imgPromptFor(c, how));
                   if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src } });
                 } catch (e) {
                   toast('图没画出来：' + (e.message || '生图接口没通'));
@@ -6290,6 +6290,9 @@ const APPS = [
           field('生图接口地址', 'imgBase', 'https://api.openai.com/v1'),
           field('生图 API Key', 'imgKey', 'sk-…', 'password'),
           field('生图模型', 'imgModel', 'gpt-image-1 / gemini-2.5-flash-image'),
+    field('生图提示词', 'imgPrompt', SJ.IMG_PROMPT_DEFAULT),
+    SJ.el('div', { class: 'hint' },
+      '角色发照片时用它。可用占位符：{角色} 名字、{场景} 它写的描述、{人设} 角色卡的人设、{外形} 外形描述。留空就用上面那句默认的。'),
     /* 拉取：走生图那套接口的 /models，点开卡片挑一个 —— 省得手打模型名 */
     (() => {
       const b = SJ.el('button', { class: 'btn ghost', onclick: async () => {

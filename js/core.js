@@ -3819,6 +3819,26 @@ async function imgViaChat(root, key, model, prompt, ref) {
 }
 
 /* 出图。ref 传了就是图生图。返回可直接塞进 <img src> 的字符串。 */
+/* 角色发图用的提示词：模板 + 这个角色的人设。
+   模板里可用的占位符：{角色} {场景} {人设} {外形}。
+   留空就用默认 —— 默认这几句是照着「像真人随手拍的」写的，
+   不加「插画 / 卡通」这类词，因为角色发的是照片，不是头像那种插画。 */
+const IMG_PROMPT_DEFAULT =
+  '{角色}用手机随手拍的一张照片：{场景}。像真实生活里的一拍，自然、不摆拍，'
+  + '光线随意，不要文字、不要水印、不要拼图。';
+
+function imgPromptFor(c, how) {
+  const t = String(state.settings.imgPrompt || '').trim() || IMG_PROMPT_DEFAULT;
+  const ch = c || {};
+  const 人设 = String(ch.persona || ch.desc || '').slice(0, 220);
+  const 外形 = String(ch.appearance || ch.look || '').slice(0, 220);
+  return t
+    .replace(/\{角色\}/g, String(ch.name || '她'))
+    .replace(/\{场景\}/g, String(how || ''))
+    .replace(/\{人设\}/g, 人设)
+    .replace(/\{外形\}/g, 外形);
+}
+
 async function genImage(prompt, ref) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('先用一句话说说想画什么');
@@ -4398,6 +4418,7 @@ window.SJ = {
   FONT_STACKS, FONT_NAMES,
   /* 生图 */
   imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData, fetchImgModels,
+  imgPromptFor, IMG_PROMPT_DEFAULT,
   /* 朋友圈 */
   MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
   generateMoment, autoMoment,

@@ -2142,13 +2142,13 @@ const APPS = [
           /* 右划一条消息 = 引用回复它。
              和左右翻页一个脾气：跟手拖（阻尼 0.55），松手时超过 52px 才算，
              没到就弹回去。只认横向右划，竖着滚照旧。 */
-          function swipeReply(row, m) {
+          function swipeReply(row, mOf) {
             if (!row || !row.addEventListener) return;
             const TH = 52;
             let sx = 0, sy = 0, dx = 0, on = false, moved = false;
-            row.style.touchAction = 'pan-y';
             row.classList.add('swipe-row');
-            const reset = () => { row.style.transform = ''; row.classList.remove('swiping'); };
+            row.style.touchAction = 'pan-y';
+            const reset = () => { row.style.transform = ''; row.style.setProperty('--sw', '0'); row.classList.remove('swiping'); };
             const start = (x, y) => { sx = x; sy = y; dx = 0; on = true; moved = false; };
             const move = (x, y) => {
               if (!on) return;
@@ -2167,26 +2167,27 @@ const APPS = [
               const hit = moved && dx >= TH;
               reset();
               if (hit) {
-                setQuote(m);
-                if (input && input.focus) input.focus();
+                const m = (typeof mOf === 'function') ? mOf() : mOf;
+                if (m && m.text) {
+                  setQuote(m);
+                  if (input && input.focus) input.focus();
+                }
               }
               dx = 0; moved = false;
             };
-            row.addEventListener('touchstart', e => {
-              const t = e.touches && e.touches[0]; if (t) start(t.clientX, t.clientY);
-            }, { passive: true });
-            row.addEventListener('touchmove', e => {
-              const t = e.touches && e.touches[0]; if (t) move(t.clientX, t.clientY);
-            }, { passive: true });
-            row.addEventListener('touchend', end, { passive: true });
-            row.addEventListener('touchcancel', end, { passive: true });
-            row.addEventListener('mousedown', e => { if (e.button === 0) start(e.clientX, e.clientY); });
-            row.addEventListener('mousemove', e => { if (on) move(e.clientX, e.clientY); });
-            row.addEventListener('mouseup', end);
-            row.addEventListener('mouseleave', end);
+            /* pointer 事件 + 捕获：手指/鼠标移出这一行也收得到，拖不断 */
+            row.addEventListener('pointerdown', e => {
+              if (e.pointerType === 'mouse' && e.button !== 0) return;
+              try { row.setPointerCapture(e.pointerId); } catch (err) {}
+              start(e.clientX, e.clientY);
+            });
+            row.addEventListener('pointermove', e => { if (on) move(e.clientX, e.clientY); });
+            row.addEventListener('pointerup', end);
+            row.addEventListener('pointercancel', end);
+            row.addEventListener('lostpointercapture', end);
           }
 
-        function setQuote(q) {
+          function setQuote(q) {
           quote = q || null;
           quoteBar.innerHTML = '';
           if (!quote) { quoteBar.classList.add('hide'); return; }
@@ -2248,7 +2249,15 @@ const APPS = [
             me ? null : SJ.el('div', { class: 'av-tap', onclick: () => chatSettings(speaker ? speaker.id : id) }, [avatarNode(face)]),
             speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
-          ]);
+            ]);
+            /* 右划回复：挂在这一行本身上（不靠 list.children 猜），
+               文案在松手那一刻才读 —— 打字气泡是先有盒子后有字的 */
+            swipeReply(r, () => Object.assign({}, src || {}, {
+              me: !!me,
+              name: me ? '我' : face.name,
+              text: (inner && inner.textContent) || (src && src.text) || '',
+              index: curIndex
+            }));
           /* 隔满一分钟：中间插一条时间（跨天了就连日期一起给），上一轮的时间留着 */
           if (curTs && lastTs && curTs - lastTs >= 60000) {
             const d = new Date(curTs);
@@ -2545,12 +2554,7 @@ const APPS = [
           for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
           h.forEach((m, i) => {
             curIndex = i;
-            /* 记一下画之前有几行 —— 画完把新加的那几行挂上「右划回复」 */
-            const hadRows = list.children ? list.children.length : 0;
             renderMsg(m);
-            if (list.children) {
-              for (let k = hadRows; k < list.children.length; k++) swipeReply(list.children[k], m);
-            }
             /* 有好几版的回复，末尾挂个 ‹ 1/2 › —— 翻版本不用重问一次 */
             if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
               lastRow.append(altPager(m));
@@ -6185,17 +6189,22 @@ const APPS = [
           }, profiles.length ? '＋ 把当前这套存成方案' : '＋ 保存当前接口为一套方案')
         ]));
 
-        const modelSel = SJ.el('select', {
-          class: 'field',
-          onchange: () => { SJ.state.settings.apiModel = modelSel.value; SJ.save(); }
-        });
+        /* 模型选择也用卡片（跟生图那个一致），不再用系统自带的下拉框 */
         const curModel = SJ.state.settings.apiModel;
         const models = SJ.state.settings.modelList;
-        if (models.length) models.forEach(m => modelSel.append(SJ.el('option', { value: m }, m)));
-        else modelSel.append(SJ.el('option', { value: '' }, '（还没拉取模型列表）'));
-        // 存档里带过来的模型名可能不在当前列表里，也别弄丢
-        if (curModel && !models.includes(curModel)) modelSel.append(SJ.el('option', { value: curModel }, curModel));
-        modelSel.value = curModel || '';
+        const modelSel = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: () => {
+            const list = models.slice();
+            if (curModel && list.indexOf(curModel) < 0) list.unshift(curModel);
+            if (!list.length) return toast('先点「拉取模型列表」');
+            window.popover(list.map(mm => ({
+              label: mm,
+              hint: mm === curModel ? '当前' : '',
+              run: () => { SJ.state.settings.apiModel = mm; SJ.save(); main(); }
+            })), { head: '模型（' + list.length + ' 个）' });
+          }
+        }, (curModel || '（还没拉取模型列表）') + '  \u25be');
 
         const modelTip = SJ.el('div', { class: 'hint' }, models.length
           ? `已取到 ${models.length} 个模型，点「测试连接」确认能通`

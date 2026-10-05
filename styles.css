@@ -3490,6 +3490,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 .pop-point { align-items: flex-start !important; justify-content: flex-start !important; }
 .pop-point .pop { position: absolute; }
 
+/* 模型列表可能很长：卡片自己滚，别顶出屏幕 */
+.pop { max-height: min(68vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

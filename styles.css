@@ -3493,6 +3493,17 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 模型列表可能很长：卡片自己滚，别顶出屏幕 */
 .pop { max-height: min(68vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
 
+/* 语音条：点「文」把文字摊出来 */
+.vb-more {
+  margin-left: 6px; border: 1px solid var(--line-2); background: none;
+  font: inherit; font-size: var(--fs-cap); color: var(--ink-2);
+  border-radius: var(--r-full); padding: 1px 7px; cursor: pointer;
+}
+.vb-txt {
+  margin-top: 6px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5;
+  border-top: 1px solid var(--line); padding-top: 6px; max-width: 200px;
+}
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

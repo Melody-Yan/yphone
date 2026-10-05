@@ -2250,14 +2250,6 @@ const APPS = [
             speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
             ]);
-            /* 右划回复：挂在这一行本身上（不靠 list.children 猜），
-               文案在松手那一刻才读 —— 打字气泡是先有盒子后有字的 */
-            swipeReply(r, () => Object.assign({}, src || {}, {
-              me: !!me,
-              name: me ? '我' : face.name,
-              text: (inner && inner.textContent) || (src && src.text) || '',
-              index: curIndex
-            }));
           /* 隔满一分钟：中间插一条时间（跨天了就连日期一起给），上一轮的时间留着 */
           if (curTs && lastTs && curTs - lastTs >= 60000) {
             const d = new Date(curTs);
@@ -2300,7 +2292,7 @@ const APPS = [
                 const txt = (inner && inner.textContent) || m.text;
                 if (!txt) return;                      // 图片/语音那种本来就没正文，不给菜单
                 const rc = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
-                openMsgSheet(Object.assign({}, m, { text: txt }), rc);
+                openMsgSheet(Object.assign({}, m, { text: txt, srcObj: m }), rc);
               }, 480);
             };
             const stop = () => clearTimeout(hold);
@@ -2328,9 +2320,10 @@ const APPS = [
                 /* 先按「这条对象本身」找 —— 长按拿到的是消息对象，引用比对不会认错。
                    以前一上来按文本找，语音条（文本空 / 跟别的条重了）就会删错人：
                    数据里少一条、界面上的语音还在，再删还提示「已经不在了」。 */
-                let at = list2.indexOf(m);
+                const real = m.srcObj || m;   /* 长按传进来的是副本，原对象在 srcObj */
+                let at = list2.indexOf(real);
                 if (at < 0) at = Number(m.index);
-                if (!(at >= 0 && at < list2.length) || list2[at] !== m) {
+                if (!(at >= 0 && at < list2.length) || list2[at] !== real) {
                   at = -1;
                   for (let k = list2.length - 1; k >= 0; k--) {
                     if (list2[k] === m) { at = k; break; }
@@ -2400,6 +2393,18 @@ const APPS = [
           ]);
           let playing = false;
           b.addEventListener('click', () => {
+            /* 点「文」把这条语音的文字摊出来（再点收起）——
+               语音条本身点一下是播，两个动作别打架。 */
+            const showTxt = () => {
+              let t = b.querySelector ? b.querySelector('.vb-txt') : null;
+              if (t) { t.remove(); return; }
+              t = SJ.el('div', { class: 'vb-txt' }, txt);
+              b.append(t);
+            };
+            if (txt) b.append(SJ.el('button', {
+              class: 'vb-more',
+              onclick: e => { e.stopPropagation(); showTxt(); }
+            }, '文'));
             if (playing) { SJ.stopSpeak(); playing = false; b.classList.remove('playing'); return; }
             playing = true;
             b.classList.add('playing');
@@ -2714,7 +2719,7 @@ const APPS = [
               while ((mm = IMG_MARK.exec(p.text))) said.push(mm[1].trim());
               if (!said.length) continue;
               p.text = p.text.replace(IMG_MARK, '').trim();
-              for (const how of said.slice(0, 2)) {
+              for (const how of said.slice(0, 1)) {
                 try {
                   if (tip) tip.textContent = '在画一张图…';
                   const src = await SJ.genImage(how + '。像手机随手拍的照片，自然、不摆拍。');

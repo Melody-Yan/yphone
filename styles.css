@@ -343,9 +343,14 @@ html, body {
 /* .pad 直接挂在 .app-view 下时（角色编辑页、备忘录编辑页）必须自己能滚。
    .app-view 是 flex 列容器，flex 项默认 min-height:auto —— 内容一高于屏幕，
    它宁可溢出也不缩，于是被 #phone 的 overflow:hidden 裁掉，
-   底部的「保存 / 删除角色」按钮整个消失，用户看到的就是「没有保存选项」。 */
+   底部的「保存 / 删除角色」按钮整个消失，用户看到的就是「没有保存选项」。
+
+   flex 写成 0 1 auto 而不是 1：flex:1 是 flex-basis:0 + grow，一个页面上只要有两个 .pad
+   （世界书首页的搜索框 + 筛选条），它们就会把空余高度平分掉，
+   自己变成几十像素高、内容溢出去压在下一个元素上。
+   shrink=1 + min-height:0 + overflow-y:auto 已经足够完成上面说的那件事，不需要 grow。 */
 .app-view > .pad {
-  flex: 1; min-height: 0; overflow-y: auto;
+  flex: 0 1 auto; min-height: 0; overflow-y: auto;
   padding-bottom: calc(40px + env(safe-area-inset-bottom));
 }
 

@@ -630,6 +630,7 @@ function makeCharacter(patch = {}) {
     desc: '', persona: '', greeting: '',
     alias: '', relation: '', myRelation: '', allowRelation: false,  // 昵称 / TA认为的关系 / 我认为的关系 / 允许TA自己改
     wbRead: true, // 读不读世界书。关掉 = 这套设定对他不成立（穿越来的、不知情的角色）
+    proactive: null, idleMin: 0, // 允许主动找你吗 / 这个人的间隔。null+0 = 跟着全局
     memUpTo: 0,   // 已经总结到第几条消息
     ts: Date.now()
   }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
@@ -937,6 +938,12 @@ function normalizeCharacter(c, i) {
     chatBg: avatarSrc(c.chatBg),         // 这个人的聊天背景，空 = 跟全局
     lastTalk: Number(c.lastTalk) || 0,   // 真实时间戳：你们最后一次说话
     proactiveAt: Number(c.proactiveAt) || 0, // 上次主动找你是什么时候（防刷屏）
+    /* 主动找你：这个人自己的开关和间隔。
+       null / 0 = 跟着全局那套。
+       ⚠️ 这里只写字段，不能调 idleNeedOf —— 这个函数在 load() 里就跑了，
+       引用后面声明的东西会直接撞 TDZ（这个坑踩过两次）。 */
+    proactive: c.proactive === false ? false : (c.proactive === true ? true : null),
+    idleMin: Math.max(0, Number(c.idleMin) || 0),
     memUpTo: Math.max(0, Number(c.memUpTo) || 0),
     ts: Number(c.ts) || 0
   };
@@ -1588,6 +1595,44 @@ function wbSections(text, mode) {
 /* 导入时猜一下归哪一类 —— 只猜一次，下一步就是让人改。
    命中「指令味」的词就是破限，命中「人物味」的词就是人设，都不像就丢到「其他」。
    猜错了代价只有一下，不值得弄得很神。 */
+/* 世界书 JSON（SillyTavern 那一套）按结构读。
+   只认得出来的才走这条路：不是 JSON、解不出来、或者里面
+   一条正经条目都没有 —— 就返回 null，让它老实去当纯文本切。
+   字段名各个版本不一样，每一处都取第一个有的：
+   entries 可能是对象（key 是 uid）也可能是数组。 */
+function wbFromJson(text) {
+  let data;
+  try { data = JSON.parse(String(text)); } catch (e) { return null; }
+  /* ⚠️ 数组本身就自带 .entries 方法 —— 直接读 data.entries 会拿到一个函数，
+     「裸数组」这种写法就整个废掉。数组先单独判。 */
+  const raw = Array.isArray(data) ? data
+    : (data && (data.entries || data.worldbook || data.items)) || data;
+  const list = Array.isArray(raw) ? raw
+    : (raw && typeof raw === 'object' ? Object.keys(raw).map(k => raw[k]) : null);
+  if (!list) return null;
+  const split = v => (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，、]/))
+    .map(k => String(k).trim()).filter(Boolean);
+  const out = [];
+  list.forEach(e => {
+    if (!e || typeof e !== 'object') return;
+    const content = String(e.content != null ? e.content : (e.value != null ? e.value : (e.text || ''))).trim();
+    if (!content) return;
+    const keys = split(e.key != null ? e.key : (e.keys != null ? e.keys : e.keywords));
+    const title = String(e.comment || e.name || e.title || keys[0] || '').trim();
+    out.push({
+      /* 标题只许来自一行 —— wbTitleFrom 不切换行，整段正文塞进去会得到带换行的标题 */
+      title: title || wbTitleFrom(content.split('\n')[0]) || '未命名',
+      content,
+      keys,
+      keysecondary: split(e.keysecondary || e.key2),
+      constant: e.constant === true || e.constant === 'true',
+      enabled: !(e.disable === true || e.disable === 'true' || e.enabled === false),
+      order: isFinite(Number(e.order)) ? Number(e.order) : 100
+    });
+  });
+  return out.length ? out : null;
+}
+
 function wbGuessCat(text) {
   const t = String(text || '');
   const count = re => (t.match(re) || []).length;
@@ -2744,18 +2789,30 @@ async function proactiveSay(char) {
   return out;
 }
 
+/* 这个人多久没说话才该来找你（分钟）。
+   他自己设了就用他的，没设跟着全局 —— 角色多了以后，
+   “常聊的那几个勤一点、冷的那几个别总来” 才是常态。 */
+function idleNeedOf(c) {
+  /* 负数 / 字母 / undefined 都当「没设」—— 不能变成负数门槛，也不能变成 0 门槛 */
+  const own = Math.max(0, Number(c && c.idleMin) || 0);
+  return Math.max(5, own || Number(state.settings.idleMin) || 180);
+}
+/* 这个人允不允许主动找你。全局总开关一票否决：它关了，下面开谁都没用。 */
+function proactiveAllowed(c) {
+  if (state.settings.proactive === false) return false;
+  if (!c || c.blocked || c.proactive === false) return false;
+  return true;
+}
+
 /* 挑出最该来找你的人，按「最久没说话的排前面」。
-   门槛是「聊过 + 确实够了 idleMin + 自己上次主动也隔够了」。 */
+   门槛是「聊过 + 确实够了各自的间隔 + 自己上次主动也隔够了」。 */
 function proactiveCandidates() {
-  const s = state.settings;
-  if (s.proactive === false) return [];
-  const need = Math.max(5, Number(s.idleMin) || 180);
   const now = Date.now();
   return state.characters
-    .filter(c => !c.blocked)
+    .filter(proactiveAllowed)
     .filter(c => (state.chats[c.id] || []).length)
-    .filter(c => (now - lastTalkAt(c)) / 60000 >= need)
-    .filter(c => (now - (Number(c.proactiveAt) || 0)) / 60000 >= need)
+    .filter(c => (now - lastTalkAt(c)) / 60000 >= idleNeedOf(c))
+    .filter(c => (now - (Number(c.proactiveAt) || 0)) / 60000 >= idleNeedOf(c))
     .sort((a, b) => lastTalkAt(a) - lastTalkAt(b));
 }
 
@@ -3624,7 +3681,8 @@ window.SJ = {
   groupOf, isGroup, groups, makeGroup, saveGroup, deleteGroup, groupFace, chatTarget,
   memberOf, pickSpeaker, buildGroupSystem, parseGroupReply, groupLines,
   GROUP_MAX, GROUP_MEMBER_MAX,
-  proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle, PROACTIVE_MAX,
+  proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
+  idleNeedOf, proactiveAllowed, PROACTIVE_MAX,
   apiRoot, fetchModels, askCharacter, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,
   /* 语音（浏览器自带 TTS） */
@@ -3632,7 +3690,7 @@ window.SJ = {
   /* 世界书 / 记忆 / 日历 */
   makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
   moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
-  wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, docxText, decodeText, xmlToText,
+  wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, wbFromJson, docxText, decodeText, xmlToText,
   WB_TEXT_MAX,
   WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,
   memories, addMemory, deleteMemory, clearMemories,

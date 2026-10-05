@@ -1791,6 +1791,42 @@ ok('老存档带下来的 wbBudget 也砍不动卡（上限是真删了，不是
     return n === wb.WB_TEXT_MAX;
   })(), String(wb.WB_TEXT_MAX));
 
+  /* ── 世界书 JSON：按结构读，不是当纯文本切 ──
+     SillyTavern 那一套是 entries 对象（key 是 uid 字符串），字段名各版本不太一样。 */
+  const stJson = JSON.stringify({
+    entries: {
+      0: { uid: 0, comment: '雨城', key: ['雨城', '下雨'], content: '这里常年下雨。', constant: false, disable: false, order: 100 },
+      1: { uid: 1, comment: '铁律', key: [], content: '永远不要跳出角色。', constant: true, disable: false, order: 10 },
+      2: { uid: 2, comment: '停用的', key: ['x'], content: '停用条目', constant: false, disable: true, order: 100 }
+    }
+  });
+  const stCards = wb.wbFromJson(stJson);
+  ok('JSON 世界书按 entries 结构读出来（对象形式，key 是 uid）',
+    !!stCards && stCards.length === 3, JSON.stringify(stCards && stCards.map(c => c.title)));
+  ok('comment 当标题、content 当正文', stCards[0].title === '雨城' && stCards[0].content === '这里常年下雨。',
+    JSON.stringify(stCards[0]).slice(0, 90));
+  ok('key 当关键词（数组原样搬）', stCards[0].keys.join('|') === '雨城|下雨', JSON.stringify(stCards[0].keys));
+  ok('constant 当常驻', stCards[1].constant === true && stCards[0].constant === false);
+  ok('disable:true 变成「停用」，不是丢掉', stCards[2].enabled === false, String(stCards[2].enabled));
+  ok('order 也留着，相对顺序不丢', stCards[1].order === 10 && stCards[0].order === 100,
+    stCards[1].order + ' / ' + stCards[0].order);
+  ok('entries 写成数组也认（新版导出就是数组）',
+    (wb.wbFromJson(JSON.stringify({ entries: [{ content: '甲的正文', key: 'a,b' }] })) || []).length === 1);
+  ok('裸数组也认', (wb.wbFromJson(JSON.stringify([{ title: 'T', content: 'C' }])) || [])[0].title === 'T');
+  ok('key 写成「逗号串」也能拆开',
+    wb.wbFromJson(JSON.stringify([{ content: 'C', key: 'a, b，c、d' }]))[0].keys.join('|') === 'a|b|c|d',
+    JSON.stringify(wb.wbFromJson(JSON.stringify([{ content: 'C', key: 'a, b，c、d' }]))[0].keys));
+  ok('没有标题时先用第一个关键词兜底，再没有就用正文第一行',
+    wb.wbFromJson(JSON.stringify([{ content: 'C', key: 'kk' }]))[0].title === 'kk'
+    && wb.wbFromJson(JSON.stringify([{ content: '第一行\n第二行' }]))[0].title === '第一行');
+  /* 认不出来就得老老实实返回 null —— 不能把普通文本硬解成一堆空卡 */
+  ok('不是 JSON → null（老老实实去当纯文本切）', wb.wbFromJson('就是一段普通文字') === null);
+  ok('是 JSON 但一条正经条目都没有 → null', wb.wbFromJson('{"hello":1}') === null);
+  ok('有 entries 但全是空的 → null', wb.wbFromJson(JSON.stringify({ entries: { 0: { content: '' } } })) === null);
+  ok('JSON 坏了（半截）→ null，不抛异常', wb.wbFromJson('{"entries":{') === null);
+  ok('JSON 是 null / 数字 → null，不抛异常',
+    wb.wbFromJson('null') === null && wb.wbFromJson('42') === null);
+
   /* 导入入口本身 */
   const iv = wbApp();
   ok('世界书页里有「从文件导入」入口', rowEl(iv, '从文件导入') !== undefined, '');
@@ -1808,6 +1844,18 @@ ok('老存档带下来的 wbBudget 也砍不动卡（上限是真删了，不是
   })();
   ok('一张卡都没有时，「从文件导入」还在', emptyV.imp, JSON.stringify(emptyV));
   ok('一张卡都没有时，「关键词预览」也还在', emptyV.pv, JSON.stringify(emptyV));
+
+  /* 布局：卡片列表必须是 .list。没 class 的 div 只能撑到内容高度，
+     超出一屏的部分被 #phone 的 overflow:hidden 裁掉，滚都滚不到。 */
+  const homeLay = wbApp();
+  ok('世界书首页的卡片列表用的是 .list（没它滚不到底）',
+    walk(homeLay).some(n => n._class && n._class.has('list') && walk(n).some(m => m._class && m._class.has('row'))),
+    walk(homeLay).filter(n => n._class && n._class.has('list')).length + ' 个 .list');
+
+  /* 导出表里不该有 undefined —— 拼错名字 / 引用了不存在的符号，在这里就红 */
+  ok('SJ 上每个导出都是有值的（没有 undefined）',
+    Object.keys(wb).filter(k => wb[k] === undefined).length === 0,
+    Object.keys(wb).filter(k => wb[k] === undefined).join(',') || '(无)');
 }
 
 /* ── 关键词体检 ── */
@@ -3430,6 +3478,55 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('刚主动找过的不再连着刷屏', !App.proactiveCandidates().some(c => c.id === pc.id));
   pc.proactiveAt = 0;
   ok('最久没说话的排最前面，一次只挑一个', App.proactiveCandidates()[0].id === pc.id);
+  /* ── 每个角色单独设：允许 / 间隔 ──
+     角色一多，「不是每个人都想让他先开口」就是常态。 */
+  ok('刚建的角色没单独特设：proactive 空着、idleMin 是 0，跟着全局',
+    pc.proactive === null && pc.idleMin === 0, String(pc.proactive) + ' / ' + String(pc.idleMin));
+  ok('没单独特设时，间隔就等于全局那个', App.idleNeedOf(pc) === 180, String(App.idleNeedOf(pc)));
+
+  pc.idleMin = 720;
+  ok('单独设了间隔就按他自己的算', App.idleNeedOf(pc) === 720, String(App.idleNeedOf(pc)));
+  pc.lastTalk = Date.now() - 4 * 3600 * 1000; pc.proactiveAt = 0;
+  ok('他 4 小时没说话了，但自己设的是 12 小时 → 还轮不到他',
+    !App.proactiveCandidates().some(c => c.id === pc.id));
+  pc.idleMin = 60;
+  ok('他自己的间隔改成 1 小时 → 够格了',
+    App.proactiveCandidates().some(c => c.id === pc.id));
+
+  pc.idleMin = 0;
+  pc.proactive = false;
+  ok('单独关掉的人不再主动找你',
+    App.proactiveAllowed(pc) === false && !App.proactiveCandidates().some(c => c.id === pc.id));
+  ok('关掉他一个人，别人照样够格（不是一刀切）',
+    App.state.characters.some(c => c.id !== pc.id && App.proactiveAllowed(c)),
+    App.state.characters.filter(c => c.id !== pc.id && App.proactiveAllowed(c)).length + ' 个');
+
+  pc.proactive = true;
+  App.state.settings.proactive = false;
+  ok('总开关是一票否决：个人开着也照样不放行',
+    App.proactiveAllowed(pc) === false && App.proactiveCandidates().length === 0);
+  App.state.settings.proactive = true;
+  pc.proactive = null;
+
+  /* 脏数据 / 边界：不能把人卡死，也不能让门槛变成负数或 0 */
+  pc.idleMin = -100;
+  ok('间隔写成负数 → 当成没设，退回全局', App.idleNeedOf(pc) === 180, String(App.idleNeedOf(pc)));
+  pc.idleMin = 'abc';
+  ok('间隔写成一串字母 → 也退回全局', App.idleNeedOf(pc) === 180, String(App.idleNeedOf(pc)));
+  pc.idleMin = 1;
+  ok('间隔写成 1 分钟 → 兜到下限 5 分钟（不然一开 App 就被刷屏）',
+    App.idleNeedOf(pc) === 5, String(App.idleNeedOf(pc)));
+
+  /* 落盘再读回来：这两个字段不能被归一吃掉 */
+  pc.idleMin = 720; pc.proactive = false;
+  App.saveCharacter(pc);
+  const pcBack = App.state.characters.find(c => c.id === pc.id);
+  ok('存档里留住了「不许主动」和「单独设的 12 小时」',
+    pcBack.proactive === false && pcBack.idleMin === 720,
+    String(pcBack.proactive) + ' / ' + String(pcBack.idleMin));
+  pc.proactive = null; pc.idleMin = 0;
+  App.saveCharacter(pc);
+
   ok('没配接口时 proactiveCheck 安静地什么都不做', (await App.proactiveCheck()).length === 0);
 
   /* 老存档没有 lastTalk 时不能把所有人都当成「从没聊过」——那样一开 App 集体搭话 */
@@ -3869,6 +3966,130 @@ console.log('\n[35] 群聊：老存档与脏值');
   ok('群背景不是图片一律洗掉', st2.groups[0].chatBg === '', String(st2.groups[0].chatBg));
 
   sandbox.SHELL.closeAll();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   [35b] 谁能主动找你：设置页入口 + 名单
+   角色多了以后，「不是每个人都想让他先开口」是常态 ——
+   所以得有个地方一次改完，而不是挨个进角色页翻。
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log('\n[35b] 谁能主动找你：设置页入口 + 名单');
+{
+  boot();
+  /* ⚠️ boot() 会换掉沙箱里的 SJ，之后必须重新取一遍 ——
+     拿旧的 A 去改状态，改的是一份已经没人看的副本（这几条用例正是这么红过一次的）。 */
+  let A = sandbox.SJ;
+  A.state.settings.proactive = true;
+  A.state.settings.idleMin = 180;
+  const q1 = A.makeCharacter({ name: '单独设甲' });
+  const q2 = A.makeCharacter({ name: '单独设乙' });
+  A.saveCharacter(q1); A.saveCharacter(q2);
+  const Q1 = q1.id, Q2 = q2.id;
+  const nameOf = id => A.state.characters.find(c => c.id === id).name;
+  const charOf = id => A.state.characters.find(c => c.id === id);
+
+  /* 老存档里根本没有 proactive / idleMin —— 读回来必须是「允许 + 跟着全局」，
+     不能因为读到 undefined 就把所有人静音（那等于升级完再也没人主动找你）。 */
+  const rawOld = JSON.parse(store.get('xiaoshouji.v1'));
+  rawOld.characters = (rawOld.characters || []).map(c => {
+    const o = Object.assign({}, c); delete o.proactive; delete o.idleMin; return o;
+  });
+  store.set('xiaoshouji.v1', JSON.stringify(rawOld));
+  boot();
+  A = sandbox.SJ;
+  const oldC = A.state.characters[0];
+  ok('老存档（没这两个字段）读回来是「允许 + 跟着全局」，不是被当成关掉',
+    A.proactiveAllowed(oldC) === true && A.idleNeedOf(oldC) === 180,
+    String(oldC.proactive) + ' / ' + String(A.idleNeedOf(oldC)));
+
+  /* 反过来：存过「不许主动 + 单独设 12 小时」的人，重启之后这两条得原样还在
+     —— 归一（normalizeCharacter）不能顺手把它们抹成默认值。 */
+  const keepId = oldC.id;
+  oldC.proactive = false; oldC.idleMin = 720;
+  A.saveCharacter(oldC);
+  boot();
+  A = sandbox.SJ;
+  const kept = A.state.characters.find(c => c.id === keepId);
+  ok('重启之后「不许主动」和「单独设的 12 小时」都还在',
+    kept.proactive === false && kept.idleMin === 720,
+    String(kept.proactive) + ' / ' + String(kept.idleMin));
+  ok('这个「不许主动」的人也真的不会再被挑中',
+    A.proactiveAllowed(kept) === false && !A.proactiveCandidates().some(c => c.id === keepId),
+    String(A.idleNeedOf(kept)));
+
+  const st = openFresh('settings');
+  const ent = rowEl(st, '每个角色单独设');
+  ok('设置页「主动找你」里有「每个角色单独设」', ent !== undefined, walk(st).length + ' 个节点');
+  ok('入口那一行说了现在几个人可以主动找你',
+    String(ent.textContent).indexOf('个人可以主动找你') >= 0, String(ent.textContent).slice(0, 90));
+
+  ent.click();
+  const who = sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node;
+  ok('名单页把通讯录里的人全列出来了',
+    [nameOf(Q1), nameOf(Q2)].every(n => walk(who).some(x => x.textContent === n)),
+    walk(who).map(x => x.textContent).filter(Boolean).slice(0, 5).join(' / '));
+  ok('名单页顶部说清了总开关现在是什么状态',
+    walk(who).some(x => String(x.textContent).indexOf('总开关') >= 0), '');
+
+  const r1 = rowEl(who, nameOf(Q1));
+  ok('名单里点一个人会弹出他的设置', r1 !== undefined, nameOf(Q1));
+  r1.click();
+  const labels = sheetLabels();
+  ok('弹层第一项是「关掉他」，后面跟着一串间隔',
+    labels.some(l => l.indexOf('关掉：不让 ' + nameOf(Q1) + ' 主动找你') >= 0)
+    && labels.some(l => l.indexOf('3 小时没说话') >= 0),
+    JSON.stringify(labels.slice(0, 3)));
+  ok('还没单独特设过时，不显示「跟着全局」那一项（没得清）',
+    !labels.some(l => l.indexOf('跟着全局') >= 0), JSON.stringify(labels.slice(0, 3)));
+
+  ok('点一下真的把他关掉了', clickSheet('关掉：不让 ' + nameOf(Q1) + ' 主动找你')
+    && charOf(Q1).proactive === false, String(charOf(Q1).proactive));
+  const who2 = sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node;
+  ok('关掉之后名单上标了「关掉了」',
+    walk(who2).some(x => x.textContent === '关掉了'), '');
+
+  rowEl(who2, nameOf(Q1)).click();
+  ok('关掉之后再点，第一项变成「打开」',
+    sheetLabels().some(l => l.indexOf('打开：允许 ' + nameOf(Q1)) >= 0), JSON.stringify(sheetLabels().slice(0, 2)));
+  ok('能再打开回来', clickSheet('打开：允许 ' + nameOf(Q1) + ' 主动找你')
+    && charOf(Q1).proactive !== false, '');
+
+  /* 间隔：单独特设之后才会多出「跟着全局」那一项 */
+  rowEl(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node, nameOf(Q1)).click();
+  ok('给他单独特设 1 小时间隔，落进档案',
+    clickSheet('1 小时没说话就来找你') && charOf(Q1).idleMin === 60,
+    String(charOf(Q1).idleMin));
+  rowEl(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node, nameOf(Q1)).click();
+  ok('单独特设过之后，多出一个「跟着全局」的选项',
+    sheetLabels().some(l => l.indexOf('跟着全局') >= 0), JSON.stringify(sheetLabels().slice(0, 3)));
+  ok('点「跟着全局」能把单独设的清掉，回到 0',
+    clickSheet('跟着全局：3 小时') && charOf(Q1).idleMin === 0, String(charOf(Q1).idleMin));
+
+  /* 名单上那一行的说明要能一眼看出是「单独设的」还是「跟着全局」 */
+  rowEl(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node, nameOf(Q1)).click();
+  clickSheet('6 小时没说话就来找你');
+  ok('名单那一行会写明「单独设的」',
+    String(rowEl(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node, nameOf(Q1)).textContent)
+      .indexOf('单独设的') >= 0, String(charOf(Q1).idleMin));
+  ok('没单独设的那个人写的是「跟着全局」',
+    String(rowEl(sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node, nameOf(Q2)).textContent)
+      .indexOf('跟着全局') >= 0, String(charOf(Q2).idleMin));
+
+  /* 总开关关掉时，名单页必须说清「这里开谁都没用」 */
+  A.state.settings.proactive = false;
+  const st2 = openFresh('settings');
+  rowEl(st2, '每个角色单独设').click();
+  const who4 = sandbox.SHELL.stack[sandbox.SHELL.stack.length - 1].node;
+  ok('总开关关着时，名单页明说「开谁都不会有人来找你」',
+    walk(who4).some(x => String(x.textContent).indexOf('总开关现在关着') >= 0), '');
+  ok('总开关关着时，名单上每个人都显示成「关」',
+    walk(who4).filter(x => x.textContent === '关 ›').length >= 2,
+    walk(who4).filter(x => x.textContent === '关 ›').length + ' 行');
+  A.state.settings.proactive = true;
+
+  /* 收尾：把这两个测试角色放回去，别留给后面的用例 */
+  A.state.characters = A.state.characters.filter(c => c.id !== Q1 && c.id !== Q2);
+  A.save();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

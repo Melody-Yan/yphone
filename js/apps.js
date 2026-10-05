@@ -2970,7 +2970,9 @@ const APPS = [
           onclick: () => { tab = p[0]; if (p[0] !== 'char') onlyChar = ''; homeView(); }
         }, p[1])));
 
-        const listBox = SJ.el('div', {});
+        /* 卡片列表必须是 .list：只有它有 flex:1 + min-height:0 + overflow-y:auto，
+           不然列表只能撑到内容高度，超出屏幕的部分被 #phone 裁掉、滚不到。 */
+        const listBox = SJ.el('div', { class: 'list' });
         root.append(SJ.el('div', { class: 'pad', style: { paddingBottom: 0 } }, [search]));
         root.append(seg);
         root.append(SJ.el('div', { class: 'pad', style: { paddingTop: '12px', paddingBottom: '2px' } }, [
@@ -3263,7 +3265,7 @@ const APPS = [
         });
         const head = SJ.el('div', { class: 'hint' });
         const whoText = SJ.el('div', { class: 'row-time' });
-        const out = SJ.el('div', {});
+        const out = SJ.el('div', { class: 'list' });
         input.addEventListener('input', paint);
 
         function paint() {
@@ -3304,18 +3306,23 @@ const APPS = [
       }
 
       /* ── 从文件导入 ──
-         目标：不管你手里是 .txt 还是 .docx，都能导进来，而且导进来的就是普通的卡 ——
-         能改、能删、能调顺序。不搞「导入完就是一团黑盒」。
+         目标：不管你手里是 .txt / .docx 还是世界书 JSON，都能导进来，
+         而且导进来的就是普通的卡 —— 能改、能删、能调顺序。不搞「导入完就是一团黑盒」。
          切得对不对不靠猜：先把切出来的拿给人看，人点头才落盘。 */
-      let pending = null;      // 刚读完的 [{name, text}]
+      let pending = null;      // 刚读完的 [{name, text, secs}]
       let impMode = 'coarse';  // 记住上次选的切法
       let impCat = '其他';
-      let impConst = true;     // 导进来的卡很难自动猜出关键词，先当常驻最不会白导
+      let impConst = true;     // 纯文本切出来的卡很难自动猜出关键词，先当常驻最不会白导
 
       /* 组装出「这次会建哪几张卡」 */
       function buildSections() {
         const out = [];
         (pending || []).forEach(f => {
+          /* JSON 世界书：结构本来就在，逐条搬，不用切、也不该切 */
+          if (f.secs) {
+            f.secs.forEach(x => out.push(Object.assign({ file: f.name, fromJson: true }, x)));
+            return;
+          }
           let secs = SJ.wbSections(f.text, impMode);
           if (!secs.length) return;
           /* 一个文件只切出一张时，它就是这张卡 —— 文件名比正文第一行准 */
@@ -3326,6 +3333,21 @@ const APPS = [
           }));
         });
         return out;
+      }
+
+      /* 一张卡最终长什么样 —— 预览和真正落盘都走这里，省得两处说得不一样。
+         JSON 里自带的字段（关键词 / 常驻 / 停用 / 顺序）说了算；
+         纯文本切出来的没有这些信息，才吃上面那两个开关。 */
+      function cardOf(x) {
+        const json = !!x.fromJson;
+        return {
+          title: x.title, content: x.content,
+          keys: json ? (x.keys || []) : [],
+          keysecondary: json ? (x.keysecondary || []) : [],
+          constant: json ? x.constant === true : impConst,
+          enabled: json ? x.enabled !== false : true,
+          order: json && isFinite(Number(x.order)) ? Number(x.order) : 100
+        };
       }
 
       async function readFiles(inp) {
@@ -3342,7 +3364,12 @@ const APPS = [
             toast('「' + f.name + '」没读出来' + (/\.docx$/i.test(f.name) ? '，另存成 .txt 再试' : ''));
             continue;
           }
-          got.push({ name: f.name, text: String(text) });
+          text = String(text);
+          /* 世界书 JSON：认得出来就按结构读，认不出来（不是 JSON / 解不开 / 一条正经条目都没有）
+             就返回 null，让它老实去当纯文本切 —— 不猜、不硬套。 */
+          let secs = null;
+          if (/\.json$/i.test(f.name) || /^\s*[[{]/.test(text)) secs = SJ.wbFromJson(text);
+          got.push({ name: f.name, text, secs });
         }
         inp.value = '';                 // 下次选同一个文件也要能触发 change
         if (!got.length) return;
@@ -3359,7 +3386,7 @@ const APPS = [
         const info = SJ.el('div', { class: 'hint' });
         const catSub = SJ.el('div', { class: 'row-sub' });
         const constSub = SJ.el('div', { class: 'row-sub' });
-        const list = SJ.el('div', {});
+        const list = SJ.el('div', { class: 'list' });
         const goBtn = SJ.el('button', { class: 'btn', onclick: doImport });
 
         function paintSections() {
@@ -3372,37 +3399,58 @@ const APPS = [
           });
 
           const secs = buildSections();
-          const total = secs.reduce((n, x) => n + x.content.length, 0);
+          const cards = secs.map(cardOf);
+          const total = cards.reduce((n, x) => n + x.content.length, 0);
+          const anyJson = secs.some(x => x.fromJson);
           /* 卡有自己的长度上限。超了会被砍尾巴 —— 砍了就得说出来，
              不能让人导完才发现少了一截。 */
-          const over = secs.filter(x => x.content.length > SJ.WB_TEXT_MAX).length;
+          const over = cards.filter(x => x.content.length > SJ.WB_TEXT_MAX).length;
           info.textContent = (pending || []).length + ' 个文件 → ' + secs.length + ' 张卡，共 ' + total + ' 字。'
             + (over
               ? '有 ' + over + ' 张超过 ' + SJ.WB_TEXT_MAX + ' 字，多的会被砍掉 —— 换成「按每一条切」，或者拆成几份再导。'
-              : (secs.length ? '导进来就是普通的卡，随时能改。' : '一张都没切出来。'));
+              : (secs.length
+                ? (anyJson ? 'JSON 里自带的关键词和常驻都照着搬。' : '导进来就是普通的卡，随时能改。')
+                : '一张都没切出来。'));
           catSub.textContent = impCat;
           constSub.textContent = impConst
-            ? '每次对话都会带上 · ' + total + ' 字'
+            ? '没有关键词的卡每次对话都会带上 · ' + total + ' 字'
               + (total > 8000 ? '，有点重，可以只导其中几个文件' : '')
-            : '只有聊到关键词才读到（导进来的卡没关键词，等于不会触发）';
+            : '没有关键词的卡只有聊到关键词才读到（它们没关键词，等于不会触发）';
           goBtn.textContent = '导入 ' + secs.length + ' 张卡';
 
+          /* JSON 读出来的卡不用选切法 —— 结构已经在那儿了，别让人对着没用的按钮点 */
+          segBox.style.display = anyJson && secs.every(x => x.fromJson) ? 'none' : '';
+
           list.innerHTML = '';
-          secs.forEach((x, i) => list.append(SJ.el('div', { class: 'row' }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, (i + 1) + '. ' + (x.title || '未命名')),
-              SJ.el('div', { class: 'row-sub' }, x.content.length + ' 字 · ' + x.content.split('\n')[0].slice(0, 28))
-            ])
-          ])));
+          secs.forEach((x, i) => {
+            const c = cards[i];
+            list.append(SJ.el('div', { class: 'row' }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, [
+                  (i + 1) + '. ' + (c.title || '未命名'),
+                  c.constant ? SJ.el('span', { class: 'wb-tag' }, '常驻') : null,
+                  c.enabled === false ? SJ.el('span', { class: 'wb-tag off' }, '停用') : null
+                ].filter(Boolean)),
+                SJ.el('div', { class: 'row-sub' }, c.content.length + ' 字 · ' + (c.keys.length
+                  ? '关键词：' + c.keys.slice(0, 3).join(' / ') + (c.keys.length > 3 ? ' 等 ' + c.keys.length + ' 个' : '')
+                  : c.content.split('\n')[0].slice(0, 28)))
+              ])
+            ]));
+          });
         }
 
         function doImport() {
           const secs = buildSections();
           if (!secs.length) { toast('没切出内容来'); return; }
-          secs.forEach(x => SJ.saveEntry(SJ.makeEntry({
-            title: x.title, content: x.content, cat: impCat, constant: impConst,
-            charIds: onlyChar ? [onlyChar] : []
-          })));
+          secs.forEach(x => {
+            const c = cardOf(x);
+            SJ.saveEntry(SJ.makeEntry({
+              title: c.title, content: c.content,
+              keys: c.keys, keysecondary: c.keysecondary,
+              constant: c.constant, enabled: c.enabled, order: c.order,
+              cat: impCat, charIds: onlyChar ? [onlyChar] : []
+            }));
+          });
           toast('导进来 ' + secs.length + ' 张卡');
           homeView();
         }
@@ -3421,7 +3469,7 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row', onclick: () => { impConst = !impConst; paintSections(); } }, [
             SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, impConst ? '全部做成常驻：开' : '全部做成常驻：关'),
+              SJ.el('div', { class: 'row-title' }, (impConst ? '没关键词的卡做成常驻：开' : '没关键词的卡做成常驻：关')),
               constSub
             ]),
             SJ.el('div', { class: 'row-time' }, impConst ? '开' : '关')
@@ -4970,6 +5018,75 @@ const APPS = [
     art: '2699',
     color: 'linear-gradient(150deg,#dcdedd,#b6bbbe)',
     render(root, close) {
+      /* 主动找你的候选间隔。总开关那一页和「每个角色单独设」共用这一份，
+         省得两处各写一份、改一处忘一处。 */
+      const IDLES = [[15, '15 分钟'], [30, '半小时'], [60, '1 小时'], [180, '3 小时'],
+        [360, '6 小时'], [720, '12 小时'], [1440, '1 天'], [2880, '2 天']];
+
+      /* 谁能主动找你。
+         角色一多，「不是每个人都想让他先开口」就是常态 ——
+         挨个进角色页改太慢，所以给一张名单，一次改完。 */
+      function proactiveWho() {
+        root.innerHTML = '';
+        root.append(navBar('谁能主动找你', { back: main }));
+        const box = SJ.el('div', { class: 'list' });
+        const chars = SJ.state.characters || [];
+        box.append(SJ.el('div', { class: 'hint' },
+          SJ.state.settings.proactive === false
+            ? '⚠️ 上一页那个总开关现在关着，这里开谁都不会有人来找你。'
+            : '总开关开着。关掉的人永远不会先开口；其他人的「多久算久」可以各设各的。'));
+        if (!chars.length) {
+          box.append(SJ.el('div', { class: 'empty' }, '通讯录里还没有人。'));
+        } else {
+          chars.forEach(c => {
+            const on = SJ.proactiveAllowed(c);
+            box.append(SJ.el('div', { class: 'row', onclick: () => pickProactive(c) }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, [
+                  c.name,
+                  c.proactive === false ? SJ.el('span', { class: 'wb-tag off' }, '关掉了') : null,
+                  c.blocked ? SJ.el('span', { class: 'wb-tag off' }, '拉黑中') : null
+                ].filter(Boolean)),
+                SJ.el('div', { class: 'row-sub' }, c.proactive === false
+                  ? '不会主动找你（聊天记录和记忆都还在）'
+                  : SJ.fmtIdle(SJ.idleNeedOf(c)) + '没说话就来找你'
+                    + (Number(c.idleMin) ? ' · 单独设的' : ' · 跟着全局'))
+              ]),
+              SJ.el('div', { class: 'row-time' }, on ? '开 ›' : '关 ›')
+            ]));
+          });
+        }
+        root.append(box);
+      }
+
+      /* 一个人一行统管到底：开关和间隔都在这次 sheet 里，
+         不用为了改个间隔再跳一层页面。 */
+      function pickProactive(c) {
+        const on = c.proactive !== false;
+        const items = [{
+          icon: on ? '🔕' : '🔔',
+          label: on ? '关掉：不让 ' + c.name + ' 主动找你' : '打开：允许 ' + c.name + ' 主动找你',
+          hint: '聊天记录和记忆都留着，只是不再先开口',
+          run: () => { c.proactive = on ? false : null; SJ.saveCharacter(c); proactiveWho(); }
+        }];
+        if (on) {
+          if (Number(c.idleMin)) items.push({
+            icon: '↩️',
+            label: '跟着全局：' + SJ.fmtIdle(Number(SJ.state.settings.idleMin) || 180),
+            hint: '不再单独设',
+            run: () => { c.idleMin = 0; SJ.saveCharacter(c); proactiveWho(); }
+          });
+          IDLES.forEach(([v, lab]) => items.push({
+            icon: '⏳',
+            label: lab + '没说话就来找你',
+            hint: Number(c.idleMin) === v ? '现在用的' : '',
+            run: () => { c.idleMin = v; SJ.saveCharacter(c); proactiveWho(); }
+          }));
+        }
+        sheet(items, SJ.el('div', { class: 'sheet-head' },
+          c.name + (on ? ' 多久没说话才来找你' : ' 现在不会主动找你')));
+      }
+
       function main() {
         root.innerHTML = '';
         root.append(navBar('设置'));
@@ -5172,10 +5289,9 @@ const APPS = [
           '好久没说话，就让他们自己先开一句 —— 提示词是「随手发条微信」，会带上你的人设、' +
           '关系和他记得的事，不提「你怎么不理我」这种。' +
           '⚠️ 网页版被关掉时跑不了，所以是「下次打开小手机 / 切回前台」的那一刻判一次，一次只放一个人。'));
-        box.append(toggleRow('久不说话让 TA 主动发消息', '关掉就永远不会有人先开口', SJ.state.settings.proactive !== false, () => {
+        box.append(toggleRow('久不说话让 TA 主动发消息', '总开关：关掉就永远不会有人先开口', SJ.state.settings.proactive !== false, () => {
           SJ.state.settings.proactive = SJ.state.settings.proactive === false; SJ.save(); main();
         }));
-        const IDLES = [[15, '15 分钟'], [30, '半小时'], [60, '1 小时'], [180, '3 小时'], [360, '6 小时'], [720, '12 小时'], [1440, '1 天'], [2880, '2 天']];
         box.append(SJ.el('div', {
           class: 'row',
           onclick: () => sheet(IDLES.map(([v, lab]) => ({
@@ -5185,9 +5301,18 @@ const APPS = [
         }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '多久算「好久」'),
-            SJ.el('div', { class: 'row-sub' }, '从你最后一次说话开始算')
+            SJ.el('div', { class: 'row-sub' }, '从你最后一次说话开始算 · 没单独设的人都用它')
           ]),
           SJ.el('div', { class: 'row-time' }, ((IDLES.find(x => x[0] === SJ.state.settings.idleMin) || [0, '3 小时'])[1]) + ' ›')
+        ]));
+        box.append(SJ.el('div', { class: 'row', onclick: proactiveWho }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '每个角色单独设'),
+            SJ.el('div', { class: 'row-sub' },
+              (n => n + ' 个人可以主动找你 · 挨个开关，也能各设一个间隔')(
+                (SJ.state.characters || []).filter(SJ.proactiveAllowed).length))
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
         ]));
         box.append(SJ.el('div', { class: 'hint' },
           (n => n ? `现在有 ${n} 个人够格来找你。` : '现在还没人到点（或者还没跟谁聊过）。')(SJ.proactiveCandidates().length)));

@@ -3298,11 +3298,11 @@ const APPS = [
         /* 卡片列表必须是 .list：只有它有 flex:1 + min-height:0 + overflow-y:auto，
            不然列表只能撑到内容高度，超出屏幕的部分被 #phone 裁掉、滚不到。 */
         const listBox = SJ.el('div', { class: 'list' });
-        root.append(SJ.el('div', { class: 'pad', style: { paddingBottom: 0 } }, [search]));
-        root.append(seg);
+        /* 搜索、分类、筛选原来是三块独立 .pad，看着像三块东西。合成一块头部。 */
+        const head = SJ.el('div', { class: 'wb-head' }, [search, seg]);
         /* 原来是「chips + 一整行开关」，占掉一大截高度，下面能看到的卡就少了。
            压成一行：左边筛选 chip（有条件时才出现），右边注入开关。 */
-        root.append(SJ.el('div', { class: 'wb-top' }, [
+        head.append(SJ.el('div', { class: 'wb-top' }, [
           SJ.el('button', {
             class: 'chip' + (onlyConst ? ' on' : ''),
             onclick: () => { onlyConst = !onlyConst; homeView(); }
@@ -3321,6 +3321,7 @@ const APPS = [
             }
           }, [SJ.el('i')])
         ].filter(Boolean)));
+        root.append(head);
         root.append(listBox);
         paint();
 
@@ -3344,8 +3345,12 @@ const APPS = [
              搜索/筛选时自动全摊开 —— 搜出来的东西还要再点一下才看得见，搜索就白做了。 */
           const searching = !!(q || onlyConst || onlyChar);
           books.forEach(b => {
-            /* 只有一本书就不用折叠了 —— 点了也没别处可去 */
-            const open = searching || books.length === 1 || openBooks[b.key] === true;
+            /* 只有一本书时默认摊开，但**用户点过就以点击为准** ——
+               原来写的是「books.length === 1 强制展开」，点箭头把 openBooks 设成 false 也不生效，
+               所以箭头看起来是坏的。 */
+            const open = searching || (openBooks[b.key] === undefined
+              ? books.length === 1
+              : openBooks[b.key] === true);
             const box = SJ.el('div', { class: 'wb-book' + (open ? ' open' : '') });
             box.append(SJ.el('div', { class: 'wb-book-head', onclick: () => {
               openBooks[b.key] = !(openBooks[b.key] === true);
@@ -3477,17 +3482,18 @@ const APPS = [
 
       /* 新建先问归到哪一类 —— 分类决定优先级，比选归属更常变 */
       function newPick() {
-        const head = SJ.el('div', { class: 'sheet-head' },
-          onlyChar
-            ? '这张卡归哪一类？（建完直接挂给「' + charName(onlyChar) + '」）'
-            : '这张卡归哪一类？（决定她读到的先后）');
+        /* 原来弹的是半屏 sheet，图标还是 ⛔ / 📄 两个 emoji。
+           换成全站常用的卡片行 + 线性图标 —— 「＋」在右上角，卡片也从右上角长出来。 */
         const items = SJ.WB_CATS.map(c => ({
-          icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+          svg: SJ.wbCatIndex(c) === 0 ? 'pin' : 'note',
           label: c,
           hint: (SJ.wbCatIndex(c) + 1) + ' · ' + SJ.WB_CAT_SUB[c],
           run: () => entryView(null, c)
         }));
-        sheet(items, head);
+        window.popover(items, {
+          head: onlyChar ? '建完直接挂给「' + charName(onlyChar) + '」' : '新建一张卡',
+          at: 'top'
+        });
       }
 
       /* 谁能读到：多选。通用 = 谁都不挂；选了具体的人就是「只有这几个人读得到」 */
@@ -3857,7 +3863,7 @@ const APPS = [
             ? '没有关键词的卡每次对话都会带上 · ' + total + ' 字'
               + (total > 8000 ? '，有点重，可以只导其中几个文件' : '')
             : '没有关键词的卡只有聊到关键词才读到（它们没关键词，等于不会触发）';
-          goBtn.textContent = '导入 ' + secs.length + ' 张卡';
+          goBtn.textContent = '把这一本放进书架（' + secs.length + ' 条）';
 
           /* JSON 读出来的卡不用选切法 —— 结构已经在那儿了，别让人对着没用的按钮点 */
           segBox.style.display = anyJson && secs.every(x => x.fromJson) ? 'none' : '';
@@ -5514,10 +5520,19 @@ const APPS = [
           sub ? SJ.el('div', { class: 'prow-s' }, sub) : null
         ].filter(Boolean));
         if (options.length <= 5) {
-          row.append(SJ.el('div', { class: 'seg' }, options.map(o => SJ.el('button', {
-            class: o === value ? 'on' : '',
-            onclick: () => onPick(o === value ? '' : o)
-          }, o))));
+          /* ⚠️ 只更新这一行的选中态，不要重画整个编辑页 ——
+             重画会把页面弹回顶部，选下面几项就得重新翻一遍。 */
+          let cur = value;
+          const btns = [];
+          const paint = () => btns.forEach((b, i) => b.classList.toggle('on', options[i] === cur));
+          row.append(SJ.el('div', { class: 'seg' }, options.map(o => {
+            const b = SJ.el('button', {
+              class: o === cur ? 'on' : '',
+              onclick: () => { cur = (cur === o ? '' : o); paint(); onPick(cur); }
+            }, o);
+            btns.push(b);
+            return b;
+          })));
         } else {
           const sel = SJ.el('select', { class: 'sel' }, [
             SJ.el('option', { value: '' }, '（不定）')
@@ -5581,20 +5596,25 @@ const APPS = [
 
           box.append(SJ.el('div', { class: 'group-title' }, '他是怎么知道你的'));
           box.append(SJ.el('div', { class: 'pad' }, [
-            pickRow('性别', '', SJ.PERSONA_GENDERS, draft.gender, v => set('gender', v)),
-            pickRow('年龄段', '角色对你的默认假设会跟着变', SJ.PERSONA_AGES, draft.age, v => set('age', v)),
-            pickRow('你们的关系', '给角色一个起点，之后还能自己变', SJ.PERSONA_RELS, draft.rel, v => set('rel', v)),
-            pickRow('MBTI', '', SJ.PERSONA_MBTI, draft.mbti, v => set('mbti', v))
+            pickRow('性别', '', SJ.PERSONA_GENDERS, draft.gender, v => { draft.gender = v; }),
+            pickRow('年龄段', '角色对你的默认假设会跟着变', SJ.PERSONA_AGES, draft.age, v => { draft.age = v; }),
+            pickRow('你们的关系', '给角色一个起点，之后还能自己变', SJ.PERSONA_RELS, draft.rel, v => { draft.rel = v; }),
+            pickRow('MBTI', '', SJ.PERSONA_MBTI, draft.mbti, v => { draft.mbti = v; })
           ]));
 
           /* 生日：用原生 date 输入，星座由它算出来，不用手填 */
           const bd = SJ.el('input', { class: 'field', type: 'date', value: draft.birthday || '' });
-          bd.addEventListener('change', () => { draft.birthday = bd.value; repaint(); });
-          const z = SJ.zodiacOf(draft.birthday);
+          const zHint = SJ.el('div', { class: 'hint' }, '');
+          const paintZ = () => {
+            const zz = SJ.zodiacOf(draft.birthday);
+            zHint.textContent = zz ? '星座：' + zz + '（按生日算的，不用填）' : '填了生日就自动带上星座';
+          };
+          bd.addEventListener('change', () => { draft.birthday = bd.value; paintZ(); });
+          paintZ();
           box.append(SJ.el('div', { class: 'group-title' }, '生日'));
           box.append(SJ.el('div', { class: 'pad' }, [
             SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '生日'), bd]),
-            SJ.el('div', { class: 'hint' }, z ? '星座：' + z + '（按生日算的，不用填）' : '填了生日就自动带上星座')
+            zHint
           ]));
 
           box.append(SJ.el('div', { class: 'group-title' }, '让对话更准的几句'));

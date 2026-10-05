@@ -3305,6 +3305,51 @@ input.field[type="range"]::-webkit-slider-thumb {
 .np-btn.play { width: 40px; height: 40px; background: var(--accent-soft); color: var(--ink); }
 .np-btn.play.on { background: var(--accent-solid); color: var(--bg); }
 
+/* ── 世界书：书架 ──
+   一本书一行：左边一条书脊（按书名取灰度，深浅错开才像一排书），
+   右边书名 + 条数；箭头展开时转 90°，子项依次淡入。 */
+.wb-book { border-bottom: 1px solid var(--line); }
+.wb-book-info { flex: 1 1 auto; min-width: 0; }
+.wb-book-name {
+  font-size: var(--fs-md); font-weight: 500; letter-spacing: .1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wb-book-sub {
+  margin-top: 3px; font-size: var(--fs-sm); color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wb-book-head {
+  display: flex; align-items: center; gap: 11px;
+  padding: 14px 20px 14px 14px; cursor: pointer;
+}
+.wb-book-head:active { background: var(--accent-soft); }
+.wb-spine {
+  flex: 0 0 auto; width: 5px; height: 30px; border-radius: 3px;
+  background: var(--ink-3);
+}
+.wb-arrow {
+  flex: 0 0 auto; display: inline-flex; color: var(--ink-3);
+  transition: transform var(--dur-2) var(--ease-quiet);
+}
+.wb-book.open .wb-arrow { transform: rotate(90deg); }
+.wb-entries { display: none; background: rgba(0, 0, 0, .02); }
+.wb-book.open .wb-entries { display: block; }
+/* 子项依次淡入：--i 由 JS 按顺序写进去，超过 12 个就一起淡入（不然最后几条要等很久） */
+.wb-entries .row { animation: wbIn var(--dur-2) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
+@keyframes wbIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.wb-book-acts {
+  display: flex; gap: 8px; padding: 4px 20px 12px 30px;
+}
+.wb-book-acts button {
+  border: 1px solid var(--line-2); background: none; cursor: pointer;
+  font: inherit; font-size: var(--fs-cap); color: var(--ink-2);
+  padding: 5px 11px; border-radius: var(--r-full);
+}
+.wb-book-acts button:active { background: var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) {
+  .wb-entries .row { animation: none; }
+}
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

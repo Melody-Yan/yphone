@@ -3260,6 +3260,18 @@ const APPS = [
       let onlyChar = String((arg && arg.charId) || '');
       let q = '';
       let onlyConst = false;
+      /* 哪些书是展开的。只记在这次进来期间 —— 退出去再进来全收起来，免得一屏摊开。 */
+      const openBooks = {};
+      /* 「往这本里加一条」先把书名记下来，保存那条时挂上去 */
+      let pendingBook = '';
+      /* 书脊灰度：按书名取，同名永远同档，深浅错开才像一排书 */
+      const SPINES = ['#111111', '#5c5c5c', '#8a8a8a', '#b4b4b4'];
+      const spineOf = name => {
+        let h = 0;
+        const str = String(name || '');
+        for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 997;
+        return SPINES[h % SPINES.length];
+      };
       const wb = () => SJ.state.worldbook;
       const findChar = id => (SJ.state.characters || []).find(x => x.id === id);
       const charName = id => { const c = findChar(id); return c ? c.name : '已删除的角色'; };
@@ -3312,21 +3324,48 @@ const APPS = [
           if (!allCards.length) {
             listBox.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张，或者从文件导入。'));
           }
-          const groups = allCards.length ? SJ.wbGroups({
+          const books = allCards.length ? SJ.wbBooks({
             filter: tab === 'char' ? 'char' : (tab === 'global' ? 'global' : 'all'),
             charId: onlyChar, q: q, onlyConst: onlyConst
           }) : [];
-          if (allCards.length && !groups.length) {
+          if (allCards.length && !books.length) {
             listBox.append(SJ.el('div', { class: 'empty' }, q || onlyConst ? '这个条件下没有卡。' : '还没有卡。'));
           }
 
-          groups.forEach(g => {
-            listBox.append(SJ.el('div', { class: 'group-title wb-cat' }, [
-              g.kind === 'cat' ? SJ.el('span', { class: 'wb-no' }, String(SJ.wbCatIndex(g.label) + 1)) : null,
-              g.label + ' · ' + g.list.length
-            ].filter(Boolean)));
-            if (g.sub) listBox.append(SJ.el('div', { class: 'hint wb-sub' }, g.sub));
-            g.list.forEach((e, i) => listBox.append(entryRow(e, i, g.list.length)));
+          /* ── 书架：一次导入 = 一本书，点开才看到里面的分条 ──
+             搜索/筛选时自动全摊开 —— 搜出来的东西还要再点一下才看得见，搜索就白做了。 */
+          const searching = !!(q || onlyConst || onlyChar);
+          books.forEach(b => {
+            /* 只有一本书就不用折叠了 —— 点了也没别处可去 */
+            const open = searching || books.length === 1 || openBooks[b.key] === true;
+            const box = SJ.el('div', { class: 'wb-book' + (open ? ' open' : '') });
+            box.append(SJ.el('div', { class: 'wb-book-head', onclick: () => {
+              openBooks[b.key] = !(openBooks[b.key] === true);
+              homeView();
+            } }, [
+              SJ.el('span', { class: 'wb-spine', style: { background: spineOf(b.key) } }),
+              SJ.el('div', { class: 'wb-book-info' }, [
+                SJ.el('div', { class: 'wb-book-name' }, b.label),
+                SJ.el('div', { class: 'wb-book-sub' }, b.list.length + ' 条'
+                  + (b.constN ? ' · 常驻 ' + b.constN : '')
+                  + (b.key === '未分类' ? ' · 导入时没带书名的老卡' : ''))
+              ]),
+              SJ.el('span', { class: 'wb-arrow', html: window.ICONSVG ? window.ICONSVG('right', 16) : '' })
+            ]));
+
+            if (open) {
+              b.list.forEach((e, i) => {
+                const row = entryRow(e, i, b.list.length);
+                row.style.setProperty('--i', String(Math.min(i, 12)));
+                box.append(row);
+              });
+              box.append(SJ.el('div', { class: 'wb-book-acts' }, [
+                SJ.el('button', { onclick: () => renameBook(b.key) }, '改书名'),
+                SJ.el('button', { onclick: () => addToBook(b.key) }, '往这本里加一条'),
+                SJ.el('button', { onclick: () => dropBook(b) }, '删掉这本（' + b.list.length + ' 条）')
+              ]));
+            }
+            listBox.append(box);
           });
 
           /* 上下文：这两个数决定每次发给模型多少东西，直接影响花费 */
@@ -3380,6 +3419,8 @@ const APPS = [
           SJ.el('div', { class: 'row-main', onclick: () => entryView(e.id) }, [
             SJ.el('div', { class: 'row-title' }, [
               e.title,
+              /* 优先级就是 order（本来就决定注入顺序），不另存一份 */
+              SJ.el('span', { class: 'wb-tag pri' }, '优先级 ' + SJ.wbPriLabel(e.order)),
               e.constant ? SJ.el('span', { class: 'wb-tag' }, '常驻') : null,
               (e.charIds || []).length ? SJ.el('span', { class: 'wb-tag who' }, '专属') : null,
               e.enabled === false ? SJ.el('span', { class: 'wb-tag off' }, '已停用') : null
@@ -3395,6 +3436,35 @@ const APPS = [
             onclick: () => { if (SJ.moveEntry(e.id, 1)) homeView(); }
           }, '↓')
         ]);
+      }
+
+      /* ── 书本级动作 ── */
+      function renameBook(name) {
+        askText('给这本书改个名', name === '未分类' ? '书的名字' : name, '', v => {
+          const nv = String(v || '').trim().slice(0, 40);
+          if (!nv) return toast('名字不能空着');
+          let n = 0;
+          wb().forEach(e => { if (SJ.wbBook(e) === name) { e.book = nv; n++; } });
+          SJ.save();
+          toast(n + ' 条归到「' + nv + '」');
+          homeView();
+        });
+      }
+
+      function addToBook(name) {
+        /* 先在编辑页把这条写完，保存时再挂到这本书上 */
+        pendingBook = name === '未分类' ? '' : name;
+        entryView(null);
+      }
+
+      function dropBook(b) {
+        confirmBox('删掉「' + b.label + '」这一本？里面的 ' + b.list.length + ' 条会一起没。', () => {
+          const ids = b.list.map(e => e.id);
+          SJ.state.worldbook = (SJ.state.worldbook || []).filter(e => ids.indexOf(e.id) < 0);
+          SJ.save();
+          toast('删掉了一整本');
+          homeView();
+        });
       }
 
       /* 新建先问归到哪一类 —— 分类决定优先级，比选归属更常变 */
@@ -3512,6 +3582,8 @@ const APPS = [
         function saveIt() {
           e.title = title.value; e.keys = keys.value; e.content = content.value;
           e.keysecondary = sec.value; e.order = order.value;
+          if (pendingBook) e.book = pendingBook;      /* 从「往这本里加一条」进来的 */
+          pendingBook = '';
           if (isNew && !e.content.trim() && !String(e.keys).trim()) return homeView();   // 空的当没建
           SJ.saveEntry(e);
           homeView();

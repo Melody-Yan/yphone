@@ -478,6 +478,8 @@ function migrate(saved) {
         keysecondary: wbSplit(e.keysecondary),
         content: String(e.content || '').slice(0, WB_TEXT_MAX),
         cat: WB_CATS_IN.indexOf(cat) >= 0 ? cat : '其他',
+        /* 一次导入 = 一本书。空串 = 老存档，显示时归到「未分类」。 */
+        book: String(e.book || '').trim().slice(0, NAME_MAX),
         logic: [0, 1, 2, 3].indexOf(lg) >= 0 ? lg : 0,
         order: isFinite(od) ? od : 100,
         constant: !!e.constant,
@@ -1393,7 +1395,22 @@ function moveEntry(id, dir) {
 /* 世界书页的分组。默认按「分类」分（分类顺序就是注入优先级），
    切到「角色」视角时改成按角色分 —— 那是「他到底读得到哪几张」的看法。
    角色被删掉后留下的卡仍然单独成组，不然它们会悄悄消失、用户再也找不到。 */
-function wbGroups(opts) {
+/* 优先级就是 order，只是给个人话名字 —— 不另存一份，改一处不会打架。 */
+function wbPriLabel(order) {
+  const n = Number(order);
+  if (!isFinite(n) || n <= 60) return '高';
+  if (n >= 140) return '低';
+  return '中';
+}
+
+/* 一本书的名字。老存档没有 book 字段 → 「未分类」。 */
+function wbBook(e) {
+  const b = String((e && e.book) || '').trim();
+  return b || '未分类';
+}
+
+/* 筛选（档位 / 角色 / 搜索 / 只看常驻）抽出来 —— 按分类分组和按书分组都要用同一套。 */
+function wbFiltered(opts) {
   const o = opts || {};
   const q = String(o.q || '').trim().toLowerCase();
   const filter = o.filter === 'global' || o.filter === 'char' ? o.filter : 'all';
@@ -1413,13 +1430,46 @@ function wbGroups(opts) {
   }
   if (o.onlyConst === true) list = list.filter(e => e.constant);
   if (q) {
+    /* 也能按书名搜 —— 记得住书名却记不住某一条的标题是常事 */
     list = list.filter(e =>
       String(e.title || '').toLowerCase().includes(q) ||
       String(e.content || '').toLowerCase().includes(q) ||
+      wbBook(e).toLowerCase().includes(q) ||
       (e.keys || []).some(k => String(k).toLowerCase().includes(q)) ||
       (e.keysecondary || []).some(k => String(k).toLowerCase().includes(q)));
   }
+  return list;
+}
 
+/* ── 书架分组：一次导入 = 一本书 ──
+   和 wbGroups（按分类 / 按角色）并列，页面上用哪个由界面决定。 */
+function wbBooks(opts) {
+  const list = wbFiltered(opts);
+  const map = new Map();
+  list.forEach(e => {
+    const k = wbBook(e);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(e);
+  });
+  const books = [];
+  map.forEach((arr, k) => books.push({
+    key: k, label: k, kind: 'book', list: wbSorted(arr),
+    constN: arr.filter(e => e.constant).length
+  }));
+  /* 「未分类」永远排最后，其余按书名 —— 中文要按本地顺序排，不能按码位 */
+  books.sort((a, b) => {
+    if (a.key === '未分类') return 1;
+    if (b.key === '未分类') return -1;
+    return a.key.localeCompare(b.key, 'zh');
+  });
+  return books;
+}
+
+function wbGroupsFrom(opts) {
+  const o = opts || {};
+  const filter = o.filter === 'global' || o.filter === 'char' ? o.filter : 'all';
+  const onlyChar = String(o.charId || '');
+  let list = wbFiltered(opts);
   if (filter === 'char') {
     /* 一张共享卡会同时出现在几个角色底下，这是对的：想看的本来就是「他能读到什么」。 */
     const uni = list.filter(e => !(e.charIds || []).length);
@@ -3961,7 +4011,7 @@ window.SJ = {
   /* 语音（浏览器自带 TTS） */
   voiceOn, hasSpeech, voiceOf, redpacketOf, stripMarks, voiceDur, voiceList, speak, stopSpeak, putBlob,
   /* 世界书 / 记忆 / 日历 */
-  makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
+  makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups: wbGroupsFrom, wbGroupsFrom, wbSorted,
   moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
   wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, wbFromJson, wbToJson, saveText,
   cardFromJson, cardFromPng, cardFromText, pngCardText,
@@ -3997,7 +4047,8 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove, musicClear, musicNow, musicSetNow,
+  parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove,
+  wbBooks, wbBook, wbPriLabel, musicClear, musicNow, musicSetNow,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */
   WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,

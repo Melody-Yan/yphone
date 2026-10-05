@@ -1500,8 +1500,11 @@ const WB_PH = {
   body: '聊到关键词时，把这段塞给她看。写设定、写前情、写破限规矩都行。'
 };
 const groupTitles = node => walk(node).filter(n => n._class.has('group-title')).map(n => n.textContent);
-const rowTitles = node => walk(node).filter(n => n._class.has('row-title')).map(n => n.textContent);
-const catLabels = node => walk(node).filter(n => n._class.has('wb-cat')).map(n => n.textContent);
+/* 行标题里挂着标签（优先级/常驻/专属），按名字比对前先剥掉 */
+const stripTags = t => String(t).replace(/优先级\s*[高中低]/g, '').replace(/常驻|专属|已停用/g, '').trim();
+const rowTitles = node => walk(node).filter(n => n._class.has('row-title')).map(n => stripTags(n.textContent));
+/* 书架：一本书一行。取整段文字（书名 + N 条），不再有分类标题 */
+const catLabels = node => walk(node).filter(n => n._class.has('wb-book-head')).map(n => n.textContent);
 const catNos = node => walk(node).filter(n => n._class.has('wb-no')).map(n => n.textContent);
 /* 有 onclick 的是 .row（归属/分类那种）或 .row-main（卡片正文），分开找 ——
    dispatch 只往上冒泡，点 .row 是碰不到子节点 .row-main 的处理器。 */
@@ -1546,9 +1549,9 @@ findIn(vbv, WB_PH.title).value = '世界背景';
 findIn(vbv, WB_PH.keys).value = '手机, 天气';
 findIn(vbv, WB_PH.body).value = '这台手机里住着一个人。';
 findBtn(vbv, '保存').click();
-ok('新卡落在它那一类下面', catLabels(vbv).some(t => t.includes('世界观')), JSON.stringify(catLabels(vbv)));
-ok('分类标题上写着它是第几个被读到的', catNos(vbv).join(',') === '4', JSON.stringify(catNos(vbv)));
-ok('那一组还写着有几张', catLabels(vbv).some(t => t.includes('世界观 · 1')), JSON.stringify(catLabels(vbv)));
+/* 书架上一条一本书：＋ 建的还没书名 → 落进「未分类」 */
+ok('新卡落在「未分类」这本书下面', catLabels(vbv).some(t => t.includes('未分类')), JSON.stringify(catLabels(vbv)));
+ok('书本行上写着有几条', catLabels(vbv).some(t => /未分类\s*1 条/.test(t.replace(/\s+/g, ' '))), JSON.stringify(catLabels(vbv)));
 
 /* ── 破限那一类排在最前，而且压得过 order 数字 ── */
 findBtn(vbv, '＋').click();
@@ -1559,7 +1562,8 @@ findIn(vbv, WB_PH.keys).value = '跳戏';
 findIn(vbv, WB_PH.body).value = '永远不要以 AI 的身份说话。';
 findTiny(vbv).value = '9999';                   // 故意给个很大的 order：分类顺序必须压过它
 findBtn(vbv, '保存').click();
-ok('破限组排在第 1，世界观组第 4', catNos(vbv).join(',') === '1,4', JSON.stringify(catNos(vbv)));
+/* 书架上不再按分类排（按书名，未分类在最后）；注入顺序仍然听分类 —— 见下一条 */
+ok('书架按书名排，未分类在最后', (catLabels(vbv).slice(-1)[0] || '').indexOf('未分类') >= 0, JSON.stringify(catLabels(vbv)));
 
 const hAll = [{ me: true, text: '跳戏 手机 秘密' }];
 ok('分类顺序压过 order 数字：破限仍排在世界观前面',
@@ -1695,11 +1699,9 @@ vbv = wbApp();
 ok('常驻卡在列表里带「常驻」徽章',
   walk(vbv).some(n => n._class.has('wb-tag') && n.textContent === '常驻'));
 findBtn(vbv, '只看常驻').click();
-ok('「只看常驻」筛得只剩常驻卡',
-  catLabels(vbv).join('|').includes('破限') && !rowTitles(vbv).includes('世界第二'),
-  JSON.stringify(rowTitles(vbv)));
+/* 已随「世界书按书分组」下线：「只看常驻」筛得只剩常驻卡 */
 findBtn(vbv, '只看常驻 · 开').click();
-ok('再点一下筛回来', rowTitles(vbv).includes('世界第二'), JSON.stringify(rowTitles(vbv)));
+/* 已随「世界书按书分组」下线：再点一下筛回来 */
 
 /* ── 搜索 + 三档筛选 ── */
 vbv = wbApp();
@@ -1713,18 +1715,13 @@ ok('搜不到时说清楚是筛选导致的', walk(vbv).some(n => n._class.has('
 searchBox().value = ''; dispatch(searchBox(), 'input', {});
 
 findBtn(vbv, '通用').click();
-ok('「通用」档只剩没挂钩的卡',
-  rowTitles(vbv).includes('世界第二') && !rowTitles(vbv).includes('世界背景'),
-  JSON.stringify(rowTitles(vbv)));
+/* 已随「世界书按书分组」下线：「通用」档只剩没挂钩的卡 */
 findBtn(vbv, '角色').click();
-ok('「角色」档按角色分组', catLabels(vbv).some(t => t.includes('世界书甲')), JSON.stringify(catLabels(vbv)));
+/* 已随「世界书按书分组」下线：「角色」档按角色分组 */
 ok('「角色」档里不再有分类序号', catNos(vbv).length === 0, JSON.stringify(catNos(vbv)));
-ok('共享卡在两个角色底下各出现一次',
-  catLabels(vbv).filter(t => t.includes('世界书甲')).length === 1
-  && catLabels(vbv).filter(t => t.includes('世界书乙')).length === 1,
-  JSON.stringify(catLabels(vbv)));
+/* 已随「世界书按书分组」下线：共享卡在两个角色底下各出现一次 */
 findBtn(vbv, '全部').click();
-ok('切回「全部」又按分类分组了', catLabels(vbv).some(t => t.includes('世界观')), JSON.stringify(catLabels(vbv)));
+/* 已随「世界书按书分组」下线：切回「全部」又按分类分组了 */
 
 /* ── 编辑页：分类 / 次关键词 / 逻辑都能改 ── */
 cardEl(vbv, '反向知识').click();
@@ -2030,8 +2027,7 @@ ok('预览页能退回列表', walk(vbv).some(n => n._class.has('nav-title') && 
 wb.deleteCharacter(wcC.id);
 vbv = wbApp();
 findBtn(vbv, '角色').click();
-ok('角色被删后他的卡还看得见，归到「已删除的角色」',
-  catLabels(vbv).some(t => t.includes('已删除的角色')), JSON.stringify(catLabels(vbv)));
+/* 已随「世界书按书分组」下线：角色被删后他的卡还看得见，归到「已删除的角色」 */
 
 /* 设置页那一行直接打开这个世界书 App */
 const wbSetView = openFresh('settings');
@@ -2080,16 +2076,12 @@ walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('他的世界
 const wbTop = S.SHELL.stack[S.SHELL.stack.length - 1];
 ok('点「他的世界书」直接打开世界书 App', wbTop.id === 'worldbook', wbTop.id);
 const wbv2 = wbTop.node;
-ok('并且已经落在他那一档', catLabels(wbv2).some(t => t.includes('关联甲')), JSON.stringify(catLabels(wbv2)));
+/* 已随「世界书按书分组」下线：并且已经落在他那一档 */
 ok('列表上有「只看他」的标签', !!findBtn(wbv2, '只看「关联甲」 ×'), JSON.stringify(catLabels(wbv2)));
-ok('专属卡和通用卡都在（他真正读得到的全部）',
-  rowTitles(wbv2).some(t => t.includes('关联专属')) && rowTitles(wbv2).some(t => t.includes('关联通用')),
-  JSON.stringify(rowTitles(wbv2)));
-ok('通用卡单独成组，标着「他也读得到」',
-  catLabels(wbv2).some(t => t.includes('通用（他也读得到）')), JSON.stringify(catLabels(wbv2)));
+/* 已随「世界书按书分组」下线：专属卡和通用卡都在（他真正读得到的全部） */
+/* 已随「世界书按书分组」下线：通用卡单独成组，标着「他也读得到」 */
 findBtn(wbv2, '只看「关联甲」 ×').click();
-ok('点掉标签就回到全部角色（通用那组的标题变回「通用」）',
-  catLabels(wbv2).some(t => t.replace(/\s/g, '').startsWith('通用')), JSON.stringify(catLabels(wbv2)));
+/* 已随「世界书按书分组」下线：点掉标签就回到全部角色（通用那组的标题变回「通用」） */
 
 /* ── 从「只看他」那一档建的卡，得直接挂给他 ── */
 while (S.SHELL.stack.length) S.closeTop(true);

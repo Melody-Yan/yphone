@@ -3313,13 +3313,16 @@ input.field[type="range"]::-webkit-slider-thumb {
    右边书名 + 条数；箭头展开时转 90°，子项依次淡入。 */
 /* ── 世界书：视图 A 的书卡 / 视图 B 的词条卡 ── */
 .wb-bcard {
-  display: flex; align-items: center; gap: 11px;
-  margin: 9px 14px; padding: 13px 14px;
-  background: var(--card); border-radius: var(--r-m);
+  display: flex; align-items: center; gap: 10px;
+  /* 用户嫌「上下胖」——左右收窄、上下压扁，信息压成两行 */
+  margin: 7px 26px; padding: 9px 13px;
+  background: var(--card); border-radius: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
 }
 .wb-bcard:active { transform: scale(.985); }
 .wb-book-time { margin-top: 3px; font-size: var(--fs-cap); color: var(--ink-3); }
+.wb-bcard .wb-book-name { font-size: 16px; }
+.wb-bcard .wb-book-sub { margin-top: 2px; }
 
 .wb-ecards { padding: 0 14px; }
 .wb-ecard {
@@ -3338,6 +3341,8 @@ input.field[type="range"]::-webkit-slider-thumb {
   font-size: var(--fs-cap); color: var(--ink-2);
   background: var(--bg-2); border-radius: var(--r-full); padding: 2px 8px;
 }
+/* 深色下 --bg-2 本身就是暗的，标签会糊在卡片里 —— 换成半透明白 */
+#phone.dark .wb-kw { background: rgba(255, 255, 255, .14); color: var(--ink); }
 .wb-ec-body {
   margin-top: 8px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -3384,8 +3389,14 @@ input.field[type="range"]::-webkit-slider-thumb {
 .wb-entries .row { animation: wbIn var(--dur-2) var(--ease-out) both; animation-delay: calc(var(--stagger) * var(--i, 0)); }
 @keyframes wbIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .wb-book-acts {
-  display: flex; gap: 8px; padding: 4px 20px 12px 30px;
+  display: flex; gap: 8px;
+  padding: 4px 20px 12px 30px;
+  /* 一排按钮，排不下就横向滚 —— 换行会把「加一条」拆成「加一/条」，很难看 */
+  flex-wrap: nowrap; overflow-x: auto; white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
 }
+.wb-book-acts::-webkit-scrollbar { display: none; }
+.wb-book-acts button { flex: 0 0 auto; }
 .wb-book-acts button {
   border: 1px solid var(--line-2); background: none; cursor: pointer;
   font: inherit; font-size: var(--fs-cap); color: var(--ink-2);

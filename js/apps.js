@@ -3271,6 +3271,8 @@ const APPS = [
       let q = '';
       let onlyConst = false;
       let impBook = '';          // 这次导入的书名（默认取文件名）
+      let editBook = '';         // 正在编辑的条目属于哪本书（存完回那本）
+      let paintBook = () => {};  // 当前书内页的重画钩子（卡片上 ↑↓ 用）
       /* 哪些书是展开的。只记在这次进来期间 —— 退出去再进来全收起来，免得一屏摊开。 */
       const openBooks = {};
       /* 「往这本里加一条」先把书名记下来，保存那条时挂上去 */
@@ -3355,41 +3357,18 @@ const APPS = [
           /* ── 书架：一次导入 = 一本书，点开才看到里面的分条 ──
              搜索/筛选时自动全摊开 —— 搜出来的东西还要再点一下才看得见，搜索就白做了。 */
           const searching = !!(q || onlyConst || onlyChar);
+                    /* ── 视图 A：世界书列表 —— 一本一张卡 ── */
           books.forEach(b => {
-            /* 只有一本书时默认摊开，但**用户点过就以点击为准** ——
-               原来写的是「books.length === 1 强制展开」，点箭头把 openBooks 设成 false 也不生效，
-               所以箭头看起来是坏的。 */
-            const open = searching || (openBooks[b.key] === undefined
-              ? books.length === 1
-              : openBooks[b.key] === true);
-            const box = SJ.el('div', { class: 'wb-book' + (open ? ' open' : '') });
-            box.append(SJ.el('div', { class: 'wb-book-head', onclick: () => {
-              openBooks[b.key] = !(openBooks[b.key] === true);
-              homeView();
-            } }, [
+            listBox.append(SJ.el('div', { class: 'wb-bcard', onclick: () => bookView(b.key) }, [
               SJ.el('span', { class: 'wb-spine', style: { background: spineOf(b.key) } }),
               SJ.el('div', { class: 'wb-book-info' }, [
                 SJ.el('div', { class: 'wb-book-name' }, b.label),
-                SJ.el('div', { class: 'wb-book-sub' }, b.list.length + ' 条'
+                SJ.el('div', { class: 'wb-book-sub' }, '共 ' + b.list.length + ' 条'
                   + (b.constN ? ' · 常驻 ' + b.constN : '')
-                  + (b.key === '未分类' ? ' · 导入时没带书名的老卡' : ''))
+                  + ' · 建于 ' + dayOf(b.ts))
               ]),
               SJ.el('span', { class: 'wb-arrow', html: window.ICONSVG ? window.ICONSVG('right', 16) : '' })
             ]));
-
-            if (open) {
-              b.list.forEach((e, i) => {
-                const row = entryRow(e, i, b.list.length);
-                row.style.setProperty('--i', String(Math.min(i, 12)));
-                box.append(row);
-              });
-              box.append(SJ.el('div', { class: 'wb-book-acts' }, [
-                SJ.el('button', { onclick: () => renameBook(b.key) }, '改书名'),
-                SJ.el('button', { onclick: () => addToBook(b.key) }, '往这本里加一条'),
-                SJ.el('button', { onclick: () => dropBook(b) }, '删掉这本（' + b.list.length + ' 条）')
-              ]));
-            }
-            listBox.append(box);
           });
 
           /* 上下文：这两个数决定每次发给模型多少东西，直接影响花费 */
@@ -3462,6 +3441,111 @@ const APPS = [
         ]);
       }
 
+      /* 从编辑页退出来：这条属于哪本书就回哪本，不然回书架。
+         用户是在书里点「加一条」进来的，存完被丢回书架会很懵。 */
+      function backFromEdit() {
+        const bk = String(editBook || '').trim();
+        editBook = '';
+        if (bk) bookView(bk); else homeView();
+      }
+
+      /* 建于是哪一天 */
+      function dayOf(ts) {
+        const d = new Date(Number(ts) || Date.now());
+        return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+      }
+
+      /* ── 视图 B：一本书的详情 ──
+         顶上搜索框，下面这个词条的卡片：标题、触发词、内容（超出折叠）、优先级、常驻开关。 */
+      function bookView(name) {
+        root.innerHTML = '';
+        root.append(navBar(name, { back: homeView }));
+        const box = SJ.el('div', { class: 'list' });
+        const sq = SJ.el('input', { class: 'field', placeholder: '搜这本里的词条…' });
+        const wrap = SJ.el('div', { class: 'wb-ecards' });
+        const all = wb().filter(e => SJ.wbBook(e) === name);
+
+        const paint = () => {
+          wrap.innerHTML = '';
+          const qq = String(sq.value || '').trim().toLowerCase();
+          const hit = e => !qq
+            || String(e.title || '').toLowerCase().includes(qq)
+            || String(e.content || '').toLowerCase().includes(qq)
+            || (e.keys || []).some(x => String(x).toLowerCase().includes(qq));
+          const list = SJ.wbSorted(all.filter(hit));
+          if (!list.length) {
+            wrap.append(qq
+              ? SJ.el('div', { class: 'hint', style: { padding: '10px 20px' } },
+                  '这本里没有匹配「' + sq.value + '」的词条')
+              : emptyState('note', '这本还是空的', '点下面的「加一条」写一条进去', '加一条', () => addToBook(name)));
+            return;
+          }
+          list.forEach((e, i) => {
+            const card = entryCard(e, list.length);
+            card.style.setProperty('--i', String(Math.min(i, 12)));
+            wrap.append(card);
+          });
+        };
+        sq.addEventListener('input', paint);
+        paintBook = paint;                       /* 卡片上的 ↑↓ 改完顺序，重画这本书 */
+
+        box.append(SJ.el('div', { class: 'pad', style: { paddingBottom: '4px' } }, [sq]));
+        box.append(wrap);
+        box.append(SJ.el('div', { class: 'wb-book-acts', style: { paddingTop: '4px' } }, [
+          SJ.el('button', { onclick: () => addToBook(name) }, '加一条'),
+          SJ.el('button', { onclick: () => renameBook(name) }, '改名'),
+          SJ.el('button', { onclick: () => exportBook() }, '导出'),
+          SJ.el('button', { onclick: () => dropBook({ key: name, label: name, list: all }) },
+            '删掉（' + all.length + ' 条）')
+        ]));
+        paint();
+        root.append(box);
+      }
+
+      /* 一张词条卡。名字沿用 .row / .row-title —— 老断言和「按行找卡」的习惯都靠它。 */
+      function entryCard(e, total) {
+        const card = SJ.el('div', { class: 'row wb-ecard' });
+        const body = SJ.el('div', { class: 'wb-ec-body' }, e.content || '（没写内容）');
+        const more = SJ.el('button', {
+          class: 'wb-ec-more',
+          onclick: ev => {
+            ev.stopPropagation();
+            const open = card.classList.toggle('open');
+            more.textContent = open ? '收起' : '展开全文';
+          }
+        }, '展开全文');
+        const openIt = () => { editBook = SJ.wbBook(e); entryView(e); };
+
+        card.append(SJ.el('div', { class: 'wb-ec-top', onclick: openIt }, [
+          SJ.el('div', { class: 'row-main', onclick: openIt }, [SJ.el('div', { class: 'row-title' }, e.title)]),
+          SJ.el('span', { class: 'wb-tag pri' }, '优先级 ' + SJ.wbPriLabel(e.order)),
+          e.constant ? SJ.el('span', { class: 'wb-tag' }, '常驻') : null,
+          SJ.el('span', { class: 'wb-ec-mv' }, [
+            SJ.el('button', { class: 'row-x mv', onclick: ev => { ev.stopPropagation(); SJ.moveEntry(e.id, -1); paintBook(); } }, '↑'),
+            SJ.el('button', { class: 'row-x mv', onclick: ev => { ev.stopPropagation(); SJ.moveEntry(e.id, 1); paintBook(); } }, '↓')
+          ])
+        ].filter(Boolean)));
+        if ((e.keys || []).length) {
+          card.append(SJ.el('div', { class: 'wb-ec-keys', onclick: openIt },
+            e.keys.slice(0, 6).map(x => SJ.el('span', { class: 'wb-kw' }, x))));
+        }
+        card.append(body);
+        if (String(e.content || '').length > 46) card.append(more);
+        card.append(SJ.el('div', { class: 'wb-ec-foot' }, [
+          SJ.el('span', { class: 'wb-ec-l' }, '常驻（必定触发）'),
+          SJ.el('button', {
+            class: 'sw' + (e.constant ? ' on' : ''), type: 'button',
+            onclick: ev => {
+              ev.stopPropagation();
+              e.constant = !e.constant;
+              SJ.saveEntry(e);
+              ev.currentTarget.classList.toggle('on', e.constant);
+            }
+          }, [SJ.el('i')])
+        ]));
+        return card;
+      }
+
       /* ── 书本级动作 ── */
       function renameBook(name) {
         askText('给这本书改个名', name === '未分类' ? '书的名字' : name, '', v => {
@@ -3478,6 +3562,7 @@ const APPS = [
       function addToBook(name) {
         /* 先在编辑页把这条写完，保存时再挂到这本书上 */
         pendingBook = name === '未分类' ? '' : name;
+        editBook = name;
         entryView(null);
       }
 
@@ -3609,9 +3694,9 @@ const APPS = [
           e.keysecondary = sec.value; e.order = order.value;
           if (pendingBook) e.book = pendingBook;      /* 从「往这本里加一条」进来的 */
           pendingBook = '';
-          if (isNew && !e.content.trim() && !String(e.keys).trim()) return homeView();   // 空的当没建
+          if (isNew && !e.content.trim() && !String(e.keys).trim()) return backFromEdit();   // 空的当没建
           SJ.saveEntry(e);
-          homeView();
+          backFromEdit();
         }
 
         root.append(SJ.el('div', { class: 'pad' }, [
@@ -3676,7 +3761,7 @@ const APPS = [
       function exportBook() {
         const cards = SJ.state.worldbook || [];
         if (!cards.length) { toast('还没有卡可导'); return; }
-        const json = SJ.wbToJson(cards);
+        const json = JSON.stringify({ books: SJ.wbPackBooks(cards) }, null, 2);
         const d = new Date();
         const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0')
           + String(d.getDate()).padStart(2, '0');
@@ -3684,7 +3769,7 @@ const APPS = [
           {
             svg: 'note', label: '存成 .json 文件', hint: 'yphone-世界书-' + stamp + '.json',
             run: () => toast(SJ.saveText('yphone-世界书-' + stamp + '.json', json)
-              ? '导好了 · ' + cards.length + ' 张卡'
+              ? '导好了 · ' + SJ.wbPackBooks(cards).length + ' 本 · ' + cards.length + ' 条'
               : '这台设备不让下载，用下面那条「复制」')
           },
           {

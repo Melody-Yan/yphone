@@ -1966,16 +1966,38 @@ function wbSections(text, mode) {
   flush();
 
   const secs = [];
-  blocks.forEach(b => {
-    const marks = [];
-    b.forEach((l, i) => { if (WB_LIST_MARK.test(l)) marks.push(i); });
-    if (mode === 'fine' && marks.length >= 2) {
-      if (marks[0] > 0) secs.push(b.slice(0, marks[0]));      // 前面的说明/标题自己成一张
-      marks.forEach((m, k) => secs.push(b.slice(m, k + 1 < marks.length ? marks[k + 1] : b.length)));
-    } else {
-      secs.push(b);
-    }
-  });
+  const headLine = (l, next) => {
+      /* 一行是不是「标题味」。
+         strong = 结构标记，硬边界，两种切法都算；
+         weak = 短、没逗号、没句末标点、下一行更长 —— Word 的标题常长这样，
+         但也可能误判正文，所以只在细切时算。 */
+      const t = l.trim();
+      if (!t) return '';
+      if (/^[【「《〔\[][^】」》〕\]]{1,40}[】」》〕\]]$/.test(t)) return 'strong';
+      if (/^#{1,4}\s+\S/.test(t)) return 'strong';
+      if (/^[(（]?([一二三四五六七八九十]{1,3}|\d{1,3})[)）.、]\s*\S/.test(t)) return 'strong';
+      if (t.length <= 12 && !/[，,、。！？!?…；;：:]/.test(t)
+          && next && next.trim().length > t.length) return 'weak';
+      return '';
+    };
+
+    blocks.forEach(b => {
+      const strong = [];
+      const weak = [];
+      b.forEach((l, i) => {
+        if (WB_LIST_MARK.test(l) || headLine(l, b[i + 1]) === 'strong') strong.push(i);
+        else if (headLine(l, b[i + 1]) === 'weak') weak.push(i);
+      });
+      /* 结构边界任何模式下都切；短标题行只在细切时切 */
+      const marks = strong.concat(mode === 'fine' ? weak : [])
+        .filter((v, i2, a) => a.indexOf(v) === i2).sort((x, y) => x - y);
+      if (marks.length >= 1) {
+        if (marks[0] > 0) secs.push(b.slice(0, marks[0]));   // 前面的说明/标题自己成一张
+        marks.forEach((m, k2) => secs.push(b.slice(m, k2 + 1 < marks.length ? marks[k2 + 1] : b.length)));
+      } else {
+        secs.push(b);
+      }
+    });
 
   return secs.map(sec => ({
     title: wbTitleFrom(sec.find(l => l.trim()) || ''),

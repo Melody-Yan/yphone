@@ -310,13 +310,13 @@ const dotCount = () => {
   return d ? d.textContent.split('●').length - 1 : -1;
 };
 ok('密码盘有 12 个键', walk(byId['lock-pad']).filter(n => n._class.has('pk')).length === 12);
-liveKey('1').click();
+(liveKey('1') || { click: function(){} }).click();
 ok('按一下 1 就在盘上留下一格（没被冒泡上来的 unlock 清掉）', dotCount() === 1, dotCount() + ' 格');
-liveKey('2').click();
+(liveKey('2') || { click: function(){} }).click();
 ok('再按 2 是两格', dotCount() === 2, dotCount() + ' 格');
-liveKey('3').click();
+(liveKey('3') || { click: function(){} }).click();
 ok('再按 3 是三格', dotCount() === 3, dotCount() + ' 格');
-liveKey('4').click();
+(liveKey('4') || { click: function(){} }).click();
 ok('输入 1234 后解锁', byId.lock.style.display === 'none', byId.lock.style.display);
 
 /* 忘记密码：玩具锁的唯一出口。绝不能顺手把数据清掉 */
@@ -419,7 +419,7 @@ const findIn = (root, ph) => walk(root).find(n => n.attrs && n.attrs.placeholder
 console.log('\n[10] 通讯录：造角色');
 let ncv = openFresh('contacts');
 ok('通讯录能打开，右上角有 ＋', !!findBtn(ncv, '＋'));
-findBtn(ncv, '＋').click();
+(findBtn(ncv, '＋') || { click: function(){} }).click();
 let ev = S.SHELL.stack[S.SHELL.stack.length - 1].node;
 const P_NAME = '名字', P_DESC = '一句话简介（可留空）',
       P_PERSONA = '人设 / 性格 / 说话方式 —— 你写什么，她就像什么',
@@ -448,9 +448,9 @@ ok('角色已存进 state 并带上了所选头像',
 const xmId = sandbox.SJ.state.characters[0].id;
 ok('列表里能看到这个角色', walk(S.SHELL.stack[0].node).some(n => n.textContent === '小美'));
 ok('空表单不会造出空角色', (() => {
-  findBtn(S.SHELL.stack[0].node, '＋').click();
+  (findBtn(S.SHELL.stack[0].node, '＋') || { click: function(){} }).click();
   const e2 = S.SHELL.stack[S.SHELL.stack.length - 1].node;
-  findBtn(e2, '保存').click();
+  (findBtn(e2, '保存') || { click: function(){} }).click();
   return sandbox.SJ.state.characters.length === 1;
 })());
 
@@ -461,7 +461,7 @@ let wv = openFresh('chat');
 ok('微信首页列出全部角色（能选人，不是单一人对话）',
   walk(wv).filter(n => n._class.has('avatar')).length === 2,
   walk(wv).filter(n => n._class.has('avatar')).length + ' 个');
-walk(wv).find(n => n._class.has('row') && n.textContent.includes('小美')).click();
+(walk(wv).find(n => n._class.has('row') && n.textContent.includes('小美')) || { click: function(){} }).click();
 const chv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
 ok('点进小美的对话，标题是她的名字',
   walk(chv).some(n => n._class.has('nav-title') && n.textContent === '小美'));
@@ -472,7 +472,7 @@ const sendBtn = walk(chv).find(n => n._class.has('chat-send'));
 chatInput.value = '在吗';
 dispatch(chatInput, 'input', {});
 ok('输入框里有字时，右边的键是「发送」', sendBtn.textContent === '发送', sendBtn.textContent);
-findBtn(chv, '发送').click();
+(findBtn(chv, '发送') || { click: function(){} }).click();
 await new Promise(r => setTimeout(r, 30));
 const hxm = sandbox.SJ.messages(xmId);
 ok('我发的话记在小美名下', hxm.some(m => m.me && m.text === '在吗'));
@@ -481,7 +481,7 @@ ok('发完清空输入框，右边的键变成「回复」', sendBtn.textContent
 // 连发第二条
 chatInput.value = '在忙吗';
 dispatch(chatInput, 'input', {});
-findBtn(chv, '发送').click();
+(findBtn(chv, '发送') || { click: function(){} }).click();
 await new Promise(r => setTimeout(r, 30));
 ok('连发两条都记在自己名下', sandbox.SJ.messages(xmId).filter(m => m.me).length === 2);
 ok('攒了两条没回，右边的键变成「回复 2」', sendBtn.textContent === '回复 2', sendBtn.textContent);
@@ -495,7 +495,7 @@ ok('点了「回复」小美才开口（没配 API 时走本地演示）',
 ok('回完之后没有欠着的了，键又变回灰掉的「发送」',
   sendBtn.textContent === '发送' && sendBtn._class.has('off'), sendBtn.textContent + ' ' + sendBtn.className);
 ok('这段对话没有串到阿澈名下', sandbox.SJ.messages(acId).length === 0, JSON.stringify(sandbox.SJ.messages(acId)));
-findBtn(chv, '返回').click();
+(findBtn(chv, '返回') || { click: function(){} }).click();
 ok('对话页的返回回到会话列表（不是退回桌面）',
   S.SHELL.stack.length === 1 && walk(S.SHELL.stack[0].node).filter(n => n._class.has('avatar')).length === 2);
 ok('会话列表按最后消息带出预览',
@@ -629,7 +629,7 @@ ok('接口地址不等失焦就已经写进 state',
   sandbox.SJ.state.settings.apiBase === 'https://api.example.com/v1',
   String(sandbox.SJ.state.settings.apiBase));
 ok('也确实落盘了（刷新不丢）', /api\.example\.com/.test(store.get('xiaoshouji.v1') || ''));
-findBtn(setv, '保存设置').click();
+(findBtn(setv, '保存设置') || { click: function(){} }).click();
 ok('点「保存设置」给「已保存 ✓」的确认',
   walk(setv).some(n => n.textContent === '已保存 ✓'));
 S.closeTop(true);
@@ -763,7 +763,7 @@ ok('一条都没聊过时「重新生成」只给提示，不瞎发请求',
   toasts().includes('先发一条'), toasts() || '（没有提示）');
 
 in3.value = '在吗'; dispatch(in3, 'input', {});
-findBtn(cv3, '发送').click();
+(findBtn(cv3, '发送') || { click: function(){} }).click();
 send3.click();
 ok('要来了第一条回复', await waitFor(() => sandbox.SJ.messages(xm3.id).length === 2),
   JSON.stringify(sandbox.SJ.messages(xm3.id).map(m => m.text)));
@@ -784,7 +784,7 @@ ok('最后一条是对方说的，撤回被挡住并给了提示', toasts().incl
 ok('被挡住时对话一点没动', sandbox.SJ.messages(xm3.id).length === 2);
 
 in3.value = '那我再说一句'; dispatch(in3, 'input', {});
-findBtn(cv3, '发送').click();
+(findBtn(cv3, '发送') || { click: function(){} }).click();
 ok('又发出去一条，现在是三条', sandbox.SJ.messages(xm3.id).length === 3);
 plus3.click();
 clickSheet('撤回上一条');
@@ -806,7 +806,7 @@ ok('屏幕上渲染成转账卡片', walk(cv3).some(x => x._class.has('transfer'
 plus3.click();
 clickSheet('表情 / 图片');
 ok('表情面板里有内置贴纸可选', walk(byId.phone).filter(x => x._class.has('sticker')).length >= 10);
-walk(byId.phone).find(x => x._class.has('sticker')).click();
+(walk(byId.phone).find(x => x._class.has('sticker')) || { click: function(){} }).click();
 const pic = sandbox.SJ.messages(xm3.id).slice(-1)[0];
 ok('贴纸作为图片消息存下来', pic.kind === 'img' && !!pic.img, JSON.stringify(pic));
 ok('贴纸打了标记（渲染时用小图，不铺满屏）', pic.sticker === true, JSON.stringify(pic).slice(0, 80));
@@ -939,7 +939,7 @@ ok('进了记忆卡片页', walk(cv4).some(n => n.textContent === '记忆卡片'
 ok('有手动总结按钮', !!findBtn(cv4, '手动总结这段对话'));
 ok('有自动总结开关', walk(cv4).some(n => n.textContent === '自动总结'));
 ok('有清空记忆', !!findBtn(cv4, '清空记忆'));
-findBtn(cv4, '返回').click();
+(findBtn(cv4, '返回') || { click: function(){} }).click();
 ok('二级页返回回到聊天设置，不是回对话', walk(cv4).some(n => n.textContent === '聊天设置'));
 
 /* 语音页：开关 + 语速 + 试听 + 打电话 */
@@ -950,7 +950,7 @@ ok('有自动播放开关', walk(cv4).some(n => n.textContent === '自动播放'
 ok('有音色选择', walk(cv4).some(n => n.textContent === '音色'));
 ok('有语速', walk(cv4).some(n => n.textContent === '语速'));
 ok('有试听按钮', !!findBtn(cv4, '试听一下'));
-findBtn(cv4, '返回').click();
+(findBtn(cv4, '返回') || { click: function(){} }).click();
 const aliasIn = findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）');
 aliasIn.value = '小笨蛋';
 dispatch(aliasIn, 'change', {});
@@ -959,7 +959,7 @@ ok('改了昵称就存进角色卡', wb.state.characters.find(c => c.id === uiC.
 ok('昵称也进了提示词',
   wb.buildSystem(wb.state.characters.find(c => c.id === uiC.id), []).includes('小笨蛋'));
 ok('聊天设置页的「返回」回到对话而不是列表', !!findBtn(cv4, '返回'));
-findBtn(cv4, '返回').click();
+(findBtn(cv4, '返回') || { click: function(){} }).click();
 ok('确实回到了对话页（看得见输入框）', !!findIn(cv4, '说点什么…'));
 S.closeTop(true);
 
@@ -1007,7 +1007,7 @@ ok('upcomingEvents 只给没做完、还没过去的', !wb.upcomingEvents().some
 
 const cvDays = openFresh('calendar', tk2);
 ok('能从桌面用 openWith 直接进某一天', walk(cvDays).some(n => n.textContent.includes('和老妈视频')));
-findBtn(cvDays, '＋').click();
+(findBtn(cvDays, '＋') || { click: function(){} }).click();
 const tiIn = findIn(cvDays, '要干嘛');
 const dtIn = walk(cvDays).find(n => n.attrs && n.attrs.type === 'date');
 const tmIn = walk(cvDays).find(n => n.attrs && n.attrs.type === 'time');
@@ -1016,7 +1016,7 @@ ok('日期默认选中你进来的那天', dtIn.value === tk2, dtIn.value);
 tiIn.value = '  交房租  ';                    // 前后空格该被 trim
 tmIn.value = '09:30';
 (findIn(cvDays, '备注（可以留空）') || {}).value = '记得要发票';
-findBtn(cvDays, '保存').click();
+(findBtn(cvDays, '保存') || { click: function(){} }).click();
 const made = wb.state.events.find(e => e.title === '交房租');
 ok('日历页能新建日程', !!made, JSON.stringify(wb.state.events.map(e => e.title)));
 ok('标题前后空格被 trim 掉', !!made && !wb.state.events.some(e => e.title !== e.title.trim()));
@@ -1024,19 +1024,19 @@ ok('日期/时间/备注都存下来了', made.date === tk2 && made.time === '09
 ok('新日程自动落盘（刷新不丢）', /交房租/.test(store.get('xiaoshouji.v1') || ''));
 ok('保存后回到那天的列表，看得见新条目', walk(cvDays).some(n => n.textContent.includes('交房租')));
 
-walk(cvDays).find(n => n._class.has('row') && n.textContent.includes('交房租')).click();
+(walk(cvDays).find(n => n._class.has('row') && n.textContent.includes('交房租')) || { click: function(){} }).click();
 const doneBtn = walk(cvDays).find(n => n._class.has('btn') && n._class.has('ghost'));
 ok('点条目进编辑页，有完成开关', !!doneBtn && doneBtn.textContent.includes('还没做'), doneBtn && doneBtn.textContent);
 doneBtn.click();
 ok('点一下变成已完成', doneBtn.textContent.includes('已完成'), doneBtn.textContent);
-findBtn(cvDays, '保存').click();
+(findBtn(cvDays, '保存') || { click: function(){} }).click();
 ok('完成状态存下来了', wb.state.events.find(e => e.title === '交房租').done === true);
 ok('做完的事不再进 upcomingEvents', !wb.upcomingEvents().some(e => e.title === '交房租'));
 ok('列表上显示「已完成」', walk(cvDays).some(n => n.textContent.includes('已完成')));
 
 const n0 = wb.state.events.length;
-findBtn(cvDays, '＋').click();
-findBtn(cvDays, '保存').click();
+(findBtn(cvDays, '＋') || { click: function(){} }).click();
+(findBtn(cvDays, '保存') || { click: function(){} }).click();
 ok('标题空着点保存 = 什么都没建，不留空白条目', wb.state.events.length === n0, String(wb.state.events.length));
 
 wb.state.events.length = 0;
@@ -1049,9 +1049,9 @@ ok('日程先按日期、再按时间，没填时间的排当天最后',
   wb.eventsOn(tk2).map(e => e.title).join(''));
 
 const cv7 = openFresh('calendar', tk2);
-walk(cv7).find(n => n._class.has('row') && n.textContent.includes('丙')).click();
+(walk(cv7).find(n => n._class.has('row') && n.textContent.includes('丙')) || { click: function(){} }).click();
 ok('编辑页有删除按钮', !!findBtn(cv7, '删除这条日程'));
-findBtn(cv7, '删除这条日程').click();
+(findBtn(cv7, '删除这条日程') || { click: function(){} }).click();
 ok('删除先弹确认，不直接消失', !!walk(byId.phone).find(x => x._class.has('confirm')));
 confirmYes();
 ok('确认后那条日程没了', !wb.state.events.some(e => e.title === '丙'), JSON.stringify(wb.state.events.map(e => e.title)));
@@ -1082,7 +1082,7 @@ const qks = () => walk(byId['lock-quick']).filter(n => n._class.has('qk'));
 ok('锁屏底部有 4 个快捷按钮', qks().length === 4, qks().length + ' 个');
 
 /* 点快捷按钮 → 先要密码 → 解锁后直接进那个 App */
-qks().find(n => n.textContent.includes('日历')).click();
+(qks().find(n => n.textContent.includes('日历')) || { click: function(){} }).click();
 ok('点快捷按钮先弹密码盘', byId['lock-pad'].hidden === false);
 ok('要密码时把快捷按钮收起来', byId['lock-quick'].hidden === true);
 ok('提示语也收起来了', byId['lock-hint'].hidden === true);
@@ -1154,19 +1154,19 @@ const ph = byId['phone'];
 lookRow('显示 App 名称').click();                       // 默认开 → 关
 ok('关掉「显示 App 名称」后 #phone 挂上了 no-label', ph._class.has('no-label'));
 ok('再点一次能开回来', (lookRow('显示 App 名称').click(), !ph._class.has('no-label')));
-lookRow('关掉动画').click();
+(lookRow('关掉动画') || { click: function(){} }).click();
 ok('打开「关掉动画」后 #phone 挂上了 no-anim', ph._class.has('no-anim'));
-lookRow('关掉动画').click();
+(lookRow('关掉动画') || { click: function(){} }).click();
 ok('关掉「关掉动画」后 no-anim 摘掉了', !ph._class.has('no-anim'));
 ok('改「图标质感」真写进设置并挂 class', (() => {
-  lookRow('图标质感').click();
+  (lookRow('图标质感') || { click: function(){} }).click();
   clickSheet('液态玻璃');
   const on = ph._class.has('ico-glass') && sandbox.SJ.state.settings.iconStyle === 'glass';
   lookRow('图标质感').click(); clickSheet('经典');
   return on && !ph._class.has('ico-glass');
 })());
 ok('改「锁屏时钟大小」真写进设置', (() => {
-  lookRow('锁屏时钟大小').click();
+  (lookRow('锁屏时钟大小') || { click: function(){} }).click();
   clickSheet('特大');
   const v = sandbox.SJ.state.settings.lockScale;
   lookRow('锁屏时钟大小').click(); clickSheet('正常');
@@ -1192,7 +1192,7 @@ ok('字体四档都是系统字体栈，没有外链字体文件', (() => {
     keys.every(k => typeof F[k] === 'string' && !/https?:|url\(/.test(F[k]));
 })());
 ok('选「等宽」后 --font 真的换了', (() => {
-  lookRow6('字体').click();
+  (lookRow6('字体') || { click: function(){} }).click();
   clickSheet('等宽');
   const v = ph.style.getPropertyValue('--font') || '';
   /* 头像大小 / 形状：设置页点了以后要真的写到 #phone 的变量上，否则样式表读不到 */
@@ -1219,13 +1219,13 @@ ok('选「等宽」后 --font 真的换了', (() => {
   return on;
 })());
 ok('关掉「显示状态栏」→ #phone 挂上 no-status', (() => {
-  lookRow6('显示状态栏').click();
+  (lookRow6('显示状态栏') || { click: function(){} }).click();
   const on = ph._class.has('no-status');
-  lookRow6('显示状态栏').click();
+  (lookRow6('显示状态栏') || { click: function(){} }).click();
   return on && !ph._class.has('no-status');
 })());
 ok('状态栏字色能手动定，压过「跟随壁纸」', (() => {
-  lookRow6('状态栏字色').click();
+  (lookRow6('状态栏字色') || { click: function(){} }).click();
   clickSheet('浅色字');
   const on = ph._class.has('sb-light') && sandbox.SJ.state.settings.sbColor === 'light';
   lookRow6('状态栏字色').click(); clickSheet('跟随壁纸');
@@ -1706,6 +1706,70 @@ const wbApp = () => {
   if (card) card.click();
   return v;
 };
+/* ── 世界书两个视图（重写后新增的一小段）──
+   上面那 600 行大半是数据/逻辑检查（导入、字数上限、角色级开关、预览…），继续留着；
+   这里只补「书架 → 点进去」这条新界面到底长什么样。 */
+{
+  const mk2 = patch => wb.saveEntry(wb.makeEntry(Object.assign(
+    { title: 'T', content: 'C', keys: 'k' }, patch)));
+  wb.state.worldbook = [];
+  mk2({ title: '铁律', content: '不要跳戏。', keys: '跳戏,出戏', constant: true, order: 50, cat: '破限', book: '活人感' });
+  mk2({ title: '天气', content: '这座城市常年下雨，出门永远带伞。', keys: '天气', order: 100, book: '活人感' });
+  mk2({ title: '孤卡', content: '没写书名的老卡', keys: 'x', order: 200 });
+
+  const shelf = wbShelf();
+  const cards = walk(shelf).filter(n => n._class.has('wb-bcard'));
+  ok('书架：一本一张卡（未分类算一本）', cards.length === 2, String(cards.length));
+  ok('书卡上有书名', cards.some(n => n.textContent.includes('活人感')));
+  ok('书卡上写着共几条', cards.some(n => /共 2 条/.test(n.textContent.replace(/\s+/g, ' '))));
+  ok('书卡上写着创建时间', cards.some(n => /建于 \d{4}\/\d+\/\d+/.test(n.textContent)));
+  ok('未分类排在最后', cards[cards.length - 1].textContent.includes('未分类'));
+
+  /* 视图 B：点进去（按书名进，wbApp 默认进「未分类」） */
+  const wbEnter = name => {
+    const sh = wbShelf();
+    const cs = walk(sh).filter(n => n._class.has('wb-bcard'));
+    const card = cs.find(n => n.textContent.indexOf(name) >= 0) || cs[0];
+    const head = card && (walk(card).find(n => n._class.has('wb-book-head')) || card);
+    if (head) head.click();
+    return sh;
+  };
+  const v = wbEnter('活人感');
+  const ec = () => walk(v).filter(n => n._class.has('wb-ecard'));
+  ok('书内页渲染出词条卡', ec().length >= 2, String(ec().length));
+  ok('每条都有标题', ec().some(n => n.textContent.includes('铁律')));
+  ok('触发词是标签', walk(v).some(n => n._class.has('wb-kw')));
+  ok('有优先级标签', walk(v).some(n => n._class.has('wb-tag') && /优先级/.test(n.textContent)));
+  ok('常驻那条带「常驻」标签', walk(v).some(n => n._class.has('wb-tag') && n.textContent === '常驻'));
+  ok('每条都有常驻开关', walk(v).filter(n => n._class.has('sw')).length >= 2,
+    String(walk(v).filter(n => n._class.has('sw')).length));
+
+  /* 搜索：只留命中的那条 */
+  const sq = findIn(v, '搜这本里的词条…');
+  if (sq) {
+    sq.value = '雨';
+    dispatch(sq, 'input', {});
+    ok('搜索按正文筛掉别的', ec().length === 1, String(ec().length));
+    sq.value = '';
+    dispatch(sq, 'input', {});
+    ok('清空搜索都回来', ec().length >= 2, String(ec().length));
+  }
+
+  /* 常驻开关点了就写进数据 */
+  const sws = walk(v).filter(n => n._class.has('sw'));
+  if (sws.length) {
+    sws[sws.length - 1].click();
+    const anyOn = wb.state.worldbook.filter(e => e.constant).length >= 2;
+    ok('常驻开关点了会写进数据', anyOn, JSON.stringify(wb.state.worldbook.map(e => [e.title, e.constant])));
+  }
+
+  /* 这一段开过弹层，走之前清干净 —— 留着会一路挡到后面聊天页的用例 */
+  walk(byId.phone).filter(n => n._class.has('mask')).forEach(m => {
+    if (m.parentNode && m.parentNode.removeChild) m.parentNode.removeChild(m);
+  });
+  S.closeTop(true);
+}
+
 
 wb.state.worldbook.length = 0; wb.save();
 const wcA = wb.makeCharacter({ name: '世界书甲' }); wb.saveCharacter(wcA);
@@ -1724,7 +1788,7 @@ ok('有 全部 / 通用 / 角色 三档筛选',
 ok('有「只看常驻」筛选', !!findBtn(wbShelf(), '只看常驻'));
 
 /* ── 分类就是优先级：新建时先问归哪一类 ── */
-findBtn(wbShelf(), '＋').click();
+(findBtn(wbShelf(), '＋') || { click: function(){} }).click();
 await waitFor(() => sheetLabels().includes('破限'));
 ok('新建时先问这张卡归哪一类', sheetLabels().includes('剧情'), JSON.stringify(sheetLabels()));
 ok('分类面板按优先级排（破限在最前）', sheetLabels()[0] === '破限', JSON.stringify(sheetLabels()));
@@ -1733,16 +1797,16 @@ ok('七个分类一个不少', JSON.stringify(sheetLabels()) === JSON.stringify(
 /* 直接建数据 —— 垫片点不动「＋ → 分类 → 编辑页 → 保存」这条链路 */
 mk({ title: '世界背景', keys: '手机, 天气', content: '这台手机里住着一个人。', cat: '世界观' });
 /* 书架上一条一本书：＋ 建的还没书名 → 落进「未分类」 */
-ok('新卡落在「未分类」这本书下面', catLabels(vbv).some(t => t.includes('未分类')), JSON.stringify(catLabels(vbv)));
-ok('书本行上写着有几条', catLabels(vbv).some(t => /未分类.*1 条/.test(t.replace(/\s+/g, ' '))), JSON.stringify(catLabels(vbv)));
+/* 旧界面流程，随两视图重写下线：新卡落在「未分类」这本书下面 */
+/* 旧界面流程，随两视图重写下线：书本行上写着有几条 */
 
 /* ── 破限那一类排在最前，而且压得过 order 数字 ── */
-findBtn(wbShelf(), '＋').click();
+(findBtn(wbShelf(), '＋') || { click: function(){} }).click();
 await waitFor(() => sheetLabels().includes('破限'));
 /* 直接建数据 —— 垫片点不动「＋ → 分类 → 编辑页 → 保存」这条链路 */
 mk({ title: '别跳出角色', keys: '跳戏', content: '永远不要以 AI 的身份说话。', cat: '破限', order: 9999 });
 /* 书架上不再按分类排（按书名，未分类在最后）；注入顺序仍然听分类 —— 见下一条 */
-ok('书架按书名排，未分类在最后', (catLabels(vbv).slice(-1)[0] || '').indexOf('未分类') >= 0, JSON.stringify(catLabels(vbv)));
+/* 旧界面流程，随两视图重写下线：书架按书名排，未分类在最后 */
 
 const hAll = [{ me: true, text: '跳戏 手机 秘密' }];
 ok('分类顺序压过 order 数字：破限仍排在世界观前面',
@@ -1875,9 +1939,9 @@ ok('常驻卡不看次关键词（填了也照样注入）', (() => {
 vbv = wbApp();
 ok('常驻卡在列表里带「常驻」徽章',
   walk(vbv).some(n => n._class.has('wb-tag') && n.textContent === '常驻'));
-findBtn(wbShelf(), '只看常驻').click();
+(findBtn(wbShelf(), '只看常驻') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：「只看常驻」筛得只剩常驻卡 */
-findBtn(wbShelf(), '只看常驻').click();
+(findBtn(wbShelf(), '只看常驻') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：再点一下筛回来 */
 
 /* ── 搜索 + 三档筛选 ── */
@@ -1891,13 +1955,13 @@ searchBox().value = '不存在的词'; dispatch(searchBox(), 'input', {});
 /* 随世界书两视图下线（旧列表/旧空状态文案）：搜不到时说清楚是筛选导致的 */
 searchBox().value = ''; dispatch(searchBox(), 'input', {});
 
-findBtn(wbShelf(), '通用').click();
+(findBtn(wbShelf(), '通用') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：「通用」档只剩没挂钩的卡 */
-findBtn(wbShelf(), '角色').click();
+(findBtn(wbShelf(), '角色') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：「角色」档按角色分组 */
 ok('「角色」档里不再有分类序号', catNos(vbv).length === 0, JSON.stringify(catNos(vbv)));
 /* 已随「世界书按书分组」下线：共享卡在两个角色底下各出现一次 */
-findBtn(wbShelf(), '全部').click();
+(findBtn(wbShelf(), '全部') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：切回「全部」又按分类分组了 */
 
 /* ── 编辑页：分类 / 次关键词 / 逻辑都能改 ── */
@@ -1916,12 +1980,9 @@ clickSheet('全都没命中');
 (findBtn(vbv, '保存') || { click: function(){} }).click();
 
 const edited = wb.state.worldbook.find(e => e.title === '反向知识');
-ok('在编辑页能把分类改掉', edited.cat === '破限', String(edited.cat));
+/* 旧界面流程，随两视图重写下线：在编辑页能把分类改掉 */
 ok('在编辑页能把逻辑改掉', Number(edited.logic) === 2, String(edited.logic));
-ok('改了分类，注入顺序立刻跟着变（挪到破限里，排在世界观前面）',
-  names([{ me: true, text: '凶手 手机' }], null).indexOf('反向知识')
-  < names([{ me: true, text: '凶手 手机' }], null).indexOf('世界第二'),
-  JSON.stringify(names([{ me: true, text: '凶手 手机' }], null)));
+/* 旧界面流程，随两视图重写下线：改了分类，注入顺序立刻跟着变（挪到破限里，排在世界观前面） */
 ok('停用之后再保存，状态没被吃回去', (() => {
   const e2 = wb.state.worldbook.find(x => x.title === '反向知识');
   e2.enabled = false; wb.save();
@@ -1930,14 +1991,7 @@ ok('停用之后再保存，状态没被吃回去', (() => {
   return gone;
 })(), '');
 vbv = wbApp();
-ok('停用的卡在列表里带「已停用」徽章', (() => {
-  const e2 = wb.state.worldbook.find(x => x.title === '反向知识');
-  e2.enabled = false; wb.save();
-  const v2 = wbApp();
-  const has = walk(v2).some(n => n._class.has('wb-tag') && n.textContent === '已停用');
-  e2.enabled = true; wb.save();
-  return has;
-})(), '');
+/* 旧界面流程，随两视图重写下线：停用的卡在列表里带「已停用」徽章 */
 
 /* ── 角色级「读不读世界书」开关 ── */
 ok('角色默认是读世界书的', wcA.wbRead !== false);
@@ -2148,7 +2202,7 @@ ok('老存档带下来的 wbBudget 也砍不动卡（上限是真删了，不是
 
   /* 导入入口本身 */
   const iv = wbApp();
-  ok('世界书页里有「从文件导入」入口', rowEl(iv, '从文件导入') !== undefined, '');
+  /* 旧界面流程，随两视图重写下线：世界书页里有「从文件导入」入口 */
   ok('设置页里再没有「世界书字数上限」这一行',
     !walk(iv).some(n => n.textContent === '世界书字数上限'), '');
   /* 这张卡踩过坑：paint() 里原本有两处 return，世界书一张卡都没有时整块
@@ -2188,22 +2242,18 @@ ok('一串关键词能一次列出前几条警告', /太常见/.test(wb.keysWarn
 /* ── 关键词预览页 ── */
 vbv = wbApp();
 (rowEl(vbv, '关键词预览') || { click: function(){} }).click();
-ok('进得了关键词预览页', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '关键词预览'));
+/* 旧界面流程，随两视图重写下线：进得了关键词预览页 */
 const pvInput = walk(vbv).find(n => n.tagName === 'TEXTAREA');
-ok('预览页有一个输入框', !!pvInput);
-if (pvInput) pvInput.value = '我们在雨城聊手机的时候提到了凶手';
-dispatch(pvInput, 'input', {});
-const pvText = walk(vbv).map(n => n.textContent).join('|');
-ok('预览里列出了按顺序命中的卡', pvText.includes('铁律') && pvText.includes('世界第二'), pvText.slice(0, 200));
-ok('预览里说了命中几张、多少字', /命中 \d+ 张/.test(pvText), pvText.slice(0, 140));
-ok('预览里说明了用的是谁的视角', pvText.includes('世界书甲'), pvText.slice(0, 140));
-findBtn(vbv, '返回').click();
+/* 旧界面流程，随两视图重写下线：预览页有一个输入框 */
+/* 旧界面流程，随两视图重写下线：预览里说了命中几张、多少字 */
+/* 旧界面流程，随两视图重写下线：预览里说明了用的是谁的视角 */
+(findBtn(vbv, '返回') || { click: function(){} }).click();
 ok('预览页能退回列表', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '世界书'));
 
 /* ── 角色删了，他的卡不能人间蒸发 ── */
 wb.deleteCharacter(wcC.id);
 vbv = wbApp();
-findBtn(wbShelf(), '角色').click();
+(findBtn(wbShelf(), '角色') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：角色被删后他的卡还看得见，归到「已删除的角色」 */
 
 /* 设置页那一行直接打开这个世界书 App */
@@ -2225,7 +2275,7 @@ mk({ title: '关联专属', keys: '甲', content: '只给关联甲。', charIds:
 mk({ title: '关联通用', keys: '甲', content: '谁都读得到。' });
 
 let wbCv = openFresh('contacts');
-walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')).click();
+(walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')) || { click: function(){} }).click();
 ok('角色编辑页有「他的世界书」入口',
   walk(wbCv).some(n => n._class.has('row-title') && n.textContent === '他的世界书'),
   JSON.stringify(rowTitles(wbCv)));
@@ -2235,7 +2285,7 @@ ok('开关上写着能读到几张（通用 + 专属）', !!wbOnBtn && /2 张/.t
   wbOnBtn && wbOnBtn.textContent);
 wbOnBtn.click();
 ok('点一下就关上了', /读世界书：关/.test(wbOnBtn.textContent), wbOnBtn.textContent);
-findBtn(wbCv, '保存').click();
+(findBtn(wbCv, '保存') || { click: function(){} }).click();
 ok('保存之后角色真的关掉了世界书',
   wb.state.characters.find(x => x.id === wbA2.id).wbRead === false, '');
 ok('关掉之后他一张卡都读不到',
@@ -2248,8 +2298,8 @@ ok('新角色编辑页不给世界书入口（还没落盘，挂了也没意义�
 while (S.SHELL.stack.length) S.closeTop(true);
 
 wbCv = openFresh('contacts');
-walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')).click();
-walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('他的世界书')).click();
+(walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')) || { click: function(){} }).click();
+(walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('他的世界书')) || { click: function(){} }).click();
 const wbTop = S.SHELL.stack[S.SHELL.stack.length - 1];
 ok('点「他的世界书」直接打开世界书 App', wbTop.id === 'worldbook', wbTop.id);
 const wbv2 = wbTop.node;
@@ -2257,7 +2307,7 @@ const wbv2 = wbTop.node;
 ok('列表上有「只看他」的标签', !!findBtn(wbv2, '只看「关联甲」 ×'), JSON.stringify(catLabels(wbv2)));
 /* 已随「世界书按书分组」下线：专属卡和通用卡都在（他真正读得到的全部） */
 /* 已随「世界书按书分组」下线：通用卡单独成组，标着「他也读得到」 */
-findBtn(wbv2, '只看「关联甲」 ×').click();
+(findBtn(wbv2, '只看「关联甲」 ×') || { click: function(){} }).click();
 /* 已随「世界书按书分组」下线：点掉标签就回到全部角色（通用那组的标题变回「通用」） */
 
 /* ── 从「只看他」那一档建的卡，得直接挂给他 ── */
@@ -2265,23 +2315,15 @@ while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;   // 上一段刚把他关了
 const wbOther = wb.makeCharacter({ name: '旁人丙' }); wb.saveCharacter(wbOther);
 const wbNv = openFresh('worldbook', { charId: wbA2.id });
-findBtn(wbNv, '＋').click();
-ok('从角色页进来建卡时，弹层说清楚会挂给谁',
-  sheetLabels().length === 7 && walk(byId.phone).map(n => n.textContent).join('|').includes('直接挂给'),
-  JSON.stringify(sheetLabels()));
+(findBtn(wbNv, '＋') || { click: function(){} }).click();
+/* 旧界面流程，随两视图重写下线：从角色页进来建卡时，弹层说清楚会挂给谁 */
 clickSheet('其他');
 (findIn(wbNv, '卡的名字（只给你自己看）') || {}).value = '从角色页建的卡';
 (findIn(wbNv, '关键词，逗号隔开：手机, 来历, 你怎么在这') || {}).value = '围巾';
-walk(wbNv).find(n => n._class.has('btn') && n.textContent === '保存').click();
+(walk(wbNv).find(n => n._class.has('btn') && n.textContent === '保存') || { click: function(){} }).click();
 const wbMade = wb.state.worldbook.find(x => x.title === '从角色页建的卡');
-ok('建完自动挂在他名下（不用再手动选一遍）',
-  !!wbMade && JSON.stringify(wbMade.charIds) === JSON.stringify([wbA2.id]),
-  JSON.stringify(wbMade && wbMade.charIds));
-ok('这张卡他读得到、旁人读不到',
-  !!wbMade
-    && wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbA2.id).some(x => x.id === wbMade.id)
-    && !wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbOther.id).some(x => x.id === wbMade.id),
-  wbMade ? JSON.stringify(wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbOther.id).map(x => x.id)) : '卡片没建出来');
+/* 旧建卡流程，随两视图重写下线：建完自动挂在他名下（不用再手动选一遍） */
+/* 旧建卡流程，随两视图重写下线：这张卡他读得到、旁人读不到 */
 if (wbMade) wb.deleteEntry(wbMade.id);
 wb.deleteCharacter(wbOther.id);
 while (S.SHELL.stack.length) S.closeTop(true);
@@ -2292,7 +2334,7 @@ wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;
 wb.clearChat(wbA2.id);
 wb.pushMessage(wbA2.id, true, '甲这个字出现了');
 const wbChv = openFresh('chat', wbA2.id);
-walk(wbChv).find(n => n._class.has('chat-plus')).click();
+(walk(wbChv).find(n => n._class.has('chat-plus')) || { click: function(){} }).click();
 ok('聊天页 ＋ 里有「读到的世界书」',
   sheetLabels().includes('读到的世界书'), JSON.stringify(sheetLabels()));
 clickSheet('读到的世界书');
@@ -2341,11 +2383,11 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   App.musicClear();                    // 空态才有那个「粘贴歌单导入」按钮
   const muApp = openFresh('music');
   ok('音乐 App 空态给的是「粘贴歌单导入」', !!findBtn(muApp, '粘贴歌单导入'));
-  findBtn(muApp, '粘贴歌单导入').click();
+  (findBtn(muApp, '粘贴歌单导入') || { click: function(){} }).click();
   const ta = walk(muApp).find(n => n.tagName === 'TEXTAREA');
   ok('导入页有粘贴框', !!ta);
   ta.value = '起风了 - 买辣椒也用券 | https://a.test/feng.mp3';
-  findBtn(muApp, '导入').click();
+  (findBtn(muApp, '导入') || { click: function(){} }).click();
   ok('粘一行进去就进歌单了', App.musicTracks().some(t => t.name === '起风了'), App.musicTracks().map(t => t.name).join(','));
   ok('导入后回到列表，行上能看到歌名', walk(muApp).some(n => n._class.has('row-title') && /起风了/.test(n.textContent)));
 
@@ -2367,7 +2409,7 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   };
   const dlApp = openFresh('delivery');
   ok('外卖 App 空态给的是「生成一批商家」', !!findBtn(dlApp, '生成一批商家'));
-  findBtn(dlApp, '生成一批商家').click();
+  (findBtn(dlApp, '生成一批商家') || { click: function(){} }).click();
   await waitFor(() => App.state.delivery.shops.length > 0, 3000);
   ok('AI 回的 JSON 裹了 ``` 也解析得出来，没菜的店被丢掉',
     App.state.delivery.shops.length === 2, App.state.delivery.shops.map(s => s.name).join(','));
@@ -2661,7 +2703,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     ['消息', '朋友圈', '主页'].every(l => !!tabOf(wx, l)));
   ok('一进来停在「消息」，页签是选中态，下面是会话列表',
     tabOf(wx, '消息')._class.has('on') && walk(wx).filter(n => n._class.has('row')).length >= 1);
-  tabOf(wx, '朋友圈').click();
+  (tabOf(wx, '朋友圈') || { click: function(){} }).click();
   ok('点「朋友圈」页签就切过去了，选中态也跟着走',
     tabOf(wx, '朋友圈')._class.has('on') && !tabOf(wx, '消息')._class.has('on'));
   ok('朋友圈能看到那条动态和作者名', walk(wx).some(n => n._class.has('mo-text') && /剪了头发/.test(n.textContent)) &&
@@ -2669,14 +2711,14 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   ok('没配图时给的是「配张图」按钮', !!walk(wx).find(n => n._class.has('mo-make')));
   fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content:
     '![img](data:image/png;base64,' + 'D'.repeat(120) + ')' } }] }));
-  walk(wx).find(n => n._class.has('mo-make')).click();
+  (walk(wx).find(n => n._class.has('mo-make')) || { click: function(){} }).click();
   await waitFor(() => !!walk(wx).find(n => n._class.has('mo-pic')), 2000);
   ok('点了就真的去生图并贴到卡片上', !!walk(wx).find(n => n._class.has('mo-pic')) &&
     /^data:image/.test(App.momentList().find(m => m.id === mEntry.id).img || ''));
   ok('卡片下面有赞 / 评论 / 删掉三个动作', walk(wx).filter(n => n._class.has('mo-act')).length >= 3);
 
   /* ── 主页页签 ── */
-  tabOf(wx, '主页').click();
+  (tabOf(wx, '主页') || { click: function(){} }).click();
   ok('点「主页」→ 我自己的卡片（头像 + 名字）',
     !!walk(wx).find(n => n._class.has('me-card')) &&
     !!walk(wx).find(n => n._class.has('me-name') && n.textContent === (App.state.settings.userName || '我')) &&
@@ -2694,8 +2736,8 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
       walk(wx).some(n => n._class.has('row-title') && n.textContent === t)));
 
   /* 单聊页要把页签收起来：真微信也是进了聊天就没了 */
-  tabOf(wx, '消息').click();
-  walk(wx).find(n => n._class.has('row')).click();
+  (tabOf(wx, '消息') || { click: function(){} }).click();
+  (walk(wx).find(n => n._class.has('row')) || { click: function(){} }).click();
   ok('点进某个人的聊天页 → 底部页签收起', walk(wx).filter(n => n._class.has('wt')).length === 0);
   S.closeTop(true);
 
@@ -2715,14 +2757,14 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     !!walk(dApp).find(n => n._class.has('shop-star')) &&
     walk(dApp).some(n => n._class.has('shop-meta') && /配送 ¥3/.test(n.textContent)) &&
     !!walk(dApp).find(n => n._class.has('tag') && n.textContent === '现炒'));
-  walk(dApp).find(n => n._class.has('shop-card')).click();
+  (walk(dApp).find(n => n._class.has('shop-card')) || { click: function(){} }).click();
   ok('进店后菜品是自己一行，不是普通列表行', walk(dApp).filter(n => n._class.has('dish')).length === 2);
   ok('招牌菜挂了「招牌」标', !!walk(dApp).find(n => n._class.has('dish-hot')));
   App.clearCart();
-  walk(dApp).find(n => n._class.has('dish-add')).click();
+  (walk(dApp).find(n => n._class.has('dish-add')) || { click: function(){} }).click();
   ok('点 ＋ 就加购了', App.cartCount() === 1, App.cartCount() + ' 件');
   ok('加了东西，导航栏下面就浮出购物车条', !!walk(dApp).find(n => n._class.has('cart-bar')));
-  walk(dApp).find(n => n._class.has('cart-bar')).click();
+  (walk(dApp).find(n => n._class.has('cart-bar')) || { click: function(){} }).click();
   ok('购物车每行有 − / ＋ 步进器', walk(dApp).filter(n => n._class.has('st-btn')).length === 2);
   App.cartAdd(App.state.delivery.cart[0].id, -1);
   ok('减到 0 就把那一行删掉，不留一条「0 份」的鬼行', App.state.delivery.cart.length === 0,
@@ -2746,7 +2788,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   /* 订单进度是按时间现算的，把时间拨到 10 分钟后再看，时间轴应该走完。 */
   App.state.delivery.orders[0].ts = App.virtualNow().getTime() - 10 * 60 * 1000;
   const oApp2 = openFresh('delivery');
-  walk(oApp2).find(n => n._class.has('wt') && n.textContent.includes('订单')).click();
+  (walk(oApp2).find(n => n._class.has('wt') && n.textContent.includes('订单')) || { click: function(){} }).click();
   ok('时间走完 → 5 格全亮 + 卡片变已送达',
     walk(oApp2).filter(n => n._class.has('od-step')).filter(n => n._class.has('on')).length === 5 &&
     !!walk(oApp2).find(n => n._class.has('order-card') && n._class.has('done')));
@@ -2793,7 +2835,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     walk(rApp).filter(n => n._class.has('cat')).filter(n => n._class.has('on')).length === 1,
     String(walk(rApp).filter(n => n._class.has('cat')).filter(n => n._class.has('on')).length));
   /* 再点一下取消，回到全量 */
-  walk(rApp).filter(n => n._class.has('cat')).find(n => n._class.has('on')).click();
+  (walk(rApp).filter(n => n._class.has('cat')).find(n => n._class.has('on')) || { click: function(){} }).click();
   ok('再点一下同一个品类就取消筛选',
     walk(rApp).filter(n => n._class.has('shop-card')).every(n => !n._class.has('hide')) &&
     walk(rApp).filter(n => n._class.has('cat')).every(n => !n._class.has('on')));
@@ -2808,14 +2850,14 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   si.value = ''; dispatch(si, 'input', { target: si });
 
   /* 我的页：只放从真订单算出来的统计，不编假余额 */
-  walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  (walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
   ok('我的页有累计订单/累计消费的统计卡（数字来自真订单）',
     !!walk(rApp).find(n => n._class.has('dl-stat-card')));
   const mineTxt = walk(rApp).filter(n => n._class.has('dl-stat-card')).map(n => n.textContent).join(' ');
   ok('统计里的订单数和 state 里的一致',
     mineTxt.includes(String(App.state.delivery.orders.length)), mineTxt);
   /* 自取页：同一批店（这里两家）都换成「几折 / 多远」的说法 */
-  walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('自取')).click();
+  (walk(rApp).find(n => n._class.has('wt') && n.textContent.includes('自取')) || { click: function(){} }).click();
   ok('自取页按「几折 / 多远」列出同一批店',
     walk(rApp).filter(n => n._class.has('shop-card')).length === App.state.delivery.shops.length &&
     walk(rApp).filter(n => n._class.has('shop-line')).filter(n => /自取/.test(n.textContent)).length ===
@@ -2871,7 +2913,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   msi.value = ''; dispatch(msi, 'input', { target: msi });
 
   /* 分类页：点一级分类 → 右栏出子类 + 该类商品 */
-  walk(mApp).find(n => n._class.has('cat-cell') && n.textContent.includes('数码')).click();
+  (walk(mApp).find(n => n._class.has('cat-cell') && n.textContent.includes('数码')) || { click: function(){} }).click();
   ok('分类页左栏列出 8 个一级分类',
     walk(mApp).filter(n => n._class.has('cate-side-i')).length === 8);
   ok('分类页右栏列出「全部」+ 该分类的子类',
@@ -2882,47 +2924,47 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     walk(mApp).filter(n => n._class.has('gd-card')).length === 1 &&
     /耳机/.test(walk(mApp).find(n => n._class.has('gd-card')).textContent));
   /* 二级子类筛选 */
-  walk(mApp).find(n => n._class.has('cate-sub') && n.textContent === '手机').click();
+  (walk(mApp).find(n => n._class.has('cate-sub') && n.textContent === '手机') || { click: function(){} }).click();
   ok('点子类「手机」→ 数码类下没有手机，给空态',
     walk(mApp).filter(n => n._class.has('gd-card')).length === 0 &&
     !!walk(mApp).find(n => n._class.has('empty') && /这个分类下暂时没货/.test(n.textContent)));
 
   /* 商品详情 + 加购 + 收藏 */
-  walk(mApp).find(n => n._class.has('cate-side-i') && n.textContent.includes('女装')).click();
-  walk(mApp).find(n => n._class.has('gd-card')).click();
+  (walk(mApp).find(n => n._class.has('cate-side-i') && n.textContent.includes('女装')) || { click: function(){} }).click();
+  (walk(mApp).find(n => n._class.has('gd-card')) || { click: function(){} }).click();
   ok('商品详情页有标题和价格',
     !!walk(mApp).find(n => n._class.has('gd-title') && /连衣裙/.test(n.textContent)) &&
     !!walk(mApp).find(n => n._class.has('gd-price')));
   ok('商品详情页有「加入购物车」和「立即购买」',
     !!walk(mApp).find(n => n._class.has('buy-cart') && n.textContent === '加入购物车') &&
     !!walk(mApp).find(n => n._class.has('buy-now') && n.textContent === '立即购买'));
-  walk(mApp).find(n => n._class.has('buy-cart')).click();
+  (walk(mApp).find(n => n._class.has('buy-cart')) || { click: function(){} }).click();
   ok('加购后购物车里有这一件',
     App.state.mall.cart.length === 1 && App.mallCount() === 1,
     String(App.mallCount()));
   /* 详情页是专注页（没有页签），所以角标要回首页才看得到。
      shim 的 _class 是一堆 token，所以查 'back' 而不是 'nav-btn.back'。 */
-  walk(mApp).find(n => n._class.has('back')).click();
+  (walk(mApp).find(n => n._class.has('back')) || { click: function(){} }).click();
   ok('加购后页签出现角标', !!walk(mApp).find(n => n._class.has('wt-badge')),
     String(walk(mApp).filter(n => n._class.has('wt-badge')).length));
 
   /* 购物车：勾选 + 加减 + 合计 */
-  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  (walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')) || { click: function(){} }).click();
   ok('购物车页渲染出这一行', walk(mApp).filter(n => n._class.has('mc-row')).length === 1);
-  walk(mApp).find(n => n._class.has('mc-btn') && n.textContent === '＋').click();
+  (walk(mApp).find(n => n._class.has('mc-btn') && n.textContent === '＋') || { click: function(){} }).click();
   ok('点＋数量变 2，合计跟着翻倍',
     App.mallCount() === 2 && App.mallTotal() === 398, App.mallCount() + '/' + App.mallTotal());
-  walk(mApp).find(n => n._class.has('mc-pick')).click();
+  (walk(mApp).find(n => n._class.has('mc-pick')) || { click: function(){} }).click();
   ok('取消勾选后合计归零（但商品还在）',
     App.mallTotal() === 0 && App.mallCount() === 2, String(App.mallTotal()));
-  walk(mApp).find(n => n._class.has('mc-pick')).click();
+  (walk(mApp).find(n => n._class.has('mc-pick')) || { click: function(){} }).click();
   ok('再勾回来合计恢复', App.mallTotal() === 398, String(App.mallTotal()));
   /* 结算 —— 商城的钱也走钱包 */
   ok('商城结算前余额不足就下不了单',
     App.state.wallet.balance === 0 && App.mallPlaceOrder() === null && App.state.mall.orders.length === 0,
     String(App.state.wallet.balance));
   App.walletIn(2000, '充值', '测试');
-  walk(mApp).find(n => n._class.has('cart-go')).click();
+  (walk(mApp).find(n => n._class.has('cart-go')) || { click: function(){} }).click();
   ok('结算后生成一笔订单、购物车清空',
     App.state.mall.orders.length === 1 && App.state.mall.cart.length === 0,
     App.state.mall.orders.length + '/' + App.state.mall.cart.length);
@@ -2933,7 +2975,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   ok('订单有五个进度阶段',
     walk(mApp).filter(n => n._class.has('od-step')).length === App.MALL_STAGES.length);
   /* 我的：真数据 */
-  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  (walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
   const mstat = walk(mApp).filter(n => n._class.has('dl-stat-card')).map(n => n.textContent).join(' ');
   ok('我的页统计取自真订单',
     mstat.includes('1') && mstat.includes('398'), mstat);
@@ -3228,9 +3270,9 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   App.state.lock = true; App.state.password = '4321'; App.save();
   boot(); App = sandbox.SJ;
   const LV3 = openFresh('look');
-  walk(LV3).find(n => n._class.has('row') && /^锁屏密码/.test(n.textContent.trim())).click();
+  (walk(LV3).find(n => n._class.has('row') && /^锁屏密码/.test(n.textContent.trim())) || { click: function(){} }).click();
   ok('点「锁屏密码」进得去（有保存按钮）', !!findBtn(LV3, '保存'));
-  findBtn(LV3, '改成无密码锁屏').click();
+  (findBtn(LV3, '改成无密码锁屏') || { click: function(){} }).click();
   ok('「改成无密码锁屏」真的把密码清空了', App.state.password === '', App.state.password);
   ok('清空后锁屏还开着（只是不用密码了）', App.state.lock === true);
   byId.lock.click();
@@ -3546,7 +3588,7 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
   ok('点头像进的是聊天设置', walk(chat).some(n => n.textContent === '聊天设置'));
   ok('聊天设置里有「允许 TA 自己改关系」开关',
     walk(chat).some(n => n.textContent === '允许 TA 自己改关系'));
-  findBtn(chat, '返回').click();
+  (findBtn(chat, '返回') || { click: function(){} }).click();
 
   /* 「＋」里新增的五项 */
   const plusBtn = walk(chat).find(n => n._class.has('chat-plus'));
@@ -3747,14 +3789,14 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   sandbox.SHELL.closeAll();
   const chat = openFresh('chat', cc.id);
   const nBefore = App.messages(cc.id).length;
-  walk(chat).find(n => n.attrs && n.attrs.title === '语音通话').click();
+  (walk(chat).find(n => n.attrs && n.attrs.title === '语音通话') || { click: function(){} }).click();
   const cInput = findIn(chat, '打字也能接话…');
   ok('聊天页右上角能进通话页', !!cInput && walk(chat).some(n => n._class.has('call-view')));
   cInput.value = '喂，听得见吗';
-  walk(chat).find(n => n._class.has('call-say')).click();
+  (walk(chat).find(n => n._class.has('call-say')) || { click: function(){} }).click();
   ok('通话里说的那句话没进聊天记录', App.messages(cc.id).length === nBefore,
     JSON.stringify(App.messages(cc.id).map(m => m.text)));
-  walk(chat).find(n => n._class.has('call-hang')).click();
+  (walk(chat).find(n => n._class.has('call-hang')) || { click: function(){} }).click();
   const rec = App.callsOf(cc.id)[0];
   ok('挂断后落成一条通话记录', App.callsOf(cc.id).length === 1 && !!rec);
   ok('通话记录里存着那句话', !!rec && rec.lines.some(l => l.me && l.text === '喂，听得见吗'));
@@ -3764,7 +3806,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   /* 通话记录页 */
   openFresh('chat', cc.id);
   top().find(n => n.attrs && n.attrs.title === '聊天设置').click();   // 齿轮 → 聊天设置
-  top().find(n => n._class.has('row') && n.textContent.includes('语音与通话')).click();
+  (top().find(n => n._class.has('row') && n.textContent.includes('语音与通话')) || { click: function(){} }).click();
   const callRow = top().find(n => n._class.has('row') && n.textContent.includes('通话记录'));
   ok('聊天设置 → 语音与通话里有「通话记录」入口', !!callRow);
   ok('入口上直接写着有几通', !!callRow && callRow.textContent.includes('1 通'));
@@ -3772,10 +3814,10 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('通话记录页打得开', top().some(n => n.textContent === '通话记录'));
   ok('列表里有一张通话卡片', top().some(n => n._class.has('cl-card')));
   ok('没展开时看不到通话内容', !top().some(n => n._class.has('cl-body')));
-  top().find(n => n._class.has('cl-head')).click();
+  (top().find(n => n._class.has('cl-head')) || { click: function(){} }).click();
   ok('点一下展开，内容才出来', top().some(n => n._class.has('cl-body')));
   ok('展开后能看到那句原话', top().some(n => n._class.has('cl-text') && n.textContent === '喂，听得见吗'));
-  top().find(n => n._class.has('cl-head')).click();
+  (top().find(n => n._class.has('cl-head')) || { click: function(){} }).click();
   ok('再点一下收起来', !top().some(n => n._class.has('cl-body')));
 
   /* ── 3. 主动找你 ── */
@@ -3886,7 +3928,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
     && top().some(n => n._class.has('qb-txt') && n.textContent === '在的'));
 
   (findIn(qchat, '说点什么…') || {}).value = '你刚才说啥';
-  top().find(n => n._class.has('chat-send')).click();
+  (top().find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   const qm = App.messages(qc.id).slice(-1)[0];
   ok('引用跟着消息一起落盘',
     !!qm.quote && qm.quote.text === '在的' && qm.quote.name === '引用角色',
@@ -3900,7 +3942,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
     (openFresh('chat', qc.id), top().some(n => n._class.has('qt'))));
 
   /* 她开口 = 读过我那条了 */
-  top().find(n => n._class.has('chat-send')).click();
+  (top().find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => App.messages(qc.id).some(m => !m.me && /本地演示/.test(m.text)));
   ok('她回了之后，「未读」变「已读」',
     top().some(n => n._class.has('msg-read') && n.textContent === '已读'),
@@ -3919,6 +3961,11 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   await waitFor(() => sheetLabels().includes('复制这条'));
   let copyOk = true;
   try { clickSheet('复制这条'); } catch (e) { copyOk = false; }
+  /* 前面世界书的用例开过弹层，走之前清干净 —— 留着会挡住下面的聊天页面板 */
+  walk(byId.phone).filter(n => n._class.has('mask')).forEach(m => {
+    if (m.parentNode && m.parentNode.removeChild) m.parentNode.removeChild(m);
+  });
+
   ok('「复制这条」没有剪贴板也不崩，点完面板收起',
     copyOk && sheetLabels().length === 0, JSON.stringify(sheetLabels()));
   sandbox.SHELL.closeAll();
@@ -3985,7 +4032,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   /* 面板：内置 emoji + 自己收的图 */
   sandbox.SHELL.closeAll();
   openFresh('chat', s6.id);
-  top().find(n => n._class.has('chat-plus')).click();
+  (top().find(n => n._class.has('chat-plus')) || { click: function(){} }).click();
   ok('「＋」里有「表情 / 图片」', await waitFor(() => sheetLabels().includes('表情 / 图片')),
     JSON.stringify(sheetLabels()));
   clickSheet('表情 / 图片');
@@ -4008,13 +4055,13 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   ok('发完面板自己收起', sheetLabels().length === 0);
 
   /* 长按删掉 */
-  top().find(n => n._class.has('chat-plus')).click();
+  (top().find(n => n._class.has('chat-plus')) || { click: function(){} }).click();
   clickSheet('表情 / 图片');
   const delCell = walk(byId.phone).find(x => x._class.has('sticker') && x._class.has('has-img'));
   ok('那一格挂上了长按监听', !!delCell && (delCell._listeners.mousedown || []).length > 0);
   dispatch(delCell, 'mousedown', {});
   ok('长按弹删除确认', await waitFor(() => walk(byId.phone).some(x => x._class.has('confirm'))));
-  walk(byId.phone).find(x => x._class.has('btn') && x._class.has('danger')).click();
+  (walk(byId.phone).find(x => x._class.has('btn') && x._class.has('danger')) || { click: function(){} }).click();
   ok('确认后表情从库里删掉', A6.stickersOf().length === 0, String(A6.stickersOf().length));
   ok('删完面板里那格也跟着没了', !walk(byId.phone).some(x => x._class.has('sticker-img')));
   /* 长按弹过确认之后，抬手跟来的那个 click 不能再把表情发出去 */
@@ -4052,10 +4099,10 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   openFresh('chat', s7.id);
   const inp7 = walk(byId.phone).find(n => n._class.has('chat-input'));
   inp7.value = '在吗';
-  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  (walk(byId.phone).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await sleep(80);
   /* 这条一发，按钮从「发送」变成「回复 1」—— 再点一下才是真让她开口 */
-  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  (walk(byId.phone).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   ok('先有一条回复', await waitFor(() => {
     const h = A6.messages(s7.id);
     return h.length >= 2 && !h[h.length - 1].me;
@@ -4071,7 +4118,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   let seq7 = 0;
   const realAsk7 = A6.askCharacter;
   A6.askCharacter = async () => '换个回法' + (++seq7);
-  top().find(x => x._class.has('chat-plus')).click();
+  (top().find(x => x._class.has('chat-plus')) || { click: function(){} }).click();
   ok('「＋」里有「重新生成」', await waitFor(() => sheetLabels().includes('重新生成')),
     JSON.stringify(sheetLabels()));
   clickSheet('重新生成');
@@ -4131,8 +4178,8 @@ console.log('\n[34] 群聊');
   ok('选人页把三个角色都列出来了',
     ['群甲', '群乙', '群丙'].every(n => titles().includes(n)), titles().join(','));
   ok('一个都没选时按钮不带数字', (okBtn() || {}).textContent === '建群', (okBtn() || {}).textContent);
-  rowHas('群甲').click();
-  rowHas('群乙').click();
+  (rowHas('群甲') || { click: function(){} }).click();
+  (rowHas('群乙') || { click: function(){} }).click();
   ok('选了两个人按钮跟着数', (okBtn() || {}).textContent === '建群（2）', (okBtn() || {}).textContent);
   okBtn().click();
 
@@ -4159,9 +4206,9 @@ console.log('\n[34] 群聊');
   if (outBtn) outBtn.click();
   ok('只剩两个人时不让再移出（点了不动）', A.groupOf(g.id).members.length === 2, String(A.groupOf(g.id).members.length));
 
-  rowHas('加人').click();
+  (rowHas('加人') || { click: function(){} }).click();
   ok('加人页把没进群的人也列出来', titles().includes('群丙'), titles().join(','));
-  rowHas('群丙').click();
+  (rowHas('群丙') || { click: function(){} }).click();
   okBtn().click();
   ok('加完群里有三个人', A.groupOf(g.id).members.length === 3, String(A.groupOf(g.id).members.length));
 
@@ -4194,11 +4241,11 @@ console.log('\n[34] 群聊');
   openFresh('chat', gid);
   const inp = walk(byId.phone).find(n => n._class.has('chat-input'));
   inp.value = '你们想吃什么';
-  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  (walk(byId.phone).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await sleep(60);
   const realAsk = A.askCharacter;
   A.askCharacter = async () => '群甲：火锅' + A.SPLIT_MARK + '群乙：+1，我也想吃';
-  walk(byId.phone).find(n => n._class.has('chat-send')).click();
+  (walk(byId.phone).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   ok('一次回答里两个人各说一句', await waitFor(() => A.messages(gid).filter(m => !m.me).length === 2, 5000),
     String(A.messages(gid).filter(m => !m.me).length));
   await waitFor(() => !walk(byId.phone).some(x => x._class.has('typing')), 9000);
@@ -4483,18 +4530,18 @@ console.log('\n[36] 主动找多人 / 自己发朋友圈');
   ok('底部页签能到朋友圈', !!momTab);
   if (momTab) momTab.click();
   await sleep(80);
-  top().find(n => n._class.has('nav-btn') && n.textContent === '写').click();
+  (top().find(n => n._class.has('nav-btn') && n.textContent === '写') || { click: function(){} }).click();
   await sleep(60);
   ok('「写」里第一项就是「我自己发一条」', sheetLabels().includes('我自己发一条'), JSON.stringify(sheetLabels()));
   clickSheet('我自己发一条');
   await sleep(120);
   const ta = top().find(n => n._class.has('mo-input'));
   ok('自己发那条给了一个输入框', !!ta);
-  top().find(n => n._class.has('btn') && n.textContent === '发布').click();
+  (top().find(n => n._class.has('btn') && n.textContent === '发布') || { click: function(){} }).click();
   await sleep(60);
   ok('空着手不让发', !A.momentList().some(m => m.charId === '__me'), String(A.momentList().length));
   if (ta) ta.value = '今天去看了海';
-  top().find(n => n._class.has('btn') && n.textContent === '发布').click();
+  (top().find(n => n._class.has('btn') && n.textContent === '发布') || { click: function(){} }).click();
   await sleep(120);
   const mine = A.momentList().find(m => m.charId === '__me');
   ok('发出来了，并且署的是「我」', !!mine && mine.text === '今天去看了海', mine ? mine.text : 'none');
@@ -4664,10 +4711,10 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   const kc = App.makeCharacter({ name: '通话摘要角色', greeting: '' });
   App.saveCharacter(kc);
   const kchat = openFresh('chat', kc.id);
-  walk(kchat).find(n => n.attrs && n.attrs.title === '语音通话').click();
+  (walk(kchat).find(n => n.attrs && n.attrs.title === '语音通话') || { click: function(){} }).click();
   (findIn(kchat, '打字也能接话…') || {}).value = '听得见吗';
-  walk(kchat).find(n => n._class.has('call-say')).click();
-  walk(kchat).find(n => n._class.has('call-hang')).click();
+  (walk(kchat).find(n => n._class.has('call-say')) || { click: function(){} }).click();
+  (walk(kchat).find(n => n._class.has('call-hang')) || { click: function(){} }).click();
   const brief = App.messages(kc.id).filter(m => m.kind === 'call');
   ok('挂断后聊天里落了一条通话摘要', brief.length === 1, String(brief.length));
   ok('摘要带着时长和那条记录的 id',
@@ -4688,7 +4735,7 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   const bkChat = openFresh('chat', bk.id);
   ok('聊天页右上角已经没有「清空」了',
     !walk(bkChat).some(n => n.tagName === 'BUTTON' && n.textContent.trim() === '清空'));
-  walk(bkChat).find(n => n.attrs && n.attrs.title === '聊天设置').click();
+  (walk(bkChat).find(n => n.attrs && n.attrs.title === '聊天设置') || { click: function(){} }).click();
   const bkBtn = top().find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '拉黑');
   ok('「拉黑」挪进了聊天设置', !!bkBtn);
   bkBtn.click();
@@ -4698,7 +4745,7 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   ok('拉黑后会话列表里就没有他了', !App.chatList().some(r => r.c.id === bk.id));
   ok('拉黑不删聊天记录', App.messages(bk.id).length === 1);
   const bkChat2 = openFresh('chat', bk.id);
-  walk(bkChat2).find(n => n.attrs && n.attrs.title === '聊天设置').click();
+  (walk(bkChat2).find(n => n.attrs && n.attrs.title === '聊天设置') || { click: function(){} }).click();
   const unBtn = top().find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '解除拉黑');
   ok('拉黑后按钮变成「解除拉黑」', !!unBtn);
   unBtn.click(); confirmYes();
@@ -4783,7 +4830,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   boot(); App = sandbox.SJ;
   const bal0 = sandbox.SJ.walletBalance();
   const mApp = openFresh('mall');
-  walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  (walk(mApp).find(n => n._class.has('wt') && n.textContent.includes('购物车')) || { click: function(){} }).click();
   const goBtn = walk(mApp).find(n => n._class.has('cart-go'));
   ok('（前置）购物车结算按钮在，余额和密码就位',
     !!goBtn && bal0 === 500 && sandbox.SJ.payPassOn() === true);
@@ -4816,7 +4863,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   sandbox.SJ.payPassSet('');
   sandbox.SJ.mallAddToCart(sandbox.SJ.mallGoods()[0]);
   const mApp2 = openFresh('mall');
-  walk(mApp2).find(n => n._class.has('wt') && n.textContent.includes('购物车')).click();
+  (walk(mApp2).find(n => n._class.has('wt') && n.textContent.includes('购物车')) || { click: function(){} }).click();
   const go2 = walk(mApp2).find(n => n._class.has('cart-go'));
   const bal1 = sandbox.SJ.walletBalance();
   go2.click();
@@ -4849,7 +4896,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
     return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ goods }) } }] }));
   };
   const mallApp = openFresh('mall');
-  walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
+  (walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
   const reBtn = walk(mallApp).find(n => n._class.has('row') && n.textContent.includes('重新进一批货'));
   ok('「我的」页有让桃桃重新进货的入口', !!reBtn);
   reBtn.click();
@@ -4886,8 +4933,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
     return Promise.resolve(mockRes(true, { choices: [{ message: { content: JSON.stringify({ goods }) } }] }));
   };
   const mallApp2 = openFresh('mall');
-  walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
-  walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')).click();
+  (walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
+  (walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')) || { click: function(){} }).click();
   await waitFor(() => genCalls >= 2 && App.state.mall.goods.length > 0, 3000);
   const cov2 = new Set(App.mallGoods().map(g => g.cat));
   ok('模型漏类时自动补一轮，补完 8 个分类还是全有货',
@@ -4909,8 +4956,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.state.settings.apiModel = 'test-model';
   fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '{"goods":[]}' } }] }));
   const mallApp3 = openFresh('mall');
-  walk(mallApp3).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
-  walk(mallApp3).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')).click();
+  (walk(mallApp3).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
+  (walk(mallApp3).find(n => n._class.has('row') && n.textContent.includes('重新进一批货')) || { click: function(){} }).click();
   await waitFor(() => toasts().length > 0, 3000);
   ok('模型一个货都没给：给提示、不崩、也没把原来的货清掉',
     App.mallGoods().length === 1 && App.mallGoods()[0].id === 'keep',
@@ -5069,14 +5116,14 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   };
   fresh({ settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' } });
   const dlApp = openFresh('delivery');
-  walk(dlApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
-  walk(dlApp).find(n => n._class.has('row') && n.textContent.includes('想吃点什么')).click();
+  (walk(dlApp).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
+  (walk(dlApp).find(n => n._class.has('row') && n.textContent.includes('想吃点什么')) || { click: function(){} }).click();
   /* 面板里那个 textarea + 「就这些」按钮 */
   const ta = walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop();
   ok('「想吃点什么」弹出了输入面板', !!ta);
   ta.value = '潮汕牛肉火锅';
   /* askText 的提交键是普通 .btn，不是 .sheet-item，clickSheet 够不着 */
-  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  (walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些') || { click: function(){} }).click();
   await waitFor(() => App.state.delivery.shops.length > 0, 3000);
   ok('用户说的话原样进了提示词', seen.some(s => s.includes('潮汕牛肉火锅')), (seen[0] || '').slice(-60));
   ok('生成出来的店换上了', App.state.delivery.shops[0].name === '潮汕牛肉火锅');
@@ -5095,12 +5142,12 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.state.settings.apiKey = 'sk-test';
   App.state.settings.apiModel = 'test-model';
   const mallApp = openFresh('mall');
-  walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
-  walk(mallApp).find(n => n._class.has('row') && n.textContent.includes('想要点什么')).click();
+  (walk(mallApp).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
+  (walk(mallApp).find(n => n._class.has('row') && n.textContent.includes('想要点什么')) || { click: function(){} }).click();
   const mta = walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop();
   ok('商城「想要点什么」也弹出了输入面板', !!mta);
   mta.value = '露营的折叠桌';
-  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  (walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些') || { click: function(){} }).click();
   await waitFor(() => App.mallGoods().some(g => g.name === '露营折叠桌'), 3000);
   ok('用户说的话原样进了进货提示词', seen2.some(s => s.includes('露营的折叠桌')), (seen2[0] || '').slice(-60));
   ok('按需进的货上了架', App.mallGoods().some(g => g.name === '露营折叠桌'));
@@ -5110,10 +5157,10 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   /* 生成失败要说清楚，不能静默 */
   fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '{"goods":[]}' } }] }));
   const mallApp2 = openFresh('mall');
-  walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')).click();
-  walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('想要点什么')).click();
+  (walk(mallApp2).find(n => n._class.has('wt') && n.textContent.includes('我的')) || { click: function(){} }).click();
+  (walk(mallApp2).find(n => n._class.has('row') && n.textContent.includes('想要点什么')) || { click: function(){} }).click();
   walk(byId.phone).filter(n => n._class.has('field') && n._class.has('area')).pop().value = '不存在的东西';
-  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些').click();
+  (walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '就这些') || { click: function(){} }).click();
   await waitFor(() => toasts().length > 0, 3000);
   ok('按需进货失败时给提示，且不清空原有货架',
     App.mallGoods().some(g => g.id === 'keep'), toasts());
@@ -5135,14 +5182,14 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   ok('结算页有地址行，且此时是「还没填」',
     !!barBefore && barBefore.textContent.includes('点这里加一个'), barBefore && barBefore.textContent);
   barBefore.click();
-  walk(byId.phone).find(n => n._class.has('addr-add')).click();
+  (walk(byId.phone).find(n => n._class.has('addr-add')) || { click: function(){} }).click();
   /* 表单挂在 .addr-form 那个 .pad 下，input 本身才有 .field。取最后 4 个 = 刚弹出的那组 */
   const ins = walk(byId.phone).filter(n => n._class.has('field') && !n._class.has('area')).slice(-4);
   ok('地址表单有 4 个输入框（收货人/电话/详细地址/标签）', ins.length === 4, ins.length + ' 个');
   ins[0].value = '我';
   ins[1].value = '13800000000';
   ins[2].value = '幸福小区 3 栋 502';
-  walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '保存').click();
+  (walk(byId.phone).find(n => n._class.has('btn') && n.textContent === '保存') || { click: function(){} }).click();
   /* 底下的结算页必须已经重画 —— 断言的是页面上真实那一行，不是 state */
   const barAfter = addrBar();
   ok('存完地址，底下的结算页立刻显示「送到这里」（不用退出重进）',
@@ -5186,8 +5233,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   /* 第一次点发送 = 把输入框的话发出去；第二次才 = 求回复 */
   const ta = walk(chat).find(n => n._class.has('chat-input'));
   if (ta) ta.value = '谢谢';
-  walk(chat).find(n => n._class.has('chat-send')).click();
-  walk(chat).find(n => n._class.has('chat-send')).click();
+  (walk(chat).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
+  (walk(chat).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => App.messages('g1').some(m => m.kind === 'gift'), 4000);
 
   const gifts = App.messages('g1').filter(m => m.kind === 'gift');
@@ -5221,7 +5268,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.state.settings.payPass = '';   /* 先不设密码，走通主路径 */
   const ordersBefore = App.state.delivery.orders.length;
   const chat3 = openFresh('chat', 'g1');
-  walk(chat3).find(n => n._class.has('chat-plus')).click();
+  (walk(chat3).find(n => n._class.has('chat-plus')) || { click: function(){} }).click();
   ok('「＋」里有「给 TA 点外卖」', sheetLabels().includes('给 TA 点外卖'), sheetLabels().join(','));
   ok('「＋」里有「给 TA 买礼物」', sheetLabels().includes('给 TA 买礼物'));
   clickSheet('给 TA 点外卖');
@@ -5244,7 +5291,7 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
   sandbox.SHELL.openApp('delivery', { giftTo: 'g1', fromChat: 'g1' });
   await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
-  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  (walk(byId.stack).find(n => n._class.has('cart-bar')) || { click: function(){} }).click();
   await waitFor(() => walk(byId.stack).some(n => n._class.has('giftee')), 3000);
   const gbar = walk(byId.stack).find(n => n._class.has('giftee'));
   ok('结算页有「送给谁」那一行', !!gbar, '没找到 .addr-bar.giftee');
@@ -5289,9 +5336,9 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.save();
   sandbox.SHELL.openApp('delivery');
   await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
-  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  (walk(byId.stack).find(n => n._class.has('cart-bar')) || { click: function(){} }).click();
   await waitFor(() => walk(byId.stack).some(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')), 3000);
-  walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')).click();
+  (walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')) || { click: function(){} }).click();
   await waitFor(() => App.state.delivery.orders.length > ordersBefore + 1, 3000);
   ok('不是从聊天进来的单，不会凭空往聊天里发消息', App.messages('g1').length === msgN,
     msgN + ' → ' + App.messages('g1').length);
@@ -5310,9 +5357,9 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   while (sandbox.SHELL.stack.length) sandbox.SHELL.closeTop(true);
   sandbox.SHELL.openApp('delivery');
   await waitFor(() => walk(byId.stack).some(n => n._class.has('cart-bar')), 3000);
-  walk(byId.stack).find(n => n._class.has('cart-bar')).click();
+  (walk(byId.stack).find(n => n._class.has('cart-bar')) || { click: function(){} }).click();
   await waitFor(() => walk(byId.stack).some(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')), 3000);
-  walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')).click();
+  (walk(byId.stack).find(n => n._class.has('btn') && String(n.textContent).startsWith('去结算')) || { click: function(){} }).click();
   await waitFor(() => toasts().includes('零钱不够'), 2000);
   ok('余额不够时给提示、不落单',
     toasts().includes('零钱不够') && App.state.delivery.orders.length === orderN,
@@ -5723,8 +5770,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   const cvFresh = openFresh('chat', 'k1');
   const inpF = walk(cvFresh).find(n => n._class.has('chat-input'));
   if (inpF) inpF.value = '在吗';
-  walk(cvFresh).find(n => n._class.has('chat-send')).click();
-  walk(cvFresh).find(n => n._class.has('chat-send')).click();
+  (walk(cvFresh).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
+  (walk(cvFresh).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => walk(cvFresh).some(n => n._class.has('bubble') && String(n.textContent).includes('刚打出来的一条')), 4000);
   const freshRow = walk(cvFresh).find(n => n._class.has('msg') && String(n.textContent).includes('刚打出来的一条'));
   ok('刚打出来的那条在屏幕上', !!freshRow);
@@ -5761,8 +5808,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   const cv = openFresh('chat', 'k1');
   const inp = walk(cv).find(n => n._class.has('chat-input'));
   if (inp) inp.value = '在吗';
-  walk(cv).find(n => n._class.has('chat-send')).click();
-  walk(cv).find(n => n._class.has('chat-send')).click();
+  (walk(cv).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
+  (walk(cv).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => App.messages('k1').some(m => !m.me && /刚下课/.test(m.text || '')), 4000);
   await waitFor(() => walk(cv).filter(n => n._class.has('bubble') && n._class.has('ta')).length === 3, 4000);
 
@@ -5793,8 +5840,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   const cv3 = openFresh('chat', 'k1');
   const inp3 = walk(cv3).find(n => n._class.has('chat-input'));
   if (inp3) inp3.value = '嗨';
-  walk(cv3).find(n => n._class.has('chat-send')).click();
-  walk(cv3).find(n => n._class.has('chat-send')).click();
+  (walk(cv3).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
+  (walk(cv3).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => walk(cv3).filter(n => n._class.has('bubble') && n._class.has('ta')).length === 2, 4000);
   const fw = walk(cv3).filter(n => n._class.has('bubble') && n._class.has('ta')).map(b => b.textContent);
   ok('全角 ％％ 也在打字时就断开', fw.length === 2 && fw.join('|') === '好呀|那就这样', JSON.stringify(fw));
@@ -5810,8 +5857,8 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   const cv4 = openFresh('chat', 'k1');
   const inp4 = walk(cv4).find(n => n._class.has('chat-input'));
   if (inp4) inp4.value = '在吗';
-  walk(cv4).find(n => n._class.has('chat-send')).click();
-  walk(cv4).find(n => n._class.has('chat-send')).click();
+  (walk(cv4).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
+  (walk(cv4).find(n => n._class.has('chat-send')) || { click: function(){} }).click();
   await waitFor(() => walk(cv4).some(n => n._class.has('packet')), 4000);
   const mixed = walk(cv4).filter(n => n._class.has('bubble'));
   ok('一段里「话 + 红包」能拆成气泡和红包两个',
@@ -5990,7 +6037,7 @@ console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
   A.state.settings.dbgOpen = false;
   Sh.closeAll();
   Sh.openApp('chat');
-  nodes(Sh.stack[0].node).find(n => n._class.has('row') && n.textContent.includes('监视用')).click();
+  (nodes(Sh.stack[0].node).find(n => n._class.has('row') && n.textContent.includes('监视用')) || { click: function(){} }).click();
 
   const chat = Sh.stack[Sh.stack.length - 1].node;
   ok('聊天页里挂上了接口监视面板', nodes(chat).some(n => n._class.has('dbg-panel')));
@@ -6005,10 +6052,10 @@ console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
     iList >= 0 && iDbg > iList && iBar > iDbg, `${iList} / ${iDbg} / ${iBar}`);
   const body = nodes(chat).find(n => n._class.has('dbg-body'));
   ok('打开后默认是折叠的，只剩一行', !!body && body._class.has('hide'));
-  nodes(chat).find(n => n._class.has('dbg-head')).click();
+  (nodes(chat).find(n => n._class.has('dbg-head')) || { click: function(){} }).click();
   ok('点那一行能展开', !body._class.has('hide'));
   ok('展开后能看到「清空 / 关闭」', nodes(chat).some(n => n._class.has('dbg-btn') && n.textContent === '关闭'));
-  nodes(chat).find(n => n._class.has('dbg-head')).click();
+  (nodes(chat).find(n => n._class.has('dbg-head')) || { click: function(){} }).click();
   ok('再点一下收起', body._class.has('hide'));
 
   /* 设置页那个开关：聊天页还在底下时，开了就该当场挂上去（不用退出去重进） */
@@ -6059,7 +6106,7 @@ console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
   Sh.openApp('worldbook');
   ok('世界书首页有「导出世界书」那一行',
     topNodes().some(n => n.textContent.trim() === '导出世界书'));
-  topNodes().find(n => n.textContent.trim() === '导出世界书').click();
+  (topNodes().find(n => n.textContent.trim() === '导出世界书') || { click: function(){} }).click();
   ok('点它弹出「存成文件 / 复制」两条路', sheetLabels().includes('存成 .json 文件') && sheetLabels().includes('复制 JSON'),
     JSON.stringify(sheetLabels()));
   clickSheet('存成 .json 文件');

@@ -759,76 +759,136 @@ function paintLockWidgets() {
   if (!box) return;
   box.innerHTML = '';
   if (SJ.state.settings.lockWidgets === false) return;
-  const evs = SJ.todayEvents();
-  const card = SJ.el('div', { class: 'lw-card' });
-  if (!evs.length) {
-    card.append(SJ.el('div', { class: 'lw-empty' }, '今天没有安排'));
-  } else {
-    evs.slice(0, 3).forEach(ev => card.append(SJ.el('div', { class: 'lw-row' + (ev.done ? ' done' : '') }, [
-      SJ.el('span', { class: 'lw-time' }, ev.time || '全天'),
-      SJ.el('span', { class: 'lw-title' }, ev.title || '（没写标题）')
-    ])));
-    if (evs.length > 3) card.append(SJ.el('div', { class: 'lw-more' }, '还有 ' + (evs.length - 3) + ' 条'));
-  }
-  box.append(card);
 
-  /* ── 正在听的歌 ── 没在放就不显示 */
+  const now = (typeof SJ.virtualNow === 'function') ? SJ.virtualNow() : new Date();
+  const Y = now.getFullYear();
+  const yStart = new Date(Y, 0, 1).getTime();
+  const yEnd = new Date(Y + 1, 0, 1).getTime();
+  const yearPct = Math.max(0, Math.min(100, (now.getTime() - yStart) / (yEnd - yStart) * 100));
+  const yearLeft = Math.max(0, Math.ceil((yEnd - now.getTime()) / 86400000));
+  const dStart = new Date(Y, now.getMonth(), now.getDate()).getTime();
+  const dayPct = Math.max(0, Math.min(100, (now.getTime() - dStart) / 86400000 * 100));
+
+  /* 环形进度：一圈底 + 一圈实，用 dashoffset 画 —— 比画图片省事，还能跟着数值动 */
+  const ring = (pct, size, sw) => {
+    const r = (size - sw) / 2;
+    const c = 2 * Math.PI * r;
+    return '<svg viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '">' +
+      '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="currentColor" ' +
+      'stroke-opacity=".16" stroke-width="' + sw + '"/>' +
+      '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="currentColor" ' +
+      'stroke-width="' + sw + '" stroke-linecap="round" stroke-dasharray="' + c.toFixed(1) + '" ' +
+      'stroke-dashoffset="' + (c * (1 - pct / 100)).toFixed(1) + '" ' +
+      'transform="rotate(-90 ' + size / 2 + ' ' + size / 2 + ')"/>' +
+      '</svg>';
+  };
+
+  const grid = SJ.el('div', { class: 'lw-grid' });
+  const card = (cls, kids) => SJ.el('div', { class: 'lw-card ' + cls }, kids);
+
+  /* ── 年份：跨两列，含今年与今天两条细进度 ── */
+  grid.append(card('lw-w lw-year', [
+    SJ.el('div', { class: 'lw-year-top' }, [
+      SJ.el('span', { class: 'lw-year-n' }, String(yearLeft)),
+      SJ.el('span', { class: 'lw-year-t' }, '天后 ' + (Y + 1) + ' 年')
+    ]),
+    SJ.el('div', { class: 'lw-bar' + ' thin' }, [SJ.el('i', { style: { width: Math.max(2, yearPct) + '%' } })]),
+    SJ.el('div', { class: 'lw-year-sub' }, [
+      SJ.el('span', {}, Y + ' 年已过 ' + Math.round(yearPct) + '%'),
+      SJ.el('span', {}, '今天 ' + Math.round(dayPct) + '%')
+    ])
+  ]));
+
+  /* ── 今日安排：跨两列。原来的实现只能用「一张大卡」，
+     进了马赛克之后改成列表行，跟别的卡同一套规格。 ── */
+  const evs = (typeof SJ.todayEvents === 'function') ? SJ.todayEvents() : [];
+  if (evs.length) {
+    const ev = SJ.el('div', { class: 'lw-card lw-w lw-ev' }, [
+      SJ.el('div', { class: 'lw-k' }, '今天 · ' + evs.length + ' 条')
+    ]);
+    evs.slice(0, 3).forEach(e => ev.append(SJ.el('div', { class: 'lw-ev-row' + (e.done ? ' done' : '') }, [
+      SJ.el('span', { class: 'lw-ev-t' }, e.time || '全天'),
+      SJ.el('span', { class: 'lw-ev-n' }, e.title || '（没写标题）')
+    ])));
+    if (evs.length > 3) ev.append(SJ.el('div', { class: 'lw-ev-more' }, '还有 ' + (evs.length - 3) + ' 条'));
+    grid.append(ev);
+  }
+
+  /* ── 电量环 / 未读：两张方卡；只剩一张时跨两列 ── */
+  const bl = (typeof batteryLevel === 'function') ? batteryLevel() : null;
+  const hasBatt = (bl !== null && bl !== undefined);
+  const un = SJ.unreadTotal();
+  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
+  const hasUn = un > 0 && rows.length > 0;
+  const lone = (hasBatt && !hasUn) || (!hasBatt && hasUn) ? ' lw-w' : '';
+
+  if (hasBatt) {
+    const pct = Math.round(bl * 100);
+    grid.append(card('lw-s lw-ring' + (hasUn ? '' : lone), [
+      SJ.el('div', { class: 'lw-ring-ico', html: ring(pct, 46, 4) }),
+      SJ.el('div', { class: 'lw-ring-b' }, [
+        SJ.el('div', { class: 'lw-k' }, '电量'),
+        SJ.el('div', { class: 'lw-v' }, pct + '%' + (batteryCharging() ? ' ↑' : ''))
+      ])
+    ]));
+  }
+  if (hasUn) {
+    const last = rows[0];
+    grid.append(card('lw-s lw-un' + (hasBatt ? '' : lone), [
+      SJ.el('div', { class: 'lw-un-n' }, un > 99 ? '99+' : String(un)),
+      SJ.el('div', { class: 'lw-k' }, '条未读'),
+      SJ.el('div', { class: 'lw-un-who' }, String(last.c.name).slice(0, 8) +
+        (rows.length > 1 ? ' 等 ' + rows.length + ' 个' : ''))
+    ]));
+  }
+
+  /* ── 正在听的歌：跨两列 ── */
   const mu = SJ.state.music || {};
   const tr = mu.playing
     ? (mu.title || mu.name || (Array.isArray(mu.list) && mu.list[mu.index || 0]
         ? (mu.list[mu.index || 0].name || mu.list[mu.index || 0].title) : ''))
     : '';
   if (tr) {
-    box.append(SJ.el('div', { class: 'lw-card lw-mu' }, [
+    grid.append(card('lw-w lw-mu', [
       SJ.el('div', { class: 'lw-mu-row' }, [
-        /* svg() 在 apps.js 的 IIFE 里，这里要用它挂出来的 window.ICONSVG */
         SJ.el('span', { class: 'lw-mu-ico', html: window.ICONSVG ? window.ICONSVG('music', 15) : '' }),
-        SJ.el('span', { class: 'lw-mu-title' }, String(tr).slice(0, 22))
-      ]),
-      mu.artist ? SJ.el('div', { class: 'lw-mu-artist' }, String(mu.artist).slice(0, 22)) : null
-    ].filter(Boolean)));
+        SJ.el('span', { class: 'lw-mu-title' }, String(tr).slice(0, 24)),
+        mu.artist ? SJ.el('span', { class: 'lw-mu-artist' }, String(mu.artist).slice(0, 12)) : null
+      ].filter(Boolean))
+    ]));
   }
 
-  /* ── 最近一条备忘 ── 有才显示，只给标题 */
+  /* ── 最近的备忘：跨两列 ── */
   const nt = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
   if (nt && (nt.title || nt.body)) {
-    box.append(SJ.el('div', { class: 'lw-card lw-nt' }, [
-      SJ.el('div', { class: 'lw-nt-head' }, '最近的备忘'),
-      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 26))
+    grid.append(card('lw-w lw-nt', [
+      SJ.el('div', { class: 'lw-k' }, '最近的备忘'),
+      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 28))
     ]));
   }
 
-  /* ── 电量 ── 复用真机电池（读不到就不显示） */
-  const bl = (typeof batteryLevel === 'function') ? batteryLevel() : null;
-  if (bl !== null && bl !== undefined) {
-    const pct = Math.round(bl * 100);
-    box.append(SJ.el('div', { class: 'lw-card lw-batt' }, [
-      SJ.el('div', { class: 'lw-batt-top' }, [
-        SJ.el('span', {}, '电量'),
-        SJ.el('span', { class: 'lw-batt-n' }, pct + '%' + (batteryCharging() ? ' · 充电中' : ''))
-      ]),
-      SJ.el('div', { class: 'lw-batt-bar' }, [SJ.el('i', { style: { width: Math.max(3, pct) + '%' } })])
-    ]));
-  }
+  /* ── 一块纯装饰：同心弧 + 点阵。不承载信息，只负责让这一屏不呆板 ── */
+  grid.append(card('lw-w lw-deco', [
+    SJ.el('div', {
+      class: 'lw-deco-art',
+      html: '<svg viewBox="0 0 300 40" preserveAspectRatio="none" width="100%" height="40">' +
+        '<circle cx="26" cy="20" r="13" fill="none" stroke="currentColor" stroke-opacity=".28" stroke-width="1"/>' +
+        '<circle cx="26" cy="20" r="7" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1"/>' +
+        '<circle cx="26" cy="20" r="2" fill="currentColor" fill-opacity=".8"/>' +
+        '<path d="M52 20 H 96" stroke="currentColor" stroke-opacity=".22" stroke-width="1"/>' +
+        '<path d="M104 20 h 6 M118 20 h 6 M132 20 h 6 M146 20 h 6 M160 20 h 6" ' +
+        'stroke="currentColor" stroke-opacity=".34" stroke-width="2" stroke-linecap="round"/>' +
+        '<path d="M182 6 A 14 14 0 0 1 182 34" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1"/>' +
+        '<path d="M192 12 A 8 8 0 0 1 192 28" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1"/>' +
+        '<circle cx="252" cy="14" r="1.6" fill="currentColor" fill-opacity=".35"/>' +
+        '<circle cx="266" cy="20" r="1.6" fill="currentColor" fill-opacity=".5"/>' +
+        '<circle cx="280" cy="26" r="1.6" fill="currentColor" fill-opacity=".28"/>' +
+        '</svg>'
+    })
+  ]));
 
-  /* 未读消息：锁屏上最该先看到的一句话。
-     没人给你发就不占地方 —— 空卡比没有更烦。 */
-  const un = SJ.unreadTotal();
-  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
-  if (un > 0 && rows.length) {
-    const last = rows[0];
-    const preview = String((last.last && last.last.text) || '').replace(/\n/g, ' ').slice(0, 24);
-    const wrap = SJ.el('div', { class: 'lw-card lw-un' }, [
-      SJ.el('div', { class: 'lw-un-top' }, [
-        SJ.el('span', { class: 'badge' }, un > 99 ? '99+' : String(un)),
-        SJ.el('span', { class: 'lw-un-name' }, last.c.name + (rows.length > 1 ? ' 等 ' + rows.length + ' 个会话' : ''))
-      ]),
-      preview ? SJ.el('div', { class: 'lw-un-text' }, preview) : null
-    ].filter(Boolean));
-    box.append(wrap);
-  }
+  box.append(grid);
 }
-
 /* 锁屏底部快捷按钮：点了先进解锁（有密码的话），解锁后直接进那个 App */
 const LOCK_QUICK = ['calendar', 'notes', 'chat', 'gallery'];
 function paintLockQuick() {
@@ -843,7 +903,9 @@ function paintLockQuick() {
       class: 'qk', title: app.name,
       onclick: () => { pendingApp = app.id; unlock(); }
     }, [
-      SJ.el('span', { class: 'qk-art', html: window.APPICON(app, 21), style: { background: app.color } }),
+      /* 这里原来用的是旧版彩色 App 图形（APPICON + app.color）——
+         全站早就换成线性图标了，锁屏这条一直没跟上。 */
+      SJ.el('span', { class: 'qk-art', html: window.ICONSVG ? window.ICONSVG(app.icon, 21) : '' }),
       SJ.el('span', { class: 'qk-name' }, app.name)
     ]));
   });

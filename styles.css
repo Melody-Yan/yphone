@@ -3155,6 +3155,78 @@ input.field[type="range"]::-webkit-slider-thumb {
 #lock-widgets { gap: 10px; flex-direction: column; align-items: center; }
 #lock-widgets .lw-card + .lw-card { margin-top: 0; }
 
+/* ── 锁屏：组件马赛克 ──
+   2 列网格，宽卡跨两列。方卡两种：环（电量）和大数字（未读）。
+   所有卡共用一层薄玻璃，深浅两种壁纸下都立得住。 */
+#lock-widgets { margin-top: 18px; width: 100%; display: block; }
+.lw-grid {
+  width: 78%; max-width: 300px; margin: 0 auto;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+}
+.lw-card {
+  background: rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-radius: 18px; padding: 11px 13px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .05);
+  color: var(--ink); text-align: left;
+}
+#phone.dark-wall .lw-card { background: rgba(38, 36, 34, .5); color: #fff; }
+.lw-w { grid-column: span 2; }
+.lw-s { grid-column: span 1; }
+.lw-k { font-size: 11px; color: var(--ink-3); letter-spacing: .3px; }
+.lw-v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.lw-year-top { display: flex; align-items: baseline; gap: 6px; }
+.lw-year-n { font-size: 26px; font-weight: 600; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.lw-year-t { font-size: 12px; color: var(--ink-2); }
+.lw-bar { margin-top: 9px; height: 4px; border-radius: 3px; background-color: rgba(0, 0, 0, .09); overflow: hidden; }
+#phone.dark-wall .lw-bar { background-color: rgba(255, 255, 255, .16); }
+.lw-bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
+.lw-year-sub { margin-top: 7px; display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); }
+
+.lw-ring { display: flex; align-items: center; gap: 10px; }
+.lw-ring-ico { flex: 0 0 auto; line-height: 0; }
+.lw-ring-b { min-width: 0; }
+.lw-ring .lw-v { margin-top: 2px; }
+
+.lw-un-n { font-size: 26px; font-weight: 600; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.lw-un .lw-k { margin-top: 1px; }
+.lw-un-who { margin-top: 3px; font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lw-ev-row { display: flex; gap: 8px; margin-top: 6px; font-size: 12px; }
+.lw-ev-t { flex: 0 0 auto; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.lw-ev-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-ev-row.done .lw-ev-n { text-decoration: line-through; opacity: .5; }
+.lw-ev-more { margin-top: 6px; font-size: 11px; color: var(--ink-3); }
+
+.lw-deco { padding: 8px 10px; color: var(--ink-2); }
+.lw-deco-art { line-height: 0; opacity: .8; }
+
+/* 底栏图标：跟着全站换成线性图标，去掉彩色底 */
+.qk-art { background: none !important; box-shadow: none; }
+
+/* ── 真·开关（.sw）──
+   原来设置里的开关是「点一下整行切换 + 右边写一行字」，看不出是个开关。
+   现在是轨道 + 会滑的圆点；整行仍可点（手指够大），两处进同一个回调。 */
+.sw {
+  flex: 0 0 auto; width: 46px; height: 28px; border-radius: 999px;
+  border: 0; padding: 0; cursor: pointer; position: relative;
+  background: var(--line-2);
+  transition: background var(--dur-2) var(--ease-soft);
+}
+.sw i {
+  position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+  transition: transform var(--dur-2) var(--ease-quiet);
+}
+.sw.on { background: var(--accent-solid); }
+.sw.on i { transform: translateX(18px); }
+#phone.dark .sw { background: rgba(255, 255, 255, .18); }
+#phone.dark .sw.on { background: #f2f2f2; }
+#phone.dark .sw.on i { background: #1c1c1e; }
+/* 点开的那种子页用实心面：磨砂半透时壁纸上的东西会跟正文打架（用户报的存储页） */
+#phone .app-storage > .list, #phone .app-storage > .pad { background: var(--card); }
+
 /* 锁屏上的音乐 / 备忘 / 电量：跟今日安排同一套规格，内容不同而已 */
 .lw-mu-row { display: flex; align-items: center; gap: 8px; }
 .lw-mu-ico { display: inline-flex; color: var(--ink-2); }

@@ -569,13 +569,20 @@ function getPlayer() {
 }
 
 /* 设置/世界书共用的两种行：开关行、数字行 */
+/* 开关行：右边是一个真的滑动开关（用户：「不要只点一下就切换开关了，没有交互」）。
+   整行照样能点（手指够大），开关本身也可点 —— 两处都进同一个 onClick。 */
 function toggleRow(title, sub, on, onClick) {
-  return SJ.el('div', { class: 'row', onclick: onClick }, [
+  const sw = SJ.el('button', {
+    class: 'sw' + (on ? ' on' : ''), type: 'button',
+    'aria-pressed': on ? 'true' : 'false',
+    onclick: e => { if (e && e.stopPropagation) e.stopPropagation(); if (onClick) onClick(); }
+  }, [SJ.el('i')]);
+  return SJ.el('div', { class: 'row' + (on ? ' row-on' : ''), onclick: onClick }, [
     SJ.el('div', { class: 'row-main' }, [
       SJ.el('div', { class: 'row-title' }, title),
       sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
     ].filter(Boolean)),
-    SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
+    sw
   ]);
 }
 

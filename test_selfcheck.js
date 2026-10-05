@@ -2388,7 +2388,15 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     !!walk(wx).find(n => n._class.has('me-card')) &&
     !!walk(wx).find(n => n._class.has('me-name') && n.textContent === (App.state.settings.userName || '我')) &&
     tabOf(wx, '主页')._class.has('on'));
-  ok('主页上有外观 / 通讯录 / 设置三个入口',
+  /* 四个入口搬进右上角齿轮那一页了（用户要求：设置收成齿轮）——
+     先点齿轮，再找那三个入口 */
+  /* 右上角那个齿轮：导航栏里最后一个 nav-btn（左边是返回、右边是它） */
+  const navEl = walk(wx).find(n => n._class.has('nav'));
+  const gearBtn = walk(navEl).filter(n => n._class.has('nav-btn')).pop();
+  ok('主页右上角有齿轮', !!gearBtn && gearBtn.attrs.title === '设置',
+    gearBtn ? String(gearBtn.attrs.title) : '没找到');
+  if (gearBtn) gearBtn.click();
+  ok('主页上有外观 / 通讯录 / 设置三个入口（在齿轮那一页里）',
     ['外观与头像', '通讯录', '设置'].every(t =>
       walk(wx).some(n => n._class.has('row-title') && n.textContent === t)));
 

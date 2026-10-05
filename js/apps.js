@@ -549,7 +549,7 @@ function setLock(on) {
   if (SJ.state.lock && window.SHELL && window.SHELL.lock) window.SHELL.lock();
 }
 function lockSub() {
-  if (!SJ.state.lock) return '现在没开。打开后每次进小手机先过一道锁屏';
+  if (!SJ.state.lock) return '现在没开';
   return SJ.state.password ? '已开启 · 密码解锁（4 位数字）' : '已开启 · 无密码，点一下就进';
 }
 
@@ -793,7 +793,7 @@ const APPS = [
                   SJ.el('span', { class: 'tag' }, c.relation)
                 ]) : null
               ].filter(Boolean)),
-              last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null,
+              SJ.el('div', { class: 'row-time' }, last ? (SJ.fmtAgo(last.ts) || '刚刚') : '还没聊过'),
               SJ.el('button', {
                 class: 'row-go',
                 onclick: e => { e.stopPropagation(); if (window.SHELL) window.SHELL.openApp('chat', c.id); }
@@ -1256,17 +1256,55 @@ const APPS = [
         ]), tabBar('me'));
       }
 
+      /* ── 主页 ──
+         名片在最上面（这一块用户说做得好，保持），下面是 ins 那种账号页：
+         三个数 + 三列方图墙（我自己发过的朋友圈）。
+         四个入口（钱包/外观/通讯录/设置）不摆在这一屏了 —— 收进右上角齿轮。 */
       function meView() {
         root.innerHTML = '';
-        root.append(navBar('主页'));
-        const box = SJ.el('div', { class: 'list' });
+        root.append(navBar('主页', {
+          right: SJ.el('button', { class: 'nav-btn', title: '设置', onclick: () => gearView() },
+            SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) }))
+        }));
+        const box = SJ.el('div', { class: 'list me-view' });
+        const mine = SJ.state.moments.filter(m => m.who === ME);
         box.append(SJ.el('div', { class: 'me-card', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
           myAvatarNode(),
           SJ.el('div', { class: 'me-info' }, [
             SJ.el('div', { class: 'me-name' }, SJ.state.settings.userName || '我'),
             SJ.el('div', { class: 'me-sub' }, '头像和名字都能改，点这里')
-          ])
+          ]),
+          SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
         ]));
+        const stat = (n, label) => SJ.el('div', { class: 'me-stat' }, [
+          SJ.el('b', {}, String(n)),
+          SJ.el('span', {}, label)
+        ]);
+        box.append(SJ.el('div', { class: 'me-stats' }, [
+          stat(mine.length, '条动态'),
+          stat(SJ.state.characters.length, '个好友'),
+          stat(mine.filter(m => m.img).length, '张照片')
+        ]));
+        if (mine.length) {
+          box.append(SJ.el('div', { class: 'group-title' }, '我的动态'));
+          const grid = SJ.el('div', { class: 'ig-grid' });
+          mine.slice().sort((a, b) => b.ts - a.ts).slice(0, 9).forEach(m => {
+            const cell = SJ.el('div', { class: 'ig-cell', onclick: () => momentsView() });
+            if (m.img) cell.append(SJ.el('img', { class: 'ig-pic', src: SJ.imgSrc(m.img), alt: '' }));
+            else cell.append(SJ.el('div', { class: 'ig-text' }, String(m.text || '').slice(0, 48)));
+            grid.append(cell);
+          });
+          box.append(grid);
+          box.append(SJ.el('div', { class: 'ig-more', onclick: () => momentsView() }, '去朋友圈看全部 ›'));
+        }
+        root.append(box, tabBar('me'));
+      }
+
+      /* 齿轮那一页：原来主页上的四个入口都搬这儿 */
+      function gearView() {
+        root.innerHTML = '';
+        root.append(navBar('设置', { back: meView }));
+        const box = SJ.el('div', { class: 'list' });
         [
           ['wallet', '钱包', '余额 ¥' + SJ.walletBalance().toFixed(2) + ' · 外卖和购物都从这儿扣', 'wallet'],
           ['palette', '外观与头像', '桌面壁纸 / 锁屏 / 我的头像', 'look'],

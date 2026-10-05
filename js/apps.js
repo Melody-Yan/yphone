@@ -1915,6 +1915,27 @@ const APPS = [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '昵称'), alias]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, 'TA 认为的关系'), relation]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '我认为的关系'), myRel]),
+          /* 上下文深度：这个角色每次发过去带多少条原话。预设几档就够，不用让人算 token。 */
+          SJ.el('div', { class: 'row', onclick: () => {
+            const g = Math.max(2, Number(SJ.state.settings.historyKeep) || 40);
+            const cur = Number(c.historyKeep) || 0;
+            window.popover([0, 10, 20, 40, 80, 120].map(n => ({
+              label: n ? '最近 ' + n + ' 条' : '跟随全局（' + g + ' 条）',
+              hint: (n || g) === (cur || g) ? '当前' : '',
+              run: () => {
+                c.historyKeep = n;
+                SJ.saveCharacter(c);
+                toast(n ? '只带最近 ' + n + ' 条原话' : '改回跟随全局');
+                chatSettings(id);
+              }
+            })), { head: '对话上下文深度' });
+          } }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '上下文深度'),
+              SJ.el('div', { class: 'row-sub' }, '每次发给她时带最近几条原话；更早的靠记忆卡顶上')
+            ]),
+            SJ.el('div', { class: 'row-time' }, (c.historyKeep ? c.historyKeep + ' 条 ›' : '跟随全局 ›'))
+          ]),
           rowToggle('允许 TA 自己改关系', '剧情走到那儿时，TA 可以主动改掉上面那一栏', c.allowRelation === true,
             () => { c.allowRelation = c.allowRelation !== true; SJ.saveCharacter(c); chatSettings(id); }),
 
@@ -5308,6 +5329,46 @@ const APPS = [
           ]));
         });
         root.append(list);
+
+        /* ── 从手机导入音乐 ──
+           字节进 IndexedDB（存档放不下音频），存档里只留 'idb:<id>'。
+           注意：它跟图片共用同一个字节仓 —— 「设置 → 存储」里清图片会一起清掉。
+           这是取舍：不为音频再开一个仓，省得两套清理逻辑。 */
+        const fileIn = SJ.el('input', {
+          type: 'file', accept: 'audio/*', multiple: true, style: { display: 'none' }
+        });
+        fileIn.addEventListener('change', async () => {
+          const files = Array.from(fileIn.files || []);
+          if (!files.length) return;
+          toast('读入 ' + files.length + ' 个文件…');
+          const add = [];
+          for (const f of files) {
+            try {
+              const ref = await SJ.putBlob(f);
+              if (!ref) continue;
+              add.push({
+                id: 'lf-' + Date.now().toString(36) + '-' + add.length,
+                name: String(f.name || '本地音乐').replace(/\.[^.]+$/, '').slice(0, 60),
+                artist: '本地',
+                url: ref
+              });
+            } catch (e) { /* 单个读不进来就跳过，别让整批失败 */ }
+          }
+          if (!add.length) { toast('这些文件读不进来'); return; }
+          SJ.musicAdd(add);
+          toast('加进来 ' + add.length + ' 首');
+          listView();
+        });
+        root.append(fileIn);
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('div', { class: 'row', onclick: () => fileIn.click() }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '从手机导入音乐'),
+              SJ.el('div', { class: 'row-sub' }, '选手机里的音频（mp3 / m4a / wav…），存在本机，不吃流量')
+            ]),
+            SJ.el('div', { class: 'row-time' }, '选择 ›')
+          ])
+        ]));
         root.append(SJ.el('div', { class: 'pad' }, SJ.el('button', {
           class: 'btn danger',
           onclick: () => window.confirmBox('清空整个歌单？（只是从这个列表里去掉，文件不会被删）', () => { SJ.musicClear(); listView(); })
@@ -5317,7 +5378,7 @@ const APPS = [
       function playTrack(t) {
         SJ.musicSetNow(t.id);
         if (a) {
-          a.src = t.url;
+          a.src = SJ.imgSrc(t.url);
           const p = a.play();
           if (p && p.catch) p.catch(() => toast('这首放不出来：链接可能失效，或者对方不允许跨域播放'));
         } else {
@@ -5329,7 +5390,7 @@ const APPS = [
       function togglePlay() {
         const t = SJ.musicNow();
         if (!a || !t) return;
-        if (a.paused) { if (!a.src) a.src = t.url; a.play().catch(() => {}); }
+        if (a.paused) { if (!a.src) a.src = SJ.imgSrc(t.url); a.play().catch(() => {}); }
         else a.pause();
         listView();
       }

@@ -2616,7 +2616,7 @@ function normalizeOrders(raw) {
 }
 function normalizeTracks(raw) {
   return (Array.isArray(raw) ? raw : [])
-    .filter(t => t && typeof t === 'object' && /^https?:\/\//i.test(String(t.url || '')))
+    .filter(t => t && typeof t === 'object' && /^(https?:|idb:|data:audio\/)/i.test(String(t.url || '')))
     .slice(0, 500)
     .map((t, i) => ({
       id: String(t.id || ('tk-' + i)),
@@ -4202,7 +4202,7 @@ async function askGroup(g, history) {
       + '」。去「设置」里填上接口地址和 Key，群里就会真的有人接话。';
   }
   if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
-  const keep = Math.max(2, Number(s.historyKeep) || 40);
+  const keep = Math.max(2, Number(group.historyKeep) || Number(s.historyKeep) || 40);
   const usr = '【群里刚说的话】\n' + groupLines(all.slice(-keep)).join('\n') + '\n\n接着往下聊。';
   return askOnce(buildGroupSystem(g, all), usr);
 }
@@ -4219,7 +4219,7 @@ async function askCharacter(char, history) {
   if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
   /* 只带最近 keep 条原文，更早的内容靠记忆卡片顶上。
      世界书扫描仍然吃全部历史 —— 不然刚滚出窗口的关键词就触发不了了。 */
-  const keep = Math.max(2, Number(s.historyKeep) || 40);
+  const keep = Math.max(2, Number(char.historyKeep) || Number(s.historyKeep) || 40);
   const recent = all.slice(-keep);
   /* kind:'gift' 的消息 text 存的是给模型看的白描（「给你点了一份红烧牛肉面」），
      界面上画的是礼物卡 —— 这里照发 text，她才知道你送过东西。

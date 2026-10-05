@@ -1359,11 +1359,13 @@ const APPS = [
         }));
         const box = SJ.el('div', { class: 'list me-view' });
         const mine = SJ.state.moments.filter(m => m.who === ME);
-        box.append(SJ.el('div', { class: 'me-card', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
+        /* 主页这张卡现在是人设面具的入口：显示当前这套的摘要，点进去管理 */
+        const myP = SJ.activePersona();
+        box.append(SJ.el('div', { class: 'me-card', onclick: () => { if (window.SHELL) window.SHELL.openApp('persona'); } }, [
           myAvatarNode(),
           SJ.el('div', { class: 'me-info' }, [
-            SJ.el('div', { class: 'me-name' }, SJ.state.settings.userName || '我'),
-            SJ.el('div', { class: 'me-sub' }, '头像和名字都能改，点这里')
+            SJ.el('div', { class: 'me-name' }, (myP && (myP.nick || myP.name)) || SJ.state.settings.userName || '我'),
+            SJ.el('div', { class: 'me-sub' }, myP ? SJ.personaSummary(myP) : '还没立人设 —— 点这里写一套')
           ]),
           SJ.el('div', { class: 'row-arrow', html: svg('right', 16) })
         ]));
@@ -3260,6 +3262,7 @@ const APPS = [
       let onlyChar = String((arg && arg.charId) || '');
       let q = '';
       let onlyConst = false;
+      let impBook = '';          // 这次导入的书名（默认取文件名）
       /* 哪些书是展开的。只记在这次进来期间 —— 退出去再进来全收起来，免得一屏摊开。 */
       const openBooks = {};
       /* 「往这本里加一条」先把书名记下来，保存那条时挂上去 */
@@ -3297,22 +3300,27 @@ const APPS = [
         const listBox = SJ.el('div', { class: 'list' });
         root.append(SJ.el('div', { class: 'pad', style: { paddingBottom: 0 } }, [search]));
         root.append(seg);
-        root.append(SJ.el('div', { class: 'pad', style: { paddingTop: '12px', paddingBottom: '2px' } }, [
-          SJ.el('div', { class: 'chips', style: { padding: '0 0 10px' } }, [
-            SJ.el('button', {
-              class: 'chip' + (onlyConst ? ' on' : ''),
-              onclick: () => { onlyConst = !onlyConst; homeView(); }
-            }, onlyConst ? '只看常驻 · 开' : '只看常驻'),
-            onlyChar ? SJ.el('button', {
-              class: 'chip on',
-              onclick: () => { onlyChar = ''; homeView(); }
-            }, '只看「' + charName(onlyChar) + '」 ×') : null
-          ].filter(Boolean)),
-          toggleRow('世界书总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
-            SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
-            SJ.save(); homeView();
-          })
-        ]));
+        /* 原来是「chips + 一整行开关」，占掉一大截高度，下面能看到的卡就少了。
+           压成一行：左边筛选 chip（有条件时才出现），右边注入开关。 */
+        root.append(SJ.el('div', { class: 'wb-top' }, [
+          SJ.el('button', {
+            class: 'chip' + (onlyConst ? ' on' : ''),
+            onclick: () => { onlyConst = !onlyConst; homeView(); }
+          }, onlyConst ? '只看常驻 · 开' : '只看常驻'),
+          onlyChar ? SJ.el('button', {
+            class: 'chip on',
+            onclick: () => { onlyChar = ''; homeView(); }
+          }, '只看「' + charName(onlyChar) + '」 ×') : null,
+          SJ.el('span', { class: 'wb-top-sp' }),
+          SJ.el('span', { class: 'wb-top-l' }, '世界书总开关'),
+          SJ.el('button', {
+            class: 'sw' + (SJ.state.settings.wbOn !== false ? ' on' : ''), type: 'button',
+            onclick: () => {
+              SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
+              SJ.save(); homeView();
+            }
+          }, [SJ.el('i')])
+        ].filter(Boolean)));
         root.append(listBox);
         paint();
 
@@ -3802,6 +3810,10 @@ const APPS = [
         if (!got.length) return;
         pending = got;
         impCat = SJ.wbGuessCat(got.map(f => f.text).join('\n'));
+        /* 一次导入 = 一本书：书名默认取文件名（去掉扩展名和常见的后缀） */
+        impBook = String(got[0].name || '').replace(/\.[a-z0-9]+$/i, '')
+          .replace(/[-_ ]?(world\s*book|世界书|设定集|副本|copy|\(\d+\))$/i, '').trim().slice(0, 40)
+          || '未命名的一本';
         importView();
       }
 
@@ -3877,7 +3889,9 @@ const APPS = [
               title: c.title, content: c.content,
               keys: c.keys, keysecondary: c.keysecondary,
               constant: c.constant, enabled: c.enabled, order: c.order,
-              cat: c.cat, logic: c.logic, charIds: c.charIds
+              cat: c.cat, logic: c.logic, charIds: c.charIds,
+              /* 关键：一本书的归属。以前没传，于是导进来全落进「未分类」 */
+              book: String(impBook || '').trim().slice(0, 40) || '未命名的一本'
             }));
           });
           toast('导进来 ' + secs.length + ' 张卡');
@@ -5435,6 +5449,226 @@ const APPS = [
     }
   },
 
+  {
+    /* ══ 我的人设 ══
+       用户：「立用户的人设……允许保存多套，支持对不同角色使用不同面具」。
+       做成一个不上桌面的 App（跟「存储」一个路子）：主页那张面具卡点进来就是它，
+       角色编辑页也能直接跳过来。枚举一律给选择组件，MBTI 这种 16 个的用下拉。 */
+    id: 'persona',
+    name: '我的人设',
+    icon: 'user',
+    art: '1F464',
+    color: 'linear-gradient(150deg,#e6e6e8,#b9b9bd)',
+    hide: true,
+    render(root) {
+      const list = () => SJ.personaList();
+      const face = p => ({ name: p.name, avatar: p.avatar, avatarImg: p.avatarImg, color: '#c9c4bd' });
+
+      function listView() {
+        root.innerHTML = '';
+        root.append(navBar('我的人设', {
+          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null) }, '＋')
+        }));
+        const box = SJ.el('div', { class: 'list' });
+        const all = list();
+        const active = SJ.activePersona();
+
+        box.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } },
+          '角色眼里的「你」就是这里写的东西。可以存好几套，不同的人用不同的。'));
+
+        if (!all.length) {
+          box.append(emptyState('user', '还没有人设', '填一套，角色就知道该怎么叫你、你是什么样的人', '建一套', () => editView(null)));
+        }
+
+        all.forEach(p => {
+          const on = active && active.id === p.id;
+          const users = (SJ.state.characters || []).filter(c => c.personaId === p.id);
+          box.append(SJ.el('div', { class: 'row row-contact', onclick: () => editView(p.id) }, [
+            avatarNode(face(p)),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, [
+                p.name,
+                on ? SJ.el('span', { class: 'wb-tag' }, '当前') : null,
+                users.length ? SJ.el('span', { class: 'wb-tag who' }, users.length + ' 人专属') : null
+              ].filter(Boolean)),
+              SJ.el('div', { class: 'row-sub' }, SJ.personaSummary(p))
+            ]),
+            SJ.el('button', {
+              class: 'row-go',
+              onclick: e => {
+                e.stopPropagation();
+                SJ.setActivePersona(on ? '' : p.id);
+                toast(on ? '不默认用这套了' : '以后默认用「' + p.name + '」');
+                listView();
+              }
+            }, on ? '取消默认' : '设为默认')
+          ]));
+        });
+        root.append(box);
+      }
+
+      /* 一行里塞一个选择组件。选项少的用分段，多的用原生下拉（手机上是原生滚轮，最好用）。 */
+      function pickRow(title, sub, options, value, onPick) {
+        const row = SJ.el('div', { class: 'prow' }, [
+          SJ.el('div', { class: 'prow-t' }, title),
+          sub ? SJ.el('div', { class: 'prow-s' }, sub) : null
+        ].filter(Boolean));
+        if (options.length <= 5) {
+          row.append(SJ.el('div', { class: 'seg' }, options.map(o => SJ.el('button', {
+            class: o === value ? 'on' : '',
+            onclick: () => onPick(o === value ? '' : o)
+          }, o))));
+        } else {
+          const sel = SJ.el('select', { class: 'sel' }, [
+            SJ.el('option', { value: '' }, '（不定）')
+          ].concat(options.map(o => SJ.el('option', { value: o }, o))));
+          sel.value = value || '';
+          sel.addEventListener('change', () => onPick(sel.value));
+          row.append(sel);
+        }
+        return row;
+      }
+
+      /* 勾角色：一个人只能挂一套，再勾一次取消 */
+      function pickUsers(draft) {
+        const all = SJ.state.characters || [];
+        if (!all.length) return toast('还没有角色');
+        sheet(all.map(c => ({
+          icon: c.avatar || '🙂',
+          label: c.name,
+          hint: c.personaId === draft.id ? '用这套' : (c.personaId ? '用了别的' : '跟默认'),
+          run: () => {
+            c.personaId = c.personaId === draft.id ? '' : draft.id;
+            SJ.save();
+            toast(c.personaId ? '「' + c.name + '」改用这套了' : '「' + c.name + '」改回默认');
+            editView(draft.id);
+          }
+        })), SJ.el('div', { class: 'sheet-head' }, '谁用「' + draft.name + '」这套'));
+      }
+
+      function editView(id) {
+        const p = SJ.personaById(id) || SJ.makePersona({});
+        const isNew = !id;
+        root.innerHTML = '';
+        root.append(navBar(isNew ? '新建人设' : '改人设', { back: listView }));
+
+        /* 临时存在这个对象上，点保存才落盘 —— 跟角色编辑一个脾气 */
+        const draft = Object.assign({}, p);
+        const repaint = () => editViewBody();
+        const set = (k, v) => { draft[k] = v; repaint(); };
+
+        function editViewBody() {
+          root.innerHTML = '';
+          root.append(navBar(isNew ? '新建人设' : '改人设', { back: listView }));
+          const box = SJ.el('div', { class: 'list' });
+
+          /* 头像 + 名字 */
+          const avBox = SJ.el('div', { class: 'av-box' }, [avatarNode(face(draft))]);
+          box.append(SJ.el('div', { class: 'pad' }, [
+            avBox,
+            SJ.el('div', { class: 'hint' }, '头像：点下面的表情换一个，或者去「外观」里上传图片')
+          ]));
+
+          box.append(SJ.el('div', { class: 'group-title' }, '基本'));
+          const nameIn = SJ.el('input', { class: 'field', placeholder: '姓名', value: draft.name === '我' ? '' : draft.name });
+          nameIn.addEventListener('input', () => { draft.name = nameIn.value; });
+          const nickIn = SJ.el('input', { class: 'field', placeholder: '昵称（角色怎么叫你）', value: draft.nick });
+          nickIn.addEventListener('input', () => { draft.nick = nickIn.value; });
+          box.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '姓名'), nameIn]),
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '昵称'), nickIn])
+          ]));
+
+          box.append(SJ.el('div', { class: 'group-title' }, '他是怎么知道你的'));
+          box.append(SJ.el('div', { class: 'pad' }, [
+            pickRow('性别', '', SJ.PERSONA_GENDERS, draft.gender, v => set('gender', v)),
+            pickRow('年龄段', '角色对你的默认假设会跟着变', SJ.PERSONA_AGES, draft.age, v => set('age', v)),
+            pickRow('你们的关系', '给角色一个起点，之后还能自己变', SJ.PERSONA_RELS, draft.rel, v => set('rel', v)),
+            pickRow('MBTI', '', SJ.PERSONA_MBTI, draft.mbti, v => set('mbti', v))
+          ]));
+
+          /* 生日：用原生 date 输入，星座由它算出来，不用手填 */
+          const bd = SJ.el('input', { class: 'field', type: 'date', value: draft.birthday || '' });
+          bd.addEventListener('change', () => { draft.birthday = bd.value; repaint(); });
+          const z = SJ.zodiacOf(draft.birthday);
+          box.append(SJ.el('div', { class: 'group-title' }, '生日'));
+          box.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '生日'), bd]),
+            SJ.el('div', { class: 'hint' }, z ? '星座：' + z + '（按生日算的，不用填）' : '填了生日就自动带上星座')
+          ]));
+
+          box.append(SJ.el('div', { class: 'group-title' }, '让对话更准的几句'));
+          const toneIn = SJ.el('textarea', { class: 'field area', placeholder: '你说话的习惯，例如：句子很短，很少用语气词，不爱发表情' }, draft.tone);
+          toneIn.addEventListener('input', () => { draft.tone = toneIn.value; });
+          const bioIn = SJ.el('textarea', { class: 'field area', placeholder: '一句话说清你自己，例如：做设计的，养了只猫，最近在学做饭' }, draft.bio);
+          bioIn.addEventListener('input', () => { draft.bio = bioIn.value; });
+          const boundIn = SJ.el('textarea', { class: 'field area', placeholder: '绝对不要，例如：别写我哭，别叫我小姐，别提我的家人' }, draft.bound);
+          boundIn.addEventListener('input', () => { draft.bound = boundIn.value; });
+          box.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '说话习惯'), toneIn]),
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '自我介绍'), bioIn]),
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '雷区'), boundIn])
+          ]));
+
+          /* 这套默认给谁用 */
+          if (!isNew) {
+            const users = (SJ.state.characters || []).filter(c => c.personaId === draft.id);
+            box.append(SJ.el('div', { class: 'group-title' }, '谁在用这套'));
+            const uc = SJ.el('div', { class: 'pad' });
+            if (!users.length) uc.append(SJ.el('div', { class: 'hint' }, '还没有人指定用它 —— 大家用的是当前默认那套'));
+            users.forEach(c => uc.append(SJ.el('div', { class: 'row' }, [
+              SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, c.name)]),
+              SJ.el('button', {
+                class: 'row-go',
+                onclick: () => { c.personaId = ''; SJ.save(); repaint(); }
+              }, '改成默认')
+            ])));
+            box.append(uc);
+          }
+
+          const save = SJ.el('button', { class: 'btn', onclick: () => {
+            const nm = String(draft.name || '').trim();
+            if (!nm && !String(draft.nick || '').trim() && !String(draft.bio || '').trim() && !String(draft.tone || '').trim()) {
+              return toast('至少写个名字吧');
+            }
+            draft.name = nm || '我';
+            if (isNew && !SJ.state.personaId) {
+              /* 第一套自动成为默认 —— 建完还要再点一次「设为默认」太别扭 */
+              SJ.savePersona(draft);
+              SJ.setActivePersona(draft.id);
+              toast('建好了，以后默认用这套');
+            } else {
+              SJ.savePersona(draft);
+              if (SJ.activePersona() && SJ.activePersona().id === draft.id) {
+                SJ.state.settings.userName = draft.nick || draft.name;
+                SJ.save();
+              }
+              toast('改好了');
+            }
+            listView();
+          } }, isNew ? '建这套' : '保存');
+
+          const acts = [save];
+          if (!isNew) {
+            acts.push(SJ.el('button', {
+              class: 'btn danger',
+              onclick: () => confirmBox('删掉「' + draft.name + '」这套人设？', () => {
+                SJ.removePersona(draft.id);
+                toast('删掉了');
+                listView();
+              })
+            }, '删除'));
+          }
+          box.append(SJ.el('div', { class: 'pad' }, acts));
+          root.append(box);
+        }
+
+        editViewBody();
+      }
+
+      listView();
+    }
+  },
   /* ── 存储 ── */
   {
     id: 'storage',

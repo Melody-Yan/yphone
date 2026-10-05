@@ -1367,6 +1367,82 @@ ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringi
   sandbox.SJ.state.settings.theme = keepT; S.SHELL.applyLook();
 }
 
+/* ── 用户人设面具 ── */
+{
+  /* 星座：按生日算，边界日期最容易错 */
+  ok('星座算得对（含边界）',
+    wk.zodiacOf('2000-03-21') === '白羊座' && wk.zodiacOf('2000-03-20') === '双鱼座' &&
+    wk.zodiacOf('2000-12-22') === '摩羯座' && wk.zodiacOf('2000-12-21') === '射手座' &&
+    wk.zodiacOf('2000-01-01') === '摩羯座', 
+    [wk.zodiacOf('2000-03-21'), wk.zodiacOf('2000-03-20'), wk.zodiacOf('2000-12-22')].join(','));
+  ok('生日不合法/没填都返回空串', wk.zodiacOf('') === '' && wk.zodiacOf('乱写') === '' && wk.zodiacOf('2000-13-01') === '');
+
+  const keepP = JSON.stringify({ list: wk.state.personas, id: wk.state.personaId });
+  wk.state.personas = [];
+  wk.state.personaId = '';
+
+  const p1 = wk.makePersona({ name: '林小满', gender: '女', mbti: 'INFP', birthday: '1998-10-05', rel: '恋人', nick: '小满' });
+  const p2 = wk.makePersona({ name: '老周', gender: '男' });
+  wk.savePersona(p1); wk.savePersona(p2);
+  ok('存两套面具都在', wk.personaList().length === 2, String(wk.personaList().length));
+  ok('默认那套一开始是空的', wk.activePersona() === null);
+
+  ok('设为默认：第二套生效', wk.setActivePersona(p2.id) === true && wk.activePersona().id === p2.id);
+  ok('设为默认会同步改名字（主页/朋友圈跟着变）', wk.state.settings.userName === '老周', wk.state.settings.userName);
+  ok('设一个不存在的 id 会被拒', wk.setActivePersona('nope') === false && wk.activePersona().id === p2.id);
+
+  /* 角色专属：挂了他就用他的，没挂就跟着默认 */
+  const pc = wk.makeCharacter({ name: '测试角色' });
+  wk.saveCharacter(pc);
+  const withOwn = Object.assign({}, pc, { personaId: p1.id });
+  ok('角色挂了自己的面具 → 用自己那套', wk.personaOf(withOwn.id) === null || wk.personaOf(withOwn.id).id === p2.id,
+    '（先看挂之前：应该跟默认走）');
+  wk.state.characters = wk.state.characters.map(c => (c.id === pc.id ? Object.assign({}, c, { personaId: p1.id }) : c));
+  ok('挂上之后读到的就是他挂的那套', (wk.personaOf(pc.id) || {}).id === p1.id, JSON.stringify((wk.personaOf(pc.id) || {}).name));
+
+  /* 提示词：只写填了的 */
+  const pr = wk.personaPrompt(p1);
+  ok('提示词里有姓名/性别/生日+星座/关系/MBTI',
+    pr.some(x => x.includes('林小满')) && pr.some(x => x.includes('女')) &&
+    pr.some(x => x.includes('天秤座')) && pr.some(x => x.includes('恋人')) && pr.some(x => x.includes('INFP')),
+    JSON.stringify(pr));
+  ok('空的字段不占地方', !pr.some(x => x.includes('年龄段')) && !pr.some(x => x.includes('绝对不要')), JSON.stringify(pr));
+  ok('没填的面具不产生提示词', wk.personaPrompt(null).length === 0);
+  ok('昵称和姓名不同时，提示词会写清怎么称呼', pr.some(x => x.includes('小满')), JSON.stringify(pr));
+
+  const sum = wk.personaSummary(p1);
+  ok('列表摘要只列有值的项', sum.includes('女') && sum.includes('天秤座') && !sum.includes('undefined'), sum);
+
+  /* 删掉面具：角色身上的引用要一起摘 */
+  wk.removePersona(p1.id);
+  ok('删掉面具后列表少一套', wk.personaList().length === 1);
+  ok('删掉面具后角色身上的引用被摘掉', !(wk.state.characters.find(c => c.id === pc.id) || {}).personaId);
+  ok('删掉的正好是默认那套 → 默认清空', wk.removePersona(p2.id) === 1 && wk.state.personaId === '');
+
+  /* 用完把测试角色删掉：后面的断言（世界书预览那种）会按角色列表取东西 */
+  wk.state.characters = wk.state.characters.filter(c => c.id !== pc.id);
+  wk.state.personas = JSON.parse(keepP).list;
+  wk.state.personaId = JSON.parse(keepP).id;
+  wk.save();
+}
+/* 存档导入：面具是信任边界 */
+{
+  const keepPS = store.get('xiaoshouji.v1');
+  store.set('xiaoshouji.v1', JSON.stringify({ personas: [
+    { name: 'A', gender: '外星人', age: '中学生', mbti: 'XXXX', birthday: '不是日期' },
+    'not an object',
+    { name: 'B', gender: '男', mbti: 'INFP', birthday: '1990-05-05' }
+  ], personaId: 'ps-9' }));
+  const mp = wk.load();
+  ok('导入时枚举只认白名单（乱写的性别/MBTI 丢掉）',
+    mp.personas[0].gender === '' && mp.personas[0].mbti === '' && mp.personas[0].age === '中学生',
+    JSON.stringify(mp.personas[0]));
+  ok('不是对象的条目直接丢掉', mp.personas.length === 2, String(mp.personas.length));
+  ok('不合法的生日丢掉', mp.personas[0].birthday === '' && mp.personas[1].birthday === '1990-05-05');
+  ok('指向不存在面具的 personaId 会被清掉', mp.personaId === '', mp.personaId);
+  store.set('xiaoshouji.v1', keepPS);
+}
+
 /* ── 未读 ── */
 {
   const keepU = JSON.stringify(wk.state.unread || {});

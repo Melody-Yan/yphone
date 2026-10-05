@@ -3350,6 +3350,38 @@ input.field[type="range"]::-webkit-slider-thumb {
   .wb-entries .row { animation: none; }
 }
 
+/* ── 人设编辑：一行一个选择组件 ──
+   选项少的用分段，多的（MBTI 16 个）用原生下拉 —— 手机上原生滚轮最好用。 */
+.prow { margin-bottom: 14px; }
+.prow-t { font-size: var(--fs-base); font-weight: 500; margin-bottom: 7px; }
+.prow-s { font-size: var(--fs-sm); color: var(--ink-2); margin: -4px 0 7px; }
+.sel {
+  width: 100%; appearance: none; -webkit-appearance: none;
+  font: inherit; font-size: var(--fs-base); color: var(--ink);
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-s);
+  padding: 12px 34px 12px 13px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+                    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 1px), calc(100% - 12px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+#phone.dark .sel { background-color: var(--card-2); }
+.sel:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ── 世界书：整页滚 + 紧凑顶栏 ──
+   原来只有下面那块 .list 自己滚（它是 flex:1 + overflow:auto），标题和筛选纹丝不动、
+   只有卡片在动 —— 用户要的是整页一起滑。 */
+#phone .app-worldbook { overflow-y: auto; }
+#phone .app-worldbook > .list { flex: 0 0 auto; overflow: visible; min-height: 0; }
+/* 整页滚之后父容器不再拉伸子项 —— 不给这几块明确高度，搜索框和筛选条会压到一起 */
+#phone .app-worldbook > .pad,
+#phone .app-worldbook > .seg,
+#phone .app-worldbook > .nav { flex: 0 0 auto; }
+/* 顶上那一行：筛选 chip + 注入开关（原来是两块，占掉一大截高度） */
+.wb-top { display: flex; align-items: center; gap: 8px; padding: 2px 16px 8px; }
+.wb-top-sp { flex: 1 1 auto; }
+.wb-top-l { font-size: var(--fs-sm); color: var(--ink-2); }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

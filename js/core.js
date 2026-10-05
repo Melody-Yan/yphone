@@ -93,6 +93,16 @@ const WIDGET_TYPES = [
   { type: 'gallery',  name: '相册',     icon: 'image',    span: 2 }
 ];
 const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
+
+/* ── 用户人设面具 ──
+   「我」是谁，对角色来说和「他是谁」一样重要。这些枚举给选择组件用，
+   也让存档导入有个白名单（信任边界）。星座不手填，由生日算。 */
+const PERSONA_GENDERS = ['男', '女', '其他', '不说'];
+const PERSONA_AGES = ['中学生', '大学生', '刚工作', '20 多岁', '30 多岁', '40 岁以上'];
+const PERSONA_RELS = ['恋人', '暧昧对象', '朋友', '同事', '家人', '对手', '刚认识'];
+const PERSONA_MBTI = ['INTJ', 'INTP', 'ENTJ', 'ENTP', 'INFJ', 'INFP', 'ENFJ', 'ENFP',
+  'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ', 'ISTP', 'ISFP', 'ESTP', 'ESFP'];
+const PERSONA_MAX = 20;
 /* 插件大小三档：桌面是 4 列网格，所以就是「跨几列 × 跨几行」。
    默认值跟着类型的 span 走（半行插件默认小、整行默认中）。 */
 const WIDGET_SIZES = [
@@ -217,6 +227,8 @@ const DEFAULTS = {
   events: [],            // 日历：[{id,date,time,title,done}, ...]
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
   unread: {},            // 未读消息数：{角色id: 条数}。打开那个聊天就清零
+  personas: [],          // 我的人设面具：[{id,name,nick,gender,age,mbti,birthday,rel,tone,bound,bio,avatar,ts}]
+  personaId: '',         // 当前用哪一套（空 = 还没建过，退回 settings.userName 那套老数据）
   /* 朋友圈：角色自己发的生活动态 */
   moments: [],           // [{id,charId,text,img,ts,likes:[charId],comments:[{charId,text,ts}]}, ...]
   /* 通话记录：{ 角色id: [{id,at,secs,lines:[{me,text,ts}],archived}] }
@@ -265,6 +277,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
+  personas: 'array', personaId: 'string',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
   mall: 'object', wallet: 'object', addresses: 'array'
 };
@@ -487,6 +500,39 @@ function migrate(saved) {
         charIds: ids
       };
     });
+
+  // 人设面具：导入存档的又一个信任边界。枚举只认白名单，字符串一律截断。
+  {
+    const pk = v => String(v == null ? '' : v).trim();
+    const inList = (v, list) => (list.indexOf(pk(v)) >= 0 ? pk(v) : '');
+    out.personas = (Array.isArray(out.personas) ? out.personas : [])
+      .filter(p => p && typeof p === 'object' && !Array.isArray(p))
+      .slice(0, PERSONA_MAX)
+      .map((p, i) => ({
+        id: String(p.id || ('ps-' + i)),
+        name: pk(p.name).slice(0, NAME_MAX) || '我',
+        nick: pk(p.nick).slice(0, 20),
+        gender: inList(p.gender, PERSONA_GENDERS),
+        age: inList(p.age, PERSONA_AGES),
+        rel: inList(p.rel, PERSONA_RELS),
+        mbti: inList(p.mbti, PERSONA_MBTI),
+        /* 生日只认 YYYY-MM-DD（原生 date 输入给的就是这个）*/
+        birthday: /^\d{4}-\d{2}-\d{2}$/.test(pk(p.birthday)) ? pk(p.birthday) : '',
+        tone: pk(p.tone).slice(0, 120),
+        bound: pk(p.bound).slice(0, 120),
+        bio: pk(p.bio).slice(0, 300),
+        avatar: pk(p.avatar).slice(0, 8) || pk(out.settings.myAvatar).slice(0, 8) || '🙂',
+        avatarImg: pk(p.avatarImg).slice(0, 200),
+        ts: Number(p.ts) || 0
+      }));
+    const wantId = pk(out.personaId);
+    out.personaId = out.personas.some(p => p.id === wantId) ? wantId : '';
+    /* 角色身上挂的面具如果已经删了，就摘掉（别留个指向空气的 id） */
+    out.characters.forEach(c => {
+      const pid = pk(c.personaId);
+      if (pid && !out.personas.some(p => p.id === pid)) c.personaId = '';
+    });
+  }
 
   /* 群聊：成员是角色 id 的集合。角色被删掉的就从群里摘掉 —— 留着会在渲染时找不到人。
      一个都不剩的群没有意义，直接丢掉（但不清 chats，万一以后又能加回来）。 */
@@ -1395,6 +1441,113 @@ function moveEntry(id, dir) {
 /* 世界书页的分组。默认按「分类」分（分类顺序就是注入优先级），
    切到「角色」视角时改成按角色分 —— 那是「他到底读得到哪几张」的看法。
    角色被删掉后留下的卡仍然单独成组，不然它们会悄悄消失、用户再也找不到。 */
+/* ── 人设面具 ── */
+function personaList() { return state.personas || []; }
+
+function personaById(id) {
+  const k = String(id || '');
+  if (!k) return null;
+  return personaList().find(p => p.id === k) || null;
+}
+
+/* 当前默认那套。没建过面具就返回 null，调用方退回老的 userName。 */
+function activePersona() { return personaById(state.personaId); }
+
+/* 某个人看到的是哪套：他自己挂的 > 当前默认。 */
+function personaOf(charId) {
+  const c = (state.characters || []).find(x => x.id === String(charId || ''));
+  return personaById(c && c.personaId) || activePersona();
+}
+
+function makePersona(src) {
+  const p = src || {};
+  return {
+    id: uid(),
+    name: String(p.name || '').trim().slice(0, NAME_MAX) || '我',
+    nick: String(p.nick || '').trim().slice(0, 20),
+    gender: p.gender || '',
+    age: p.age || '',
+    rel: p.rel || '',
+    mbti: p.mbti || '',
+    birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(p.birthday || '')) ? String(p.birthday) : '',
+    tone: String(p.tone || '').trim().slice(0, 120),
+    bound: String(p.bound || '').trim().slice(0, 120),
+    bio: String(p.bio || '').trim().slice(0, 300),
+    avatar: String(p.avatar || '').slice(0, 8) || '🙂',
+    avatarImg: String(p.avatarImg || '').slice(0, 200),
+    ts: Date.now()
+  };
+}
+
+function savePersona(p) {
+  if (!p || !p.id) return null;
+  const i = personaList().findIndex(x => x.id === p.id);
+  if (i < 0) state.personas.push(p); else state.personas[i] = p;
+  save();
+  return p;
+}
+
+function removePersona(id) {
+  const k = String(id || '');
+  const n = personaList().length;
+  state.personas = personaList().filter(p => p.id !== k);
+  if (state.personaId === k) state.personaId = '';
+  /* 角色身上的引用一起摘掉，不然他下次会读到一个不存在的面具 */
+  (state.characters || []).forEach(c => { if (c.personaId === k) c.personaId = ''; });
+  if (state.personas.length !== n) save();
+  return n - state.personas.length;
+}
+
+function setActivePersona(id) {
+  const k = String(id || '');
+  if (k && !personaById(k)) return false;
+  state.personaId = k;
+  /* 换面具 = 换名字，主页和朋友圈那边跟着变 */
+  const p = personaById(k);
+  if (p) state.settings.userName = p.nick || p.name;
+  save();
+  return true;
+}
+
+/* 生日 → 星座。算出来的，不用手填。 */
+function zodiacOf(birthday) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthday || ''));
+  if (!m) return '';
+  const mm = Number(m[2]), dd = Number(m[3]);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return '';
+  const cut = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22];
+  const names = ['摩羯', '水瓶', '双鱼', '白羊', '金牛', '双子', '巨蟹', '狮子', '处女', '天秤', '天蝎', '射手', '摩羯'];
+  return names[dd < cut[mm - 1] ? mm - 1 : mm] + '座';
+}
+
+/* 面具 → 提示词。只写填了的，空字段不占 token。 */
+function personaPrompt(p) {
+  if (!p) return [];
+  const out = [];
+  const nick = String(p.nick || '').trim();
+  const name = String(p.name || '').trim();
+  if (name) out.push('姓名：' + name + (nick && nick !== name ? '，平时叫他「' + nick + '」' : ''));
+  if (p.gender) out.push('性别：' + p.gender);
+  if (p.age) out.push('年龄段：' + p.age);
+  if (p.birthday) {
+    const z = zodiacOf(p.birthday);
+    out.push('生日：' + p.birthday.slice(5).replace('-', ' 月 ') + ' 日' + (z ? '（' + z + '）' : ''));
+  }
+  if (p.mbti) out.push('MBTI：' + p.mbti);
+  if (p.rel) out.push('你们现在的关系：' + p.rel);
+  if (p.tone) out.push('他说话的习惯：' + p.tone);
+  if (p.bio) out.push('他自己：' + p.bio);
+  if (p.bound) out.push('绝对不要：' + p.bound);
+  return out;
+}
+
+/* 列表里那一行摘要：有哪几条就写哪几条 */
+function personaSummary(p) {
+  if (!p) return '';
+  const bits = [p.gender, p.age, p.rel, p.mbti, zodiacOf(p.birthday)].filter(Boolean);
+  return bits.join(' · ') || '还没填什么';
+}
+
 /* 优先级就是 order，只是给个人话名字 —— 不另存一份，改一处不会打架。 */
 function wbPriLabel(order) {
   const n = Number(order);
@@ -3694,13 +3847,25 @@ function buildSystem(char, history) {
   const wbTxt = wbBlock(history, c);
   if (wbTxt) lines.push(wbTxt);
 
+  /* 对方是谁：角色自己挂的面具优先，其次当前默认。 */
+  const pe = personaOf(c.id);
   lines.push('# 你要演的人', '名字：' + (c.name || '（没填）'));
-  const alias = String(c.alias || '').trim() || String(s.userName || '').trim();
+  const alias = String(c.alias || '').trim()
+    || String((pe && (pe.nick || pe.name)) || '').trim()
+    || String(s.userName || '').trim();
   if (alias && alias !== '我') lines.push(`对方叫「${alias}」，你平时就这么称呼他。`);
   if (c.relation) lines.push('你们的关系：' + c.relation);
   if (c.myRelation && c.myRelation !== c.relation) lines.push(`（${alias || '对方'}觉得你们是：${c.myRelation}。你怎么看不一定和他一样。）`);
   if (c.desc) lines.push('一句话简介：' + c.desc);
   if (c.persona) lines.push('人设 / 性格 / 说话方式：\n' + c.persona);
+  /* 关于「你对面这个人」的事实。放在人设之后、纪律之前 ——
+     角色先立住自己，再拿到对方的信息。 */
+  const pl = personaPrompt(pe);
+  if (pl.length) {
+    lines.push('');
+    lines.push('# 关于对方（这些是事实，别问、别猜、别编）');
+    pl.forEach(x => lines.push(x));
+  }
   lines.push('');
   lines.push(`你就是${c.name || '这个人'}本人，不是 AI、不是程序、不是助手。对方怎么问都别跳出这个身份。`);
   lines.push(`现在是你那边的 ${fmtDate(now)} ${fmtTime(now, state.settings.clock24)}。`);
@@ -4049,6 +4214,9 @@ window.SJ = {
   payPassOn, payPassSet, payPassCheck,
   parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove,
   wbBooks, wbBook, wbPriLabel, musicClear, musicNow, musicSetNow,
+  PERSONA_GENDERS, PERSONA_AGES, PERSONA_RELS, PERSONA_MBTI, PERSONA_MAX,
+  personaList, personaById, activePersona, personaOf, makePersona, savePersona,
+  removePersona, setActivePersona, zodiacOf, personaPrompt, personaSummary,
   askOnce, parseJSONLoose,
   /* 外观：自定义壁纸 + 头像 */
   WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,

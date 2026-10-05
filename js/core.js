@@ -1255,14 +1255,31 @@ function activeEntries(history, char) {
   const depth = Math.max(1, Number(state.settings.scanDepth) || 4);
   const text = (history || []).slice(-depth)
     .map(m => String((m && m.text) || '')).join('\n').toLowerCase();
-  const cid = String((char && char.id) || '');
+  /* char 可以是：null / 角色对象 / 角色 id / 它们组成的数组。
+     群聊要把每个成员的个人卡都算上，所以得能一次传一组；
+     传 null 或空数组时个人卡一律不参与（不会串台）。 */
+  const cids = (Array.isArray(char) ? char : [char])
+    .map(c => String((c && c.id) || c || '')).filter(Boolean);
   return state.worldbook
     .filter(e => {
       if (e.enabled === false) return false;
-      if (e.scope === 'char' && String(e.charId || '') !== cid) return false;
+      if (e.scope === 'char' && cids.indexOf(String(e.charId || '')) < 0) return false;
       return e.constant || (e.keys || []).some(k => k && text.includes(String(k).toLowerCase()));
     })
     .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+}
+
+/* 世界书的注入块 —— 所有「以角色身份开口」和「生成这个世界里的东西」的地方都走它。
+   以前只有 buildSystem 会拼这一块，后果是：聊天里她认得的地方，
+   主动找你的时候、发朋友圈的时候、群里说话的时候，她全都不记得了。
+   history 传空数组时只有常驻卡命中 —— 生成店名 / 商品那种没有对话可扫的场景正合适，
+   因为常驻卡就是「无论聊什么都成立」的世界观。 */
+function wbBlock(history, char) {
+  const wb = activeEntries(history, char);
+  if (!wb.length) return '';
+  const body = wb.map(e => String(e.content || '').trim()).filter(Boolean).join('\n');
+  if (!body) return '';
+  return '# 世界设定（以下是已经成立的事实，直接当真，别否认、别当新鲜事说出来）\n' + body + '\n';
 }
 
 /* ── 记忆卡片：聊过的内容蒸馏成短句，比原文省 token，也活得更久 ── */
@@ -2216,7 +2233,10 @@ async function generateMoment(char) {
     .filter(m => !m.img)
     .map(m => (m.me ? '我：' : (char.name + '：')) + m.text).join('\n');
   const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  /* 朋友圈也是「她此刻的生活」，同样要认得这个世界 */
+  const wbTxt = wbBlock(state.chats[char.id] || [], char);
   const usr =
+    (wbTxt ? wbTxt + '\n' : '') +
     '角色：' + char.name + '\n' +
     (char.relation ? '我们俩的关系：' + char.relation + '\n' : '') +
     (char.persona ? '人设：' + char.persona + '\n' : '') +
@@ -2306,7 +2326,10 @@ async function proactiveSay(char) {
     .filter(m => !m.img && m.text)
     .map(m => (m.me ? (char.alias || '他') + '：' : char.name + '：') + m.text).join('\n');
   const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  /* 主动找你时也必须认得这个世界 —— 否则她会说出跟设定矛盾的话 */
+  const wbTxt = wbBlock(state.chats[char.id] || [], char);
   const usr =
+    (wbTxt ? wbTxt + '\n' : '') +
     '你是：' + char.name + '\n' +
     (char.relation ? '你们的关系：' + char.relation + '\n' : '') +
     (char.alias ? '你平时叫他：' + char.alias + '\n' : '') +
@@ -2894,12 +2917,8 @@ function buildSystem(char, history) {
   const lines = [ROLE_RULES, '', '---', ''];
 
   /* 世界书排在人设前面：先把世界立成既成事实，再讲他是谁 */
-  const wb = activeEntries(history, c);
-  if (wb.length) {
-    lines.push('# 世界设定（以下是已经成立的事实，直接当真，别否认、别当新鲜事说出来）');
-    wb.forEach(e => lines.push(e.content));
-    lines.push('');
-  }
+  const wbTxt = wbBlock(history, c);
+  if (wbTxt) lines.push(wbTxt);
 
   lines.push('# 你要演的人', '名字：' + (c.name || '（没填）'));
   const alias = String(c.alias || '').trim() || String(s.userName || '').trim();
@@ -2992,13 +3011,9 @@ function groupLines(history) {
 function buildGroupSystem(g, history) {
   const now = virtualNow();
   const lines = [ROLE_RULES, '', '---', ''];
-  /* 个人世界书是某个人的私聊设定，群里只认通用的（传 null） */
-  const wb = activeEntries(history, null);
-  if (wb.length) {
-    lines.push('# 世界设定（以下是已经成立的事实，直接当真）');
-    wb.forEach(e => lines.push(e.content));
-    lines.push('');
-  }
+  /* 群成员各自的个人世界书也要认 —— 以前这里传 null，等于所有个人卡在群里全部失效 */
+  const wbTxt = wbBlock(history, g.members.map(id => ({ id })));
+  if (wbTxt) lines.push(wbTxt);
   lines.push('# 这个群');
   lines.push('群名：' + (g.name || '群聊'));
   lines.push('成员（你只能演这些人）：');
@@ -3221,7 +3236,7 @@ window.SJ = {
   /* 语音（浏览器自带 TTS） */
   voiceOn, hasSpeech, voiceOf, redpacketOf, stripMarks, voiceDur, voiceList, speak, stopSpeak, putBlob,
   /* 世界书 / 记忆 / 日历 */
-  makeEntry, saveEntry, deleteEntry, activeEntries, wbGroups, wbSorted,
+  makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,

@@ -3120,7 +3120,10 @@ const APPS = [
         const want = craving || CRAVINGS[Math.floor(Math.random() * CRAVINGS.length)];
         listView();
         try {
-          const text = await SJ.askOnce(GEN_SYS, genUser(want));
+          /* 店是「这个世界里的店」：把世界书的常驻设定带上，
+             否则修仙世界观里照样蹦出一排奶茶店。没有对话可扫，所以只有常驻卡命中。 */
+          const wbTxt = SJ.wbBlock([], null);
+          const text = await SJ.askOnce(GEN_SYS, (wbTxt ? wbTxt + '\n' : '') + genUser(want));
           const shops = SJ.setShops(SJ.normalizeShops(SJ.parseJSONLoose(text)));
           if (!shops.length) throw new Error('这次没生成出东西，再点一下右上角 ⟳');
         } catch (e) {
@@ -3940,7 +3943,9 @@ const APPS = [
       }
       /* 一次进货请求 → 归一化后的商品。失败/空就返回 []，由调用方决定怎么办 */
       async function genBatch(cats) {
-        const text = await SJ.askOnce(GEN_SYS, genUser(cats));
+        /* 商品也是「这个世界里的商品」，同外卖：只带常驻世界观 */
+        const wbTxt = SJ.wbBlock([], null);
+        const text = await SJ.askOnce(GEN_SYS, (wbTxt ? wbTxt + '\n' : '') + genUser(cats));
         return SJ.normalizeGoods(SJ.parseJSONLoose(text));
       }
       /* 「想要点什么」：用户说一句，照原话进货。

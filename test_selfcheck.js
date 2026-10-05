@@ -4680,6 +4680,156 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
 
   fetchImpl = null;
 }
+
+/* ══════════════════════════════════════════════════════════
+   [43] 世界书：角色必须真的读得到
+        以前只有 buildSystem（私聊）会拼世界书 ——
+        主动找你、发朋友圈、群里说话、生成这个世界里的店，全都不带。
+   ══════════════════════════════════════════════════════════ */
+{
+  let App = sandbox.SJ;
+  const seed = () => ({
+    characters: [
+      { id: 'a1', name: '阿甲', persona: '话少' },
+      { id: 'b1', name: '阿乙', persona: '话多' },
+      { id: 'c1', name: '阿丙', persona: '路人' }
+    ],
+    chats: { a1: [{ me: true, text: '在吗' }], b1: [{ me: true, text: '在吗' }] },
+    settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' },
+    worldbook: [], memories: {}, moments: {}, wallet: { balance: 500, log: [] }
+  });
+  const reset = () => { store.set('xiaoshouji.v1', JSON.stringify(seed())); boot(); App = sandbox.SJ; };
+  reset();
+
+  const gConst = App.saveEntry(App.makeEntry({
+    title: '世界观', content: '这是个修仙世界，没有奶茶店。', constant: true, order: 10
+  }));
+  const gKey = App.saveEntry(App.makeEntry({
+    title: '学校', keys: '学校', content: '三班在三楼东侧。', order: 20
+  }));
+  const pA = App.saveEntry(App.makeEntry({
+    title: '阿甲的秘密', keys: '秘密, 怕黑', content: '阿甲其实怕黑。',
+    scope: 'char', charId: 'a1', order: 30
+  }));
+  const pB = App.saveEntry(App.makeEntry({
+    title: '阿乙的秘密', keys: '秘密', content: '阿乙养了只猫。',
+    scope: 'char', charId: 'b1', order: 30
+  }));
+  const pC = App.saveEntry(App.makeEntry({
+    title: '阿丙的秘密', keys: '秘密', content: '阿丙是外星人。',
+    scope: 'char', charId: 'c1', order: 30
+  }));
+
+  /* ── 匹配层：能认 id、能一次认一组 ── */
+  const histSecret = [{ me: true, text: '我有个秘密' }];
+  const names = (h, c) => App.activeEntries(h, c).map(e => e.title);
+  ok('activeEntries 传角色 id 也认个人卡（以前只认对象）',
+    names(histSecret, 'a1').includes('阿甲的秘密'), JSON.stringify(names(histSecret, 'a1')));
+  ok('activeEntries 传一组能同时认多人的卡',
+    names(histSecret, ['a1', 'b1']).includes('阿甲的秘密')
+    && names(histSecret, ['a1', 'b1']).includes('阿乙的秘密'),
+    JSON.stringify(names(histSecret, ['a1', 'b1'])));
+  ok('传一组时不在组里的人不会串进来',
+    !names(histSecret, ['a1', 'b1']).includes('阿丙的秘密'),
+    JSON.stringify(names(histSecret, ['a1', 'b1'])));
+  ok('不传人（null）时个人卡一律不进',
+    names(histSecret, null).join('|') === '世界观', JSON.stringify(names(histSecret, null)));
+  ok('空数组等同于不传人',
+    names(histSecret, []).join('|') === '世界观', JSON.stringify(names(histSecret, [])));
+
+  /* ── wbBlock：没有命中就不留一个空标题 ── */
+  ok('wbBlock 只带常驻卡时不含关键词卡',
+    App.wbBlock([], null).includes('修仙世界') && !App.wbBlock([], null).includes('三班在三楼'),
+    JSON.stringify(App.wbBlock([], null)));
+  ok('wbBlock 命中的正文带上了标题', /# 世界设定/.test(App.wbBlock([{ me: true, text: '学校' }], null)));
+  /* ⚠️ 常驻卡永远命中，所以「一张都没命中」这条必须先把常驻卡停掉才测得到 */
+  gConst.enabled = false;
+  App.saveEntry(gConst);
+  const noWb = App.wbBlock([{ me: true, text: '今天天气不错' }], 'a1');
+  ok('一张都没命中时返回空串（不留垃圾标题）', noWb === '', JSON.stringify(noWb));
+  gConst.enabled = true;
+  App.saveEntry(gConst);
+
+  /* ── 主动找你：必须认得世界 ── */
+  let sent = null;
+  fetchImpl = (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '在干嘛' } }] }));
+  };
+  /* 这句要同时含「学校」（通用卡）和「秘密」（个人卡），否则测不到个人卡 */
+  App.state.chats.a1 = [{ me: true, text: '学校那边怎么样，我有个秘密' }];
+  await App.proactiveSay(App.state.characters[0]);
+  const pUser = sent && sent.messages.find(m => m.role === 'user');
+  ok('主动找你时带上了常驻世界观', !!pUser && pUser.content.includes('修仙世界'),
+    pUser && pUser.content.slice(0, 120));
+  ok('主动找你时关键词命中的卡也在', !!pUser && pUser.content.includes('三班在三楼'));
+  ok('主动找你时只带本人的个人卡，不带别人的',
+    !!pUser && pUser.content.includes('阿甲其实怕黑') && !pUser.content.includes('阿乙养了只猫'),
+    pUser && pUser.content.slice(0, 300));
+
+  /* ── 朋友圈：同样要认得世界 ── */
+  sent = null;
+  fetchImpl = (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '今天天气真好' } }] }));
+  };
+  await App.generateMoment(App.state.characters[0]);
+  const mUser = sent && sent.messages.find(m => m.role === 'user');
+  ok('发朋友圈时也带上了世界书', !!mUser && mUser.content.includes('修仙世界'),
+    mUser && mUser.content.slice(0, 120));
+
+  /* ── 群聊：每个成员的个人卡都要生效 ── */
+  const grp = { id: 'g1', name: '三人小群', members: ['a1', 'b1'] };
+  const gSys = App.buildGroupSystem(grp, histSecret);
+  ok('群里认得成员甲的个人卡', gSys.includes('阿甲其实怕黑'));
+  ok('群里认得成员乙的个人卡', gSys.includes('阿乙养了只猫'));
+  ok('不在群里的阿丙的卡不会串进群', !gSys.includes('阿丙是外星人'));
+  ok('群里的通用世界观照旧生效', gSys.includes('修仙世界'));
+  const grpSys2 = App.buildGroupSystem({ id: 'g2', name: '空群', members: [] }, histSecret);
+  ok('群里一个成员都没有时个人卡全不进来',
+    !grpSys2.includes('阿甲其实怕黑') && !grpSys2.includes('阿乙养了只猫'));
+
+  /* ── 私聊（buildSystem）没被这次改动弄坏 ── */
+  const oneSys = App.buildSystem(App.state.characters[0], histSecret);
+  ok('私聊里本人的卡还在', oneSys.includes('阿甲其实怕黑'));
+  ok('私聊里别人的卡不进来', !oneSys.includes('阿乙养了只猫'));
+
+  /* ── 生成「这个世界里的店」：要带常驻世界观，但不该带关键词卡 ── */
+  fetchImpl = (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, {
+      shops: [{ name: '青云丹坊', kind: '丹药', emoji: '🍶', dishes: [] }]
+    }));
+  };
+  App.state.delivery.shops = [];
+  const dv = openFresh('delivery');
+  const regen = walk(dv).find(n => n._class.has('nav-btn') && n.textContent === '⟳');
+  ok('外卖页找得到「换一批」按钮', !!regen);
+  if (regen) {
+    regen.click();
+    await waitFor(() => !!sent, 4000);
+    const dUser = sent && sent.messages.find(m => m.role === 'user');
+    ok('生成外卖店时带上了常驻世界观', !!dUser && dUser.content.includes('修仙世界'),
+      dUser && dUser.content.slice(0, 100));
+    ok('生成外卖店时不带只在聊天里命中的关键词卡',
+      !!dUser && !dUser.content.includes('三班在三楼'), dUser && dUser.content.slice(0, 100));
+    ok('生成店铺的原有要求一个字没丢', !!dUser && dUser.content.includes('JSON'));
+  }
+  fetchImpl = null;
+
+  /* 常驻卡被停用后，生成店里也不该再出现 */
+  gConst.enabled = false;
+  App.saveEntry(gConst);
+  ok('停用常驻卡后 wbBlock 就是空的了', App.wbBlock([], null) === '', JSON.stringify(App.wbBlock([], null)));
+  gConst.enabled = true;
+  App.saveEntry(gConst);
+
+  /* 总开关关掉时，所有入口一起吃闭门羹 */
+  App.state.settings.wbOn = false;
+  ok('总开关关掉后主动消息不带世界书', App.wbBlock(App.state.chats.a1, 'a1') === '');
+  ok('总开关关掉后群里也不带', !App.buildGroupSystem(grp, histSecret).includes('修仙世界'));
+  App.state.settings.wbOn = true;
+}
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

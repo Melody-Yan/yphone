@@ -1343,102 +1343,432 @@ ok('认不出的插件类型在存档里被丢掉',
 
 resetWg();
 
-/* 23. 世界书 App：通用 / 个人两本 + 优先级 */
+/* 23. 世界书：分类 = 优先级、多角色归属、次关键词、预览 */
 console.log('\n[23] 世界书 App');
 const WB_PH = {
   title: '卡的名字（只给你自己看）',
   keys: '关键词，逗号隔开：手机, 来历, 你怎么在这',
-  body: '聊到关键词时，把这段塞给她看。写设定、写前情、写规矩都行。'
+  sec: '次关键词（可留空）：凶手, 真相',
+  body: '聊到关键词时，把这段塞给她看。写设定、写前情、写破限规矩都行。'
 };
 const groupTitles = node => walk(node).filter(n => n._class.has('group-title')).map(n => n.textContent);
 const rowTitles = node => walk(node).filter(n => n._class.has('row-title')).map(n => n.textContent);
-const rowWith = (node, text) => walk(node).find(n => n._class.has('row') && n.textContent.includes(text));
+const catLabels = node => walk(node).filter(n => n._class.has('wb-cat')).map(n => n.textContent);
+const catNos = node => walk(node).filter(n => n._class.has('wb-no')).map(n => n.textContent);
+/* 有 onclick 的是 .row（归属/分类那种）或 .row-main（卡片正文），分开找 ——
+   dispatch 只往上冒泡，点 .row 是碰不到子节点 .row-main 的处理器。 */
+const rowEl = (node, text) => walk(node).find(n => n._class.has('row') && !n._class.has('row-main') && n.textContent.includes(text));
+const cardEl = (node, text) => walk(node).find(n => n._class.has('row-main')
+  && walk(n).some(t => t._class.has('row-title') && t.textContent.includes(text)));
+const findTiny = node => walk(node).find(n => n._class.has('tiny'));
+const mvBtns = (node, ch) => walk(node).filter(n => n.tagName === 'BUTTON' && n.textContent === ch);
+/* ↑↓ 按钮要按「哪张卡」定位：列表里有好几个分类组，下标会随分类多少而变 */
+const cardBtn = (node, text, ch) => {
+  const row = walk(node).find(n => n._class.has('row')
+    && walk(n).some(t => t._class.has('row-title') && t.textContent.includes(text)));
+  return row ? walk(row).find(b => b.tagName === 'BUTTON' && b.textContent === ch) : null;
+};
 const wbApp = () => openFresh('worldbook');
 
 wb.state.worldbook.length = 0; wb.save();
 const wcA = wb.makeCharacter({ name: '世界书甲' }); wb.saveCharacter(wcA);
 const wcB = wb.makeCharacter({ name: '世界书乙' }); wb.saveCharacter(wcB);
+const wcC = wb.makeCharacter({ name: '世界书丙' }); wb.saveCharacter(wcC);
+const mk = patch => wb.saveEntry(wb.makeEntry(Object.assign({ title: 'T', content: 'C' }, patch)));
+const names = (hist, c) => wb.activeEntries(hist, c).map(e => e.title);
 
 ok('注册表里有「世界书」这个 App', !!sandbox.APPS.find(a => a.id === 'worldbook'));
 let vbv = wbApp();
 ok('世界书 App 能打开', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '世界书'));
 ok('空的时候给一句提示', walk(vbv).some(n => n._class.has('empty')), '');
+ok('有搜索框', !!findIn(vbv, '搜索世界书…'));
+ok('有 全部 / 通用 / 角色 三档筛选',
+  !!findBtn(vbv, '全部') && !!findBtn(vbv, '通用') && !!findBtn(vbv, '角色'));
+ok('有「只看常驻」筛选', !!findBtn(vbv, '只看常驻'));
 
-/* 新建时先选归属 */
+/* ── 分类就是优先级：新建时先问归哪一类 ── */
 findBtn(vbv, '＋').click();
-await waitFor(() => sheetLabels().includes('通用世界书'));
-ok('新建时先问这张卡属于谁', sheetLabels().includes('通用世界书'), JSON.stringify(sheetLabels()));
-ok('归属面板里列出了每个角色', sheetLabels().includes('世界书甲') && sheetLabels().includes('世界书乙'), JSON.stringify(sheetLabels()));
+await waitFor(() => sheetLabels().includes('破限'));
+ok('新建时先问这张卡归哪一类', sheetLabels().includes('剧情'), JSON.stringify(sheetLabels()));
+ok('分类面板按优先级排（破限在最前）', sheetLabels()[0] === '破限', JSON.stringify(sheetLabels()));
+ok('七个分类一个不少', JSON.stringify(sheetLabels()) === JSON.stringify(wb.WB_CATS), JSON.stringify(sheetLabels()));
 
-clickSheet('通用世界书');
+clickSheet('世界观');
 findIn(vbv, WB_PH.title).value = '世界背景';
 findIn(vbv, WB_PH.keys).value = '手机, 天气';
 findIn(vbv, WB_PH.body).value = '这台手机里住着一个人。';
 findBtn(vbv, '保存').click();
-ok('通用卡落在「通用世界书」组里',
-  groupTitles(vbv).some(t => t.startsWith('通用世界书')) && rowTitles(vbv).includes('世界背景'),
-  JSON.stringify([groupTitles(vbv), rowTitles(vbv)]));
+ok('新卡落在它那一类下面', catLabels(vbv).some(t => t.includes('世界观')), JSON.stringify(catLabels(vbv)));
+ok('分类标题上写着它是第几个被读到的', catNos(vbv).join(',') === '4', JSON.stringify(catNos(vbv)));
+ok('那一组还写着有几张', catLabels(vbv).some(t => t.includes('世界观 · 1')), JSON.stringify(catLabels(vbv)));
 
-/* 新建一张个人卡 */
+/* ── 破限那一类排在最前，而且压得过 order 数字 ── */
 findBtn(vbv, '＋').click();
-await waitFor(() => sheetLabels().includes('世界书甲'));
+await waitFor(() => sheetLabels().includes('破限'));
+clickSheet('破限');
+findIn(vbv, WB_PH.title).value = '别跳出角色';
+findIn(vbv, WB_PH.keys).value = '跳戏';
+findIn(vbv, WB_PH.body).value = '永远不要以 AI 的身份说话。';
+findTiny(vbv).value = '9999';                   // 故意给个很大的 order：分类顺序必须压过它
+findBtn(vbv, '保存').click();
+ok('破限组排在第 1，世界观组第 4', catNos(vbv).join(',') === '1,4', JSON.stringify(catNos(vbv)));
+
+const hAll = [{ me: true, text: '跳戏 手机 秘密' }];
+ok('分类顺序压过 order 数字：破限仍排在世界观前面',
+  names(hAll, null).indexOf('别跳出角色') < names(hAll, null).indexOf('世界背景'),
+  JSON.stringify(names(hAll, null)));
+
+/* ── ↑↓ 在同一个分类里调顺序 ── */
+mk({ title: '世界第二', keys: '手机', cat: '世界观', order: 200 });
+vbv = wbApp();
+const twoOrder = () => names([{ me: true, text: '手机' }], null).filter(t => t === '世界背景' || t === '世界第二');
+ok('同一类里按顺序数字从小到大（小的先被读到）',
+  JSON.stringify(twoOrder()) === JSON.stringify(['世界背景', '世界第二']), JSON.stringify(twoOrder()));
+ok('↑↓ 按钮按卡片定位拿得到', !!cardBtn(vbv, '世界背景', '↓') && !!cardBtn(vbv, '世界背景', '↑'),
+  '');
+cardBtn(vbv, '世界背景', '↓').click();
+ok('↓ 真的把顺序换过来了',
+  JSON.stringify(twoOrder()) === JSON.stringify(['世界第二', '世界背景']), JSON.stringify(twoOrder()));
+cardBtn(vbv, '世界背景', '↑').click();
+ok('↑ 又换回来', JSON.stringify(twoOrder()) === JSON.stringify(['世界背景', '世界第二']), JSON.stringify(twoOrder()));
+ok('列表顺序 = 她读到的顺序',
+  rowTitles(vbv).indexOf('世界背景') < rowTitles(vbv).indexOf('世界第二'), JSON.stringify(rowTitles(vbv)));
+
+/* 已经排第一了再往上挪，要安静地什么都不做 */
+const topOrder = wb.state.worldbook.find(e => e.title === '别跳出角色').order;
+cardBtn(vbv, '别跳出角色', '↑').click();
+ok('已经排第一了再往上挪不会出事',
+  wb.state.worldbook.find(e => e.title === '别跳出角色').order === topOrder,
+  String(wb.state.worldbook.find(e => e.title === '别跳出角色').order));
+
+/* ── 归属：一张卡能同时挂给多个角色 ── */
+ok('点卡片正文进得了编辑页', (() => { cardEl(vbv, '世界背景').click(); return true; })()
+  && walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '编辑设定卡'));
+rowEl(vbv, '谁能读到').click();
+ok('归属面板能多选', sheetLabels().includes('通用') && sheetLabels().includes('世界书甲'), JSON.stringify(sheetLabels()));
 clickSheet('世界书甲');
-findIn(vbv, WB_PH.title).value = '只有甲知道';
-findIn(vbv, WB_PH.keys).value = '秘密';
-findIn(vbv, WB_PH.body).value = '甲的一个秘密。';
-findBtn(vbv, '保存').click();
-ok('个人卡挂在角色自己那一组下面',
-  groupTitles(vbv).some(t => t.startsWith('世界书甲')) && rowTitles(vbv).includes('只有甲知道'),
-  JSON.stringify(groupTitles(vbv)));
-
-/* 触发过滤：通用人人有份，个人只认自己的角色 */
-const hSecret = [{ me: true, text: '关于那个秘密' }];
-const hPhone = [{ me: true, text: '这台手机' }];
-const wbNames = (h, c) => wb.activeEntries(h, c).map(e => e.title);
-ok('通用卡在任何人那儿都能命中', wbNames(hPhone, wcB).includes('世界背景'), JSON.stringify(wbNames(hPhone, wcB)));
-ok('个人卡只在自己角色的聊天里命中', wbNames(hSecret, wcA).includes('只有甲知道'), JSON.stringify(wbNames(hSecret, wcA)));
-ok('个人卡跑到别的角色那儿就不命中', !wbNames(hSecret, wcB).includes('只有甲知道'), JSON.stringify(wbNames(hSecret, wcB)));
-ok('不传角色时个人卡一律不注入（避免串台）', !wb.activeEntries(hSecret).map(e => e.title).includes('只有甲知道'));
-ok('个人卡的正文真进了甲的提示词', wb.buildSystem(wcA, hSecret).includes('甲的一个秘密。'));
-ok('乙的提示词里没有甲的个人卡', !wb.buildSystem(wcB, hSecret).includes('甲的一个秘密。'));
-
-/* 优先级：列表按大的排前面 */
-wb.saveEntry(wb.makeEntry({ title: '低优先级', order: 10 }));
-wb.saveEntry(wb.makeEntry({ title: '高优先级', order: 900 }));
-vbv = wbApp();
-const priTitles = rowTitles(vbv);
-ok('列表把优先级高的排前面', priTitles.indexOf('高优先级') < priTitles.indexOf('低优先级'), JSON.stringify(priTitles));
-ok('每行都写着优先级数字', walk(vbv).some(n => n._class.has('row-time') && n.textContent === '优先级 900 ›'));
-
-/* 在编辑器里改归属 */
-rowWith(vbv, '高优先级').click();
-rowWith(vbv, '归属').click();
-await waitFor(() => sheetLabels().includes('世界书乙'));
 clickSheet('世界书乙');
+clickSheet('就这些');
 findBtn(vbv, '保存').click();
-const moved = wb.state.worldbook.find(e => e.title === '高优先级');
-ok('在编辑器里能把卡改挂到另一个角色名下', moved.scope === 'char' && moved.charId === wcB.id,
-  JSON.stringify([moved.scope, moved.charId]));
 
-/* 角色删了，个人卡不能跟着人间蒸发 */
-wb.deleteCharacter(wcB.id);
+const shared = wb.state.worldbook.find(e => e.title === '世界背景');
+ok('一张卡能同时挂给两个角色', JSON.stringify(shared.charIds) === JSON.stringify([wcA.id, wcB.id]),
+  JSON.stringify(shared.charIds));
+ok('共享卡在甲的聊天里命中', names(hAll, wcA).includes('世界背景'), JSON.stringify(names(hAll, wcA)));
+ok('共享卡在乙的聊天里也命中', names(hAll, wcB).includes('世界背景'), JSON.stringify(names(hAll, wcB)));
+ok('共享卡在没挂钩的丙那儿不命中', !names(hAll, wcC).includes('世界背景'), JSON.stringify(names(hAll, wcC)));
+ok('共享卡在甲乙同时在的群里命中', names(hAll, [wcA, wcB]).includes('世界背景'));
+mk({ title: '丙的专属', keys: '秘密', charIds: [wcC.id] });
+ok('传一组角色时不在组里的个人卡不串台',
+  !names(hAll, [wcA, wcB]).includes('丙的专属'), JSON.stringify(names(hAll, [wcA, wcB])));
+ok('通用视角（不传角色）只看到通用卡',
+  (() => { const got = names(hAll, null); return !got.includes('世界背景') && !got.includes('丙的专属'); })(),
+  JSON.stringify(names(hAll, null)));
+
+/* ── 次关键词 + 四种逻辑 ── */
+mk({ title: '反向知识', cat: '剧情', keys: '凶手', keysecondary: '真相', logic: 2 });
+ok('「全都没命中」：提到凶手但没提真相 → 注入',
+  names([{ me: true, text: '凶手是谁' }], null).includes('反向知识'));
+ok('「全都没命中」：真相也一起提了 → 不注入',
+  !names([{ me: true, text: '凶手和真相' }], null).includes('反向知识'));
+const relogic = n => { const e = wb.state.worldbook.find(x => x.title === '反向知识'); e.logic = n; wb.saveEntry(e); };
+/* ⚠️ 主关键词命中是前提，次关键词只是在它上面再加一道闸 ——
+   所以下面每一句都必须先带上「凶手」。 */
+relogic(0);
+ok('逻辑=任一命中：次关键词也出现 → 注入',
+  names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+ok('逻辑=任一命中：次关键词没出现 → 不注入',
+  !names([{ me: true, text: '凶手' }], null).includes('反向知识'));
+relogic(3);
+ok('逻辑=全都命中：两个都出现 → 注入',
+  names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+ok('逻辑=全都命中：缺一个 → 不注入',
+  !names([{ me: true, text: '凶手' }], null).includes('反向知识'));
+relogic(1);
+ok('逻辑=并非全都命中：缺一个 → 注入',
+  names([{ me: true, text: '凶手' }], null).includes('反向知识'));
+ok('逻辑=并非全都命中：全出现 → 不注入',
+  !names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+relogic(2);
+ok('逻辑=全都没命中：只提凶手 → 注入（反向知识）',
+  names([{ me: true, text: '凶手' }], null).includes('反向知识'));
+
+/* ⚠️ 只有一个次关键词时，「全都命中」和「任一命中」算出来一模一样 ——
+   必须用两个词才分得开，否则这条逻辑坏了都测不出来（反向验证抓到过）。 */
+const setSec = (arr, lg) => {
+  const e = wb.state.worldbook.find(x => x.title === '反向知识');
+  e.keysecondary = arr; e.logic = lg; wb.saveEntry(e);
+};
+setSec(['真相', '秘密'], 3);
+ok('全都命中（两个次关键词）：都出现才注入',
+  names([{ me: true, text: '凶手 真相 秘密' }], null).includes('反向知识'));
+ok('全都命中（两个次关键词）：缺一个就不注入',
+  !names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+setSec(['真相', '秘密'], 0);
+ok('任一命中（两个次关键词）：只出现一个就注入',
+  names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+ok('任一命中（两个次关键词）：一个都不出现才不注入',
+  !names([{ me: true, text: '凶手 别的东西' }], null).includes('反向知识'));
+setSec(['真相', '秘密'], 1);
+ok('并非全都命中（两个次关键词）：缺一个就注入',
+  names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+ok('并非全都命中（两个次关键词）：全出现就不注入',
+  !names([{ me: true, text: '凶手 真相 秘密' }], null).includes('反向知识'));
+setSec(['真相', '秘密'], 2);
+ok('全都没命中（两个次关键词）：出现了一个就不注入',
+  !names([{ me: true, text: '凶手 真相' }], null).includes('反向知识'));
+ok('全都没命中（两个次关键词）：确实一个都没出现 → 注入',
+  names([{ me: true, text: '凶手 别的东西' }], null).includes('反向知识'));
+setSec(['真相'], 1);
+ok('没填次关键词时四种逻辑都不拦', (() => {
+  const e = wb.state.worldbook.find(x => x.title === '反向知识');
+  e.keysecondary = []; wb.saveEntry(e);
+  const got = names([{ me: true, text: '凶手' }], null).includes('反向知识');
+  e.keysecondary = ['真相']; wb.saveEntry(e);
+  return got;
+})(), '');
+
+/* ── 常驻 ── */
+mk({ title: '铁律', content: '她永远住在雨城。', cat: '破限', constant: true });
+ok('常驻卡一句话都不聊到也会注入', names([{ me: true, text: '今天吃什么' }], null).includes('铁律'));
+ok('常驻卡不看次关键词（填了也照样注入）', (() => {
+  const e = wb.state.worldbook.find(x => x.title === '铁律');
+  e.keysecondary = ['永远不会出现的词']; e.logic = 3; wb.saveEntry(e);
+  const got = names([{ me: true, text: '随便说点什么' }], null).includes('铁律');
+  e.keysecondary = []; wb.saveEntry(e);
+  return got;
+})(), '');
 vbv = wbApp();
-ok('角色被删后他的个人卡还看得见，归到「已删除的角色」',
-  groupTitles(vbv).some(t => t.startsWith('已删除的角色')), JSON.stringify(groupTitles(vbv)));
-rowWith(vbv, '高优先级').click();
-ok('点进去还能把归属改回通用',
-  walk(vbv).some(n => n._class.has('row-title') && n.textContent === '归属'));
+ok('常驻卡在列表里带「常驻」徽章',
+  walk(vbv).some(n => n._class.has('wb-tag') && n.textContent === '常驻'));
+findBtn(vbv, '只看常驻').click();
+ok('「只看常驻」筛得只剩常驻卡',
+  catLabels(vbv).join('|').includes('破限') && !rowTitles(vbv).includes('世界第二'),
+  JSON.stringify(rowTitles(vbv)));
+findBtn(vbv, '只看常驻 · 开').click();
+ok('再点一下筛回来', rowTitles(vbv).includes('世界第二'), JSON.stringify(rowTitles(vbv)));
+
+/* ── 搜索 + 三档筛选 ── */
+vbv = wbApp();
+const searchBox = () => findIn(vbv, '搜索世界书…');
+searchBox().value = '雨城'; dispatch(searchBox(), 'input', {});
+ok('搜索能按正文找到卡',
+  rowTitles(vbv).join('|').includes('铁律') && !rowTitles(vbv).join('|').includes('世界第二'),
+  JSON.stringify(rowTitles(vbv)));
+searchBox().value = '不存在的词'; dispatch(searchBox(), 'input', {});
+ok('搜不到时说清楚是筛选导致的', walk(vbv).some(n => n._class.has('empty')), '');
+searchBox().value = ''; dispatch(searchBox(), 'input', {});
+
+findBtn(vbv, '通用').click();
+ok('「通用」档只剩没挂钩的卡',
+  rowTitles(vbv).includes('世界第二') && !rowTitles(vbv).includes('世界背景'),
+  JSON.stringify(rowTitles(vbv)));
+findBtn(vbv, '角色').click();
+ok('「角色」档按角色分组', catLabels(vbv).some(t => t.includes('世界书甲')), JSON.stringify(catLabels(vbv)));
+ok('「角色」档里不再有分类序号', catNos(vbv).length === 0, JSON.stringify(catNos(vbv)));
+ok('共享卡在两个角色底下各出现一次',
+  catLabels(vbv).filter(t => t.includes('世界书甲')).length === 1
+  && catLabels(vbv).filter(t => t.includes('世界书乙')).length === 1,
+  JSON.stringify(catLabels(vbv)));
+findBtn(vbv, '全部').click();
+ok('切回「全部」又按分类分组了', catLabels(vbv).some(t => t.includes('世界观')), JSON.stringify(catLabels(vbv)));
+
+/* ── 编辑页：分类 / 次关键词 / 逻辑都能改 ── */
+cardEl(vbv, '反向知识').click();
+ok('编辑页有次关键词输入框', !!findIn(vbv, WB_PH.sec));
+ok('次关键词已填的值回显出来了', findIn(vbv, WB_PH.sec).value === '真相', findIn(vbv, WB_PH.sec).value);
+ok('编辑页写着当前的分类和序号',
+  walk(vbv).some(n => n._class.has('row-time') && /剧情/.test(n.textContent)),
+  walk(vbv).filter(n => n._class.has('row-time')).map(n => n.textContent).join('/'));
+rowEl(vbv, '分类').click();
+await waitFor(() => sheetLabels().includes('破限'));
+clickSheet('破限');
+rowEl(vbv, '次关键词逻辑').click();
+await waitFor(() => sheetLabels().includes('全都没命中'));
+clickSheet('全都没命中');
+findBtn(vbv, '保存').click();
+
+const edited = wb.state.worldbook.find(e => e.title === '反向知识');
+ok('在编辑页能把分类改掉', edited.cat === '破限', String(edited.cat));
+ok('在编辑页能把逻辑改掉', Number(edited.logic) === 2, String(edited.logic));
+ok('改了分类，注入顺序立刻跟着变（挪到破限里，排在世界观前面）',
+  names([{ me: true, text: '凶手 手机' }], null).indexOf('反向知识')
+  < names([{ me: true, text: '凶手 手机' }], null).indexOf('世界第二'),
+  JSON.stringify(names([{ me: true, text: '凶手 手机' }], null)));
+ok('停用之后再保存，状态没被吃回去', (() => {
+  const e2 = wb.state.worldbook.find(x => x.title === '反向知识');
+  e2.enabled = false; wb.save();
+  const gone = !names([{ me: true, text: '凶手' }], null).includes('反向知识');
+  e2.enabled = true; wb.save();
+  return gone;
+})(), '');
+vbv = wbApp();
+ok('停用的卡在列表里带「已停用」徽章', (() => {
+  const e2 = wb.state.worldbook.find(x => x.title === '反向知识');
+  e2.enabled = false; wb.save();
+  const v2 = wbApp();
+  const has = walk(v2).some(n => n._class.has('wb-tag') && n.textContent === '已停用');
+  e2.enabled = true; wb.save();
+  return has;
+})(), '');
+
+/* ── 角色级「读不读世界书」开关 ── */
+ok('角色默认是读世界书的', wcA.wbRead !== false);
+ok('关掉之后他一张卡都读不到（连通用卡也不给）', (() => {
+  const c = wb.state.characters.find(x => x.id === wcA.id);
+  c.wbRead = false;
+  const got = wb.activeEntries(hAll, c).length;
+  c.wbRead = true;
+  return got === 0;
+})(), '');
+ok('他关了自己那份，群里别人照旧读（乙还在，通用卡也照旧）', (() => {
+  const c = wb.state.characters.find(x => x.id === wcA.id);
+  c.wbRead = false;
+  const grp = wb.buildGroupSystem({ id: 'g9', name: '群', members: [wcA.id, wcB.id] }, hAll);
+  c.wbRead = true;
+  /* ⚠️ buildGroupSystem 拼的是卡的「正文」，不是标题 */
+  return grp.includes('这台手机里住着一个人。') && grp.includes('永远不要以 AI 的身份说话。');
+})(), '');
+ok('群里所有人都关了世界书 → 一张卡都不注入', (() => {
+  const a = wb.state.characters.find(x => x.id === wcA.id);
+  const b = wb.state.characters.find(x => x.id === wcB.id);
+  a.wbRead = false; b.wbRead = false;
+  const grp = wb.buildGroupSystem({ id: 'g9', name: '群', members: [wcA.id, wcB.id] }, hAll);
+  a.wbRead = true; b.wbRead = true;
+  return !grp.includes('这台手机里住着一个人。') && !grp.includes('永远不要以 AI 的身份说话。');
+})(), '');
+
+/* ── 预算上限：超了从尾部砍 ── */
+const withBudget = (cap, body) => {
+  const keepWb = wb.state.worldbook, keepBud = wb.state.settings.wbBudget, keepQ = wb.state.settings.wbOn;
+  wb.state.worldbook = []; wb.state.settings.wbBudget = cap; wb.state.settings.wbOn = true;
+  ['PA', 'PB', 'PC', 'PD'].forEach((t, i) => mk({
+    title: t, content: t.toLowerCase().repeat(30), cat: '剧情', constant: true, order: i + 1
+  }));
+  const r = body();
+  wb.state.worldbook = keepWb; wb.state.settings.wbBudget = keepBud; wb.state.settings.wbOn = keepQ;
+  return r;
+};
+ok('预算满了就从尾部（优先级最低那头）砍',
+  withBudget(200, () => {
+    const r = wb.wbResolve([], null);
+    return r.used.map(e => e.title).join(',') === 'PA,PB,PC' && r.dropped.map(e => e.title).join(',') === 'PD';
+  }), '');
+ok('预算按字数算，不是按张数', withBudget(200, () => wb.wbResolve([], null).chars === 180), '');
+ok('被砍掉的那张会在预览里说出来',
+  withBudget(200, () => {
+    const p = wb.wbPreview([], null);
+    return p.dropped.length === 1 && p.dropped[0].title === 'PD' && p.cap === 200;  }), '');
+ok('砍也不能砍成一张不剩（第一张永远留下）',
+  withBudget(200, () => {
+    wb.state.worldbook.forEach(e => { e.content = 'x'.repeat(5000); wb.saveEntry(e); });
+    return wb.wbResolve([], null).used.length === 1;
+  }), '');
+
+/* ── 关键词体检 ── */
+ok('单个字的关键词会被警告', /只有这一个字/.test(wb.keyWarn('伞')), wb.keyWarn('伞'));
+ok('「我 / 她 / 雨」这种高频词会被警告', /太常见/.test(wb.keyWarn('她')) && /太常见/.test(wb.keyWarn('雨')),
+  wb.keyWarn('她') + ' / ' + wb.keyWarn('雨'));
+ok('太长的一串也会被提醒', /太长/.test(wb.keyWarn('这是一个非常长的关键词')), wb.keyWarn('这是一个非常长的关键词'));
+ok('正常的关键词不唠叨', wb.keyWarn('雨城') === '' && wb.keyWarn('秘密') === '', wb.keyWarn('雨城'));
+ok('一串关键词能一次列出前几条警告', /太常见/.test(wb.keysWarn('手机, 我, 她, 雨城')), wb.keysWarn('手机, 我, 她, 雨城'));
+
+/* ── 关键词预览页 ── */
+vbv = wbApp();
+rowEl(vbv, '关键词预览').click();
+ok('进得了关键词预览页', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '关键词预览'));
+const pvInput = walk(vbv).find(n => n.tagName === 'TEXTAREA');
+ok('预览页有一个输入框', !!pvInput);
+pvInput.value = '我们在雨城聊手机的时候提到了凶手';
+dispatch(pvInput, 'input', {});
+const pvText = walk(vbv).map(n => n.textContent).join('|');
+ok('预览里列出了按顺序命中的卡', pvText.includes('铁律') && pvText.includes('世界第二'), pvText.slice(0, 200));
+ok('预览里说了命中几张、多少字', /命中 \d+ 张/.test(pvText), pvText.slice(0, 140));
+ok('预览里说明了用的是谁的视角', pvText.includes('世界书甲'), pvText.slice(0, 140));
+findBtn(vbv, '返回').click();
+ok('预览页能退回列表', walk(vbv).some(n => n._class.has('nav-title') && n.textContent === '世界书'));
+
+/* ── 角色删了，他的卡不能人间蒸发 ── */
+wb.deleteCharacter(wcC.id);
+vbv = wbApp();
+findBtn(vbv, '角色').click();
+ok('角色被删后他的卡还看得见，归到「已删除的角色」',
+  catLabels(vbv).some(t => t.includes('已删除的角色')), JSON.stringify(catLabels(vbv)));
 
 /* 设置页那一行直接打开这个世界书 App */
 const wbSetView = openFresh('settings');
-rowWith(wbSetView, '世界书').click();
+rowEl(wbSetView, '世界书').click();
 ok('设置里的「世界书」直接打开世界书 App',
   S.SHELL.stack.length === 2 && walk(S.SHELL.stack[1].node).some(n => n._class.has('nav-title') && n.textContent === '世界书'),
   S.SHELL.stack.map(s => s.id).join(','));
 
 while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.worldbook.length = 0; wb.save();
-wb.deleteCharacter(wcA.id);
+wb.deleteCharacter(wcA.id); wb.deleteCharacter(wcB.id);
+while (S.SHELL.stack.length) S.closeTop(true);
+
+/* ── 角色页：读不读 + 他的世界书（关联度那一块的入口） ── */
+console.log('\n[23b] 世界书 × 角色');
+const wbA2 = wb.makeCharacter({ name: '关联甲' }); wb.saveCharacter(wbA2);
+mk({ title: '关联专属', keys: '甲', content: '只给关联甲。', charIds: [wbA2.id] });
+mk({ title: '关联通用', keys: '甲', content: '谁都读得到。' });
+
+let wbCv = openFresh('contacts');
+walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')).click();
+ok('角色编辑页有「他的世界书」入口',
+  walk(wbCv).some(n => n._class.has('row-title') && n.textContent === '他的世界书'),
+  JSON.stringify(rowTitles(wbCv)));
+const wbOnBtn = walk(wbCv).find(n => n.tagName === 'BUTTON' && /读世界书/.test(n.textContent));
+ok('角色编辑页有「读不读世界书」开关', !!wbOnBtn, '');
+ok('开关上写着能读到几张（通用 + 专属）', !!wbOnBtn && /2 张/.test(wbOnBtn.textContent),
+  wbOnBtn && wbOnBtn.textContent);
+wbOnBtn.click();
+ok('点一下就关上了', /读世界书：关/.test(wbOnBtn.textContent), wbOnBtn.textContent);
+findBtn(wbCv, '保存').click();
+ok('保存之后角色真的关掉了世界书',
+  wb.state.characters.find(x => x.id === wbA2.id).wbRead === false, '');
+ok('关掉之后他一张卡都读不到',
+  wb.activeEntries([{ me: true, text: '甲' }], wb.state.characters.find(x => x.id === wbA2.id)).length === 0, '');
+ok('新角色编辑页不给世界书入口（还没落盘，挂了也没意义）', (() => {
+  const v = openFresh('contacts');
+  findBtn(v, '＋').click();
+  return !walk(v).some(n => n._class.has('row-title') && n.textContent === '他的世界书');
+})(), '');
+while (S.SHELL.stack.length) S.closeTop(true);
+
+wbCv = openFresh('contacts');
+walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('关联甲')).click();
+walk(wbCv).find(n => n._class.has('row') && n.textContent.includes('他的世界书')).click();
+const wbTop = S.SHELL.stack[S.SHELL.stack.length - 1];
+ok('点「他的世界书」直接打开世界书 App', wbTop.id === 'worldbook', wbTop.id);
+const wbv2 = wbTop.node;
+ok('并且已经落在他那一档', catLabels(wbv2).some(t => t.includes('关联甲')), JSON.stringify(catLabels(wbv2)));
+ok('列表上有「只看他」的标签', !!findBtn(wbv2, '只看「关联甲」 ×'), JSON.stringify(catLabels(wbv2)));
+ok('专属卡和通用卡都在（他真正读得到的全部）',
+  rowTitles(wbv2).some(t => t.includes('关联专属')) && rowTitles(wbv2).some(t => t.includes('关联通用')),
+  JSON.stringify(rowTitles(wbv2)));
+ok('通用卡单独成组，标着「他也读得到」',
+  catLabels(wbv2).some(t => t.includes('通用（他也读得到）')), JSON.stringify(catLabels(wbv2)));
+findBtn(wbv2, '只看「关联甲」 ×').click();
+ok('点掉标签就回到全部角色（通用那组的标题变回「通用」）',
+  catLabels(wbv2).some(t => t.replace(/\s/g, '').startsWith('通用')), JSON.stringify(catLabels(wbv2)));
+
+/* ── 聊天页 ＋：她现在读到哪几张 ── */
+while (S.SHELL.stack.length) S.closeTop(true);
+wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;
+wb.clearChat(wbA2.id);
+wb.pushMessage(wbA2.id, true, '甲这个字出现了');
+const wbChv = openFresh('chat', wbA2.id);
+findBtn(wbChv, '＋').click();
+ok('聊天页 ＋ 里有「她现在读到哪几张」',
+  sheetLabels().includes('她现在读到哪几张'), JSON.stringify(sheetLabels()));
+clickSheet('她现在读到哪几张');
+const wbSheet = walk(byId.phone).map(n => n.textContent).join('|');
+ok('面板里按顺序列出了命中的卡',
+  wbSheet.includes('关联专属') && wbSheet.includes('关联通用'), wbSheet.slice(0, 200));
+ok('面板里说了共多少字、上限多少', /共 \d+ 字 \/ 上限 \d+/.test(wbSheet), wbSheet.slice(0, 180));
+while (S.SHELL.stack.length) S.closeTop(true);
+
 
 /* 25. 外卖 + 音乐 + 图标能拖（放 [24] 前面：[24] 会直接改 store 和 boot()） */
 console.log('\n[25] 外卖、音乐与桌面图标拖动');
@@ -4709,15 +5039,15 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   }));
   const pA = App.saveEntry(App.makeEntry({
     title: '阿甲的秘密', keys: '秘密, 怕黑', content: '阿甲其实怕黑。',
-    scope: 'char', charId: 'a1', order: 30
+    charIds: ['a1'], order: 30
   }));
   const pB = App.saveEntry(App.makeEntry({
     title: '阿乙的秘密', keys: '秘密', content: '阿乙养了只猫。',
-    scope: 'char', charId: 'b1', order: 30
+    charIds: ['b1'], order: 30
   }));
   const pC = App.saveEntry(App.makeEntry({
     title: '阿丙的秘密', keys: '秘密', content: '阿丙是外星人。',
-    scope: 'char', charId: 'c1', order: 30
+    charIds: ['c1'], order: 30
   }));
 
   /* ── 匹配层：能认 id、能一次认一组 ── */

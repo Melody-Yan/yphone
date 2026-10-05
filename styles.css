@@ -909,6 +909,31 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   display: grid; place-items: center;
 }
 .row-x:active { opacity: 1; color: var(--danger); background: rgba(196, 117, 107, .16); }
+/* 世界书里的 ↑↓ 是「挪顺序」，不是删除 —— 借 .row-x 的形状，但别变红吓人 */
+.row-x.mv:active { color: var(--fg); background: var(--accent-soft); }
+
+/* ── 世界书 ── */
+/* 分类序号：一眼看出谁先被她读到（1 = 最先） */
+.wb-cat { display: flex; align-items: center; gap: 7px; }
+.wb-no {
+  flex: 0 0 auto; width: 17px; height: 17px; border-radius: 5px;
+  background: var(--accent-soft); color: var(--accent-ink);
+  font-size: 11px; display: grid; place-items: center; letter-spacing: 0;
+}
+.wb-sub { padding: 0 20px 4px; margin-top: -2px; }
+/* 常驻徽章要显眼：它代表「每次都读到」，是最不容易崩人设的那一档 */
+.wb-tag {
+  margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--accent-ink);
+}
+.wb-tag.who { background: rgba(150, 130, 200, .16); color: #7d6aa8; }
+.wb-tag.off { background: rgba(75, 70, 63, .1); color: var(--fg-dim); }
+.wb-warn { color: #c05f52; }
+.wb-warn:empty { display: none; }
+/* 选中的筛选标签 / 多选项，之前只有 :active，没有「已选中」的样子 */
+.chip.on { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.sheet-item.on { background: var(--accent-soft); }
+.sheet-item.on .si-label { color: var(--accent-ink); font-weight: 600; }
 
 /* ══════════════════════════════════════════════════════
    头像：本地图片版，和 emoji 版共用同一套尺寸

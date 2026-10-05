@@ -724,8 +724,12 @@ const APPS = [
 
         const name = SJ.el('input', { class: 'field', placeholder: '名字', value: c.name });
         const desc = SJ.el('input', { class: 'field', placeholder: '一句话简介（可留空）', value: c.desc });
-        const persona = SJ.el('textarea', { class: 'field area', placeholder: '人设 / 性格 / 说话方式 —— 你写什么，她就像什么' }, c.persona);
-        const greet = SJ.el('textarea', { class: 'field area sm', placeholder: '开场白：他第一句会说什么？（可留空）' }, c.greeting);
+        /* 正文用 .value 属性回填，别靠文本子节点：自检的 DOM 垫片里两者是分开的，
+           靠子节点会读回 undefined，一保存就把人设抹了（世界书那边同一个坑）。 */
+        const persona = SJ.el('textarea', { class: 'field area', placeholder: '人设 / 性格 / 说话方式 —— 你写什么，她就像什么' });
+        persona.value = c.persona || '';
+        const greet = SJ.el('textarea', { class: 'field area sm', placeholder: '开场白：他第一句会说什么？（可留空）' });
+        greet.value = c.greeting || '';
 
         /* 头像：emoji 或一张真图。真图存在存档里（data URI），所以要压过再存。
            压头像 360px 就够；壁纸才需要 1280。 */
@@ -775,6 +779,29 @@ const APPS = [
           listView();
         }
 
+        /* 世界书和角色的关系都收在这两行：读不读，以及他名下有哪些卡。
+           新角色还没落盘，先不显示 —— 挂在一张不存在的卡上只会更乱。 */
+        const wbMine = () => SJ.state.worldbook.filter(e => (e.charIds || []).indexOf(c.id) >= 0).length;
+        const wbAll = () => SJ.state.worldbook.filter(e => !(e.charIds || []).length).length;
+        const wbReadBtn = SJ.el('button', { class: 'btn ghost' });
+        const paintWbRead = () => {
+          wbReadBtn.textContent = c.wbRead === false
+            ? '读世界书：关（一张都不读）'
+            : '读世界书：开（能读到 ' + (wbMine() + wbAll()) + ' 张：通用 ' + wbAll() + ' + 专属 ' + wbMine() + '）';
+        };
+        wbReadBtn.addEventListener('click', () => { c.wbRead = c.wbRead === false; paintWbRead(); });
+        paintWbRead();
+        const wbRow = SJ.el('div', {
+          class: 'row',
+          onclick: () => { if (window.SHELL) window.SHELL.openApp('worldbook', { charId: c.id }); }
+        }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '他的世界书'),
+            SJ.el('div', { class: 'row-sub' }, '给他挂卡、看他现在读得到哪些')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '打开 ›')
+        ]);
+
         root.append(SJ.el('div', { class: 'pad' }, [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), name]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '头像'), av]),
@@ -784,6 +811,8 @@ const APPS = [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '简介'), desc]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '人设'), persona]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '开场白'), greet]),
+          isNew ? null : wbRow,
+          isNew ? null : wbReadBtn,
           SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
           isNew ? null : SJ.el('button', {
             class: 'btn danger',
@@ -2581,8 +2610,37 @@ const APPS = [
         const giftFood = () => giftVia('外卖');
         const giftThing = () => giftVia('礼物');
 
+        /* 当场看这一轮她到底读到了哪几张卡。世界书写了却不生效时，
+           这里是唯一能一眼看出「是被关键词漏了、被他关了、还是被字数上限挤了」的地方。 */
+        function showWbRead() {
+          const hist = SJ.messages(id);
+          const r = SJ.wbPreview(hist, G ? G.members.map(mid => ({ id: mid })) : c);
+          const rows = [
+            SJ.el('div', { class: 'sheet-head' }, '她现在读到的世界书'),
+            SJ.el('div', { class: 'hint' }, '扫的是最近 ' + (SJ.state.settings.scanDepth || 4) + ' 条消息里的关键词。')
+          ];
+          if (SJ.state.settings.wbOn === false) rows.push(SJ.el('div', { class: 'hint' }, '世界书总开关关着，一张都没注入。'));
+          if (c.wbRead === false) rows.push(SJ.el('div', { class: 'hint' }, '你把他设成了「不读世界书」，所以一张都没注入。'));
+          if (!r.used.length && !r.dropped.length) rows.push(SJ.el('div', { class: 'empty' }, '这一轮一张都没命中。'));
+          r.used.forEach((x, i) => rows.push(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, (i + 1) + '. ' + x.title + (x.constant ? ' · 常驻' : '')),
+              SJ.el('div', { class: 'row-sub' }, x.cat + ' · ' + x.len + ' 字')
+            ])
+          ])));
+          r.dropped.forEach(x => rows.push(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, x.title),
+              SJ.el('div', { class: 'row-sub' }, '被字数上限挤掉了 · ' + x.len + ' 字')
+            ])
+          ])));
+          rows.push(SJ.el('div', { class: 'hint' }, '共 ' + r.len + ' 字 / 上限 ' + r.cap));
+          sheet([], SJ.el('div', { class: 'pad' }, rows));
+        }
+
         plus.addEventListener('click', () => sheet([
           { icon: '↻', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
+          { icon: '📖', label: '她现在读到哪几张', hint: '世界书到底生效没有', run: showWbRead },
           { icon: '🖼', label: '发表情 / 图片', hint: '表情库 / 相册', run: pickImage },
           { icon: '🎬', label: '发视频', hint: '20MB 以内', run: pickVideo },
           { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
@@ -2881,76 +2939,196 @@ const APPS = [
     }
   },
 
-  /* ── 世界书：关键词触发的设定卡。分「通用」（谁都能触发）与「个人」（只属于某个角色） ── */
+  /* ── 世界书：分门别类的设定卡 ──
+     分类顺序 = 注入优先级：「破限」排第一，因为它管的是「怎么说话」——
+     不许跳出角色、不许复述、格式怎么摆。人设一崩，后面写什么都没有用。
+     带「常驻」的卡无论聊什么都会注入，是最不容易崩人设的那一档。
+     列表顺序就是注入顺序 —— 列表长什么样，她读到的就是什么样，不让人自己猜。 */
   {
     id: 'worldbook',
     name: '世界书',
     icon: 'book',
     art: '1F4D6',
     color: 'linear-gradient(150deg,#ccd7e8,#9db0cd)',
-    render(root, close) {
-      const pickHead = SJ.el('div', { class: 'hint', style: { padding: '2px 6px 12px' } }, '这张卡属于谁？');
+    render(root, close, arg) {
+      /* 从角色页点进来时直接落在「角色」档、只看这一个人 */
+      let tab = (arg && arg.charId) ? 'char' : 'all';
+      let onlyChar = String((arg && arg.charId) || '');
+      let q = '';
+      let onlyConst = false;
+      const wb = () => SJ.state.worldbook;
+      const findChar = id => (SJ.state.characters || []).find(x => x.id === id);
+      const charName = id => { const c = findChar(id); return c ? c.name : '已删除的角色'; };
 
       function homeView() {
         root.innerHTML = '';
         root.append(navBar('世界书', {
-          right: SJ.el('button', { class: 'nav-btn', onclick: newPick }, '＋')
+          right: SJ.el('button', { class: 'nav-btn plus', onclick: newPick }, '＋')
         }));
-        const box = SJ.el('div', { class: 'list' });
 
-        box.append(SJ.el('div', { class: 'pad' }, [
-          toggleRow('总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
+        const search = SJ.el('input', { class: 'field', placeholder: '搜索世界书…', value: q });
+        search.addEventListener('input', () => { q = search.value; paint(); });
+
+        const seg = SJ.el('div', { class: 'seg' }, [
+          ['all', '全部'], ['global', '通用'], ['char', '角色']
+        ].map(p => SJ.el('button', {
+          class: p[0] === tab ? 'on' : '',
+          onclick: () => { tab = p[0]; if (p[0] !== 'char') onlyChar = ''; homeView(); }
+        }, p[1])));
+
+        const listBox = SJ.el('div', {});
+        root.append(SJ.el('div', { class: 'pad', style: { paddingBottom: 0 } }, [search]));
+        root.append(seg);
+        root.append(SJ.el('div', { class: 'pad', style: { paddingTop: '12px', paddingBottom: '2px' } }, [
+          SJ.el('div', { class: 'chips', style: { padding: '0 0 10px' } }, [
+            SJ.el('button', {
+              class: 'chip' + (onlyConst ? ' on' : ''),
+              onclick: () => { onlyConst = !onlyConst; homeView(); }
+            }, onlyConst ? '只看常驻 · 开' : '只看常驻'),
+            onlyChar ? SJ.el('button', {
+              class: 'chip on',
+              onclick: () => { onlyChar = ''; homeView(); }
+            }, '只看「' + charName(onlyChar) + '」 ×') : null
+          ].filter(Boolean)),
+          toggleRow('世界书总开关', '关掉后所有卡都不再注入', SJ.state.settings.wbOn !== false, () => {
             SJ.state.settings.wbOn = SJ.state.settings.wbOn === false;
             SJ.save(); homeView();
-          }),
-          SJ.el('div', { class: 'hint' }, '聊到关键词，卡里的正文才会生效 —— 没聊到就不占额度。数字越大越靠后塞进去，她越当回事。')
+          })
         ]));
+        root.append(listBox);
+        paint();
 
-        if (!SJ.state.worldbook.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
-        }
-
-        SJ.wbGroups().forEach(g => {
-          if (!g.list.length && g.key !== 'global') return;
-          box.append(SJ.el('div', { class: 'group-title' }, g.label + ' · ' + g.list.length));
-          if (!g.list.length) {
-            box.append(SJ.el('div', { class: 'empty' }, g.sub));
+        function paint() {
+          listBox.innerHTML = '';
+          if (!wb().length) {
+            listBox.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
             return;
           }
-          SJ.wbSorted(g.list).forEach(e => box.append(SJ.el('div', { class: 'row', onclick: () => entryView(e.id) }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, e.title
-                + (e.constant ? ' · 常驻' : '')
-                + (e.enabled === false ? ' · 已停用' : '')),
-              SJ.el('div', { class: 'row-sub' }, (e.keys || []).length ? (e.keys || []).join(' / ') : '（没有关键词，靠常驻生效）')
-            ]),
-            SJ.el('div', { class: 'row-time' }, '优先级 ' + (Number(e.order) || 0) + ' ›')
-          ])));
-        });
+          const groups = SJ.wbGroups({
+            filter: tab === 'char' ? 'char' : (tab === 'global' ? 'global' : 'all'),
+            charId: onlyChar, q: q, onlyConst: onlyConst
+          });
+          if (!groups.length) {
+            listBox.append(SJ.el('div', { class: 'empty' }, q || onlyConst ? '这个条件下没有卡。' : '还没有卡。'));
+            return;
+          }
 
-        /* 上下文预算：这两个数决定每次发给模型多少东西，直接影响花费 */
-        box.append(SJ.el('div', { class: 'group-title' }, '上下文'));
-        box.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
-        box.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
-        root.append(box);
-      }
+          groups.forEach(g => {
+            listBox.append(SJ.el('div', { class: 'group-title wb-cat' }, [
+              g.kind === 'cat' ? SJ.el('span', { class: 'wb-no' }, String(SJ.wbCatIndex(g.label) + 1)) : null,
+              g.label + ' · ' + g.list.length
+            ].filter(Boolean)));
+            if (g.sub) listBox.append(SJ.el('div', { class: 'hint wb-sub' }, g.sub));
+            g.list.forEach((e, i) => listBox.append(entryRow(e, i, g.list.length)));
+          });
 
-      /* 新建先选归属，免得建完才发现挂错了人 */
-      function newPick() {
-        const items = [{ icon: '🌍', label: '通用世界书', hint: '所有角色都认这条设定', run: () => entryView(null, 'global', '') }];
-        (SJ.state.characters || []).forEach(c => items.push({
-          icon: '🙂', label: c.name, hint: '只在他/她的聊天里生效',
-          run: () => entryView(null, 'char', c.id)
-        }));
-        if (items.length === 1) {
-          items.push({ icon: '🙂', label: '个人世界书', hint: '先去通讯录建个角色，才能挂在他名下', run: () => toast('还没有角色') });
+          /* 上下文预算：这三个数决定每次发给模型多少东西，直接影响花费 */
+          listBox.append(SJ.el('div', { class: 'group-title' }, '上下文'));
+          listBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
+          listBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
+          listBox.append(numRow('世界书字数上限', '一轮最多注入多少字，超了先砍排在最后的', 'wbBudget', 200, 20000));
+          listBox.append(SJ.el('div', { class: 'pad' }, [
+            SJ.el('div', { class: 'row', onclick: previewView }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, '关键词预览'),
+                SJ.el('div', { class: 'row-sub' }, '拿一句话试试，当场看会触发哪几张、按什么顺序')
+              ]),
+              SJ.el('div', { class: 'row-time' }, '试试 ›')
+            ])
+          ]));
         }
-        sheet(items, pickHead);
       }
 
-      function entryView(id, scope, charId) {
+      /* 一行卡：点正文进编辑页，右边 ↑↓ 在同一个分类里调顺序（越靠前越先被读到） */
+      function entryRow(e, i, n) {
+        const keys = (e.keys || []).join(' / ');
+        const sub = e.constant
+          ? (keys ? '常驻，不用聊到 · ' + keys : '常驻：不聊到也会注入')
+          : (keys || '没有关键词，不会触发');
+        return SJ.el('div', { class: 'row' }, [
+          SJ.el('div', { class: 'row-main', onclick: () => entryView(e.id) }, [
+            SJ.el('div', { class: 'row-title' }, [
+              e.title,
+              e.constant ? SJ.el('span', { class: 'wb-tag' }, '常驻') : null,
+              (e.charIds || []).length ? SJ.el('span', { class: 'wb-tag who' }, '专属') : null,
+              e.enabled === false ? SJ.el('span', { class: 'wb-tag off' }, '已停用') : null
+            ].filter(Boolean)),
+            SJ.el('div', { class: 'row-sub' }, sub)
+          ]),
+          SJ.el('button', {
+            class: 'row-x mv', title: '往上挪（更先被读到）',
+            onclick: () => { if (SJ.moveEntry(e.id, -1)) homeView(); }
+          }, '↑'),
+          SJ.el('button', {
+            class: 'row-x mv', title: '往下挪',
+            onclick: () => { if (SJ.moveEntry(e.id, 1)) homeView(); }
+          }, '↓')
+        ]);
+      }
+
+      /* 新建先问归到哪一类 —— 分类决定优先级，比选归属更常变 */
+      function newPick() {
+        const head = SJ.el('div', { class: 'sheet-head' }, '这张卡归哪一类？（决定她读到的先后）');
+        const items = SJ.WB_CATS.map(c => ({
+          icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+          label: c,
+          hint: (SJ.wbCatIndex(c) + 1) + ' · ' + SJ.WB_CAT_SUB[c],
+          run: () => entryView(null, c)
+        }));
+        sheet(items, head);
+      }
+
+      /* 谁能读到：多选。通用 = 谁都不挂；选了具体的人就是「只有这几个人读得到」 */
+      function pickOwner(e, onDone) {
+        const mask = SJ.el('div', { class: 'mask sheet-mask' });
+        const panel = SJ.el('div', { class: 'sheet' });
+        mask.append(panel);
+        mask.addEventListener('click', ev => { if (ev.target === mask) dismiss(mask); });
+        function paintPick() {
+          panel.innerHTML = '';
+          panel.append(SJ.el('div', { class: 'sheet-head' }, '谁能读到这张卡？可以选多个（几个都选 = 他们的共同设定）'));
+          const cur = e.charIds || [];
+          panel.append(SJ.el('button', {
+            class: 'sheet-item' + (cur.length ? '' : ' on'),
+            onclick: () => { e.charIds = []; paintPick(); }
+          }, [
+            SJ.el('span', { class: 'si-icon' }, '🌍'),
+            SJ.el('span', { class: 'si-label' }, '通用'),
+            SJ.el('span', { class: 'si-hint' }, '所有角色都读得到')
+          ]));
+          (SJ.state.characters || []).forEach(c => {
+            const on = cur.indexOf(c.id) >= 0;
+            panel.append(SJ.el('button', {
+              class: 'sheet-item' + (on ? ' on' : ''),
+              onclick: () => {
+                const list = (e.charIds || []).slice();
+                const i = list.indexOf(c.id);
+                if (i >= 0) list.splice(i, 1); else list.push(c.id);
+                e.charIds = list;
+                paintPick();
+              }
+            }, [
+              SJ.el('span', { class: 'si-icon' }, on ? '✅' : '🙂'),
+              SJ.el('span', { class: 'si-label' }, c.name),
+              SJ.el('span', { class: 'si-hint' }, on ? '已选' : (c.wbRead === false ? '（他关着世界书）' : ''))
+            ]));
+          });
+          panel.append(SJ.el('button', {
+            class: 'sheet-item',
+            onclick: () => { dismiss(mask); onDone(); }
+          }, [
+            SJ.el('span', { class: 'si-icon' }, '✓'),
+            SJ.el('span', { class: 'si-label' }, '就这些')
+          ]));
+        }
+        paintPick();
+        document.getElementById('phone').append(mask);
+        return mask;
+      }
+
+      function entryView(id, cat) {
         const isNew = !id;
-        const e = SJ.state.worldbook.find(x => x.id === id) || SJ.makeEntry({ scope, charId });
+        const e = wb().find(x => x.id === id) || SJ.makeEntry({ cat: cat || '其他' });
         root.innerHTML = '';
         root.append(navBar(isNew ? '新设定卡' : '编辑设定卡', {
           back: homeView,
@@ -2959,37 +3137,42 @@ const APPS = [
 
         const title = SJ.el('input', { class: 'field', placeholder: '卡的名字（只给你自己看）', value: e.title });
         const keys = SJ.el('input', { class: 'field', placeholder: '关键词，逗号隔开：手机, 来历, 你怎么在这', value: (e.keys || []).join(', ') });
-        const content = SJ.el('textarea', { class: 'field area', placeholder: '聊到关键词时，把这段塞给她看。写设定、写前情、写规矩都行。' }, e.content);
+        const warn = SJ.el('div', { class: 'hint wb-warn' });
+        const refreshWarn = () => { warn.textContent = SJ.keysWarn(keys.value); };
+        keys.addEventListener('input', refreshWarn);
+        refreshWarn();
+        const sec = SJ.el('input', { class: 'field', placeholder: '次关键词（可留空）：凶手, 真相', value: (e.keysecondary || []).join(', ') });
+        const content = SJ.el('textarea', {
+          class: 'field area',
+          placeholder: '聊到关键词时，把这段塞给她看。写设定、写前情、写破限规矩都行。'
+        });
+        /* 正文必须用 .value 属性回填，不能靠文本子节点：自检的 DOM 垫片里
+           textarea 的 value 和子节点是两回事，靠子节点会读回 undefined，
+           保存时把正文整个抹掉。真浏览器两头都认，垫片只认这一头。 */
+        content.value = e.content || '';
         const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
 
-        const owner = SJ.el('div', { class: 'row-time' });
-        function ownerText() {
-          if (e.scope !== 'char' || !e.charId) return '通用';
-          const c = (SJ.state.characters || []).find(x => x.id === e.charId);
-          return c ? c.name : '已删除的角色';
-        }
-        function ownerItems() {
-          const items = [{ icon: '🌍', label: '通用', hint: '所有角色都认这条设定', run: () => { e.scope = 'global'; e.charId = ''; owner.textContent = ownerText(); } }];
-          (SJ.state.characters || []).forEach(c => items.push({
-            icon: '🙂', label: c.name, hint: '只在他/她的聊天里生效',
-            run: () => { e.scope = 'char'; e.charId = c.id; owner.textContent = ownerText(); }
-          }));
-          return items;
-        }
-
+        const catText = SJ.el('div', { class: 'row-time' });
+        const ownerText = SJ.el('div', { class: 'row-time' });
+        const logicText = SJ.el('div', { class: 'row-time' });
         const constBtn = SJ.el('button', { class: 'btn ghost' });
         const onBtn = SJ.el('button', { class: 'btn ghost' });
-        function paint() {
+
+        function paintButtons() {
+          catText.textContent = (SJ.wbCatIndex(e.cat) + 1) + ' · ' + SJ.wbCat(e.cat) + ' ›';
+          const ids = e.charIds || [];
+          ownerText.textContent = ids.length ? ids.map(charName).join('、') + ' ›' : '通用 ›';
+          logicText.textContent = SJ.WB_LOGIC[Number(e.logic) || 0] + ' ›';
           constBtn.textContent = e.constant ? '常驻：开（不聊到也注入）' : '常驻：关（聊到关键词才注入）';
           onBtn.textContent = e.enabled === false ? '已停用 —— 点一下启用' : '已启用 —— 点一下停用';
         }
-        constBtn.addEventListener('click', () => { e.constant = !e.constant; paint(); });
-        onBtn.addEventListener('click', () => { e.enabled = !e.enabled; paint(); });
-        paint();
-        owner.textContent = ownerText();
+        constBtn.addEventListener('click', () => { e.constant = !e.constant; paintButtons(); });
+        onBtn.addEventListener('click', () => { e.enabled = !e.enabled; paintButtons(); });
+        paintButtons();
 
         function saveIt() {
-          e.title = title.value; e.keys = keys.value; e.content = content.value; e.order = order.value;
+          e.title = title.value; e.keys = keys.value; e.content = content.value;
+          e.keysecondary = sec.value; e.order = order.value;
           if (isNew && !e.content.trim() && !String(e.keys).trim()) return homeView();   // 空的当没建
           SJ.saveEntry(e);
           homeView();
@@ -2997,30 +3180,116 @@ const APPS = [
 
         root.append(SJ.el('div', { class: 'pad' }, [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), title]),
-          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词'), keys]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词（聊到这些词就注入）'), keys, warn]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '正文'), content]),
+          SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_CATS.map(c => ({
+            icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+            label: c,
+            hint: (SJ.wbCatIndex(c) + 1) + ' · ' + SJ.WB_CAT_SUB[c],
+            run: () => { e.cat = c; paintButtons(); }
+          })), SJ.el('div', { class: 'sheet-head' }, '归到哪一类？越靠前的越先被她读到')) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '分类（= 优先级）'),
+              SJ.el('div', { class: 'row-sub' }, '破限 > 文风 > 人设 > 世界观 > 剧情 > 状态')
+            ]),
+            catText
+          ]),
+          SJ.el('div', { class: 'row', onclick: () => pickOwner(e, paintButtons) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '谁能读到'),
+              SJ.el('div', { class: 'row-sub' }, '通用 = 谁都能读到；选几个角色 = 他们的共同设定')
+            ]),
+            ownerText
+          ]),
           constBtn,
           onBtn,
-          SJ.el('div', { class: 'row', onclick: () => sheet(ownerItems(), pickHead) }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '归属'),
-              SJ.el('div', { class: 'row-sub' }, '通用 = 谁都能触发；个人 = 只在这个角色的聊天里生效')
-            ]),
-            owner
-          ]),
           SJ.el('div', { class: 'row' }, [
             SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '优先级'),
-              SJ.el('div', { class: 'row-sub' }, '数字越大越靠后塞进去，她越当回事。默认 100')
+              SJ.el('div', { class: 'row-title' }, '顺序'),
+              SJ.el('div', { class: 'row-sub' }, '数字越小越先被她读到。列表里的 ↑↓ 改的就是它')
             ]),
             order
+          ]),
+          SJ.el('label', { class: 'field-wrap' }, [
+            SJ.el('span', {}, '次关键词（可留空 —— 空着就是上面那行的意思）'),
+            sec,
+            SJ.el('div', { class: 'hint' }, '配合下面的逻辑用。想做「提到凶手、但她还不知道真相」这种反向知识，就填次关键词并把逻辑选成「全都没命中」。')
+          ]),
+          SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_LOGIC.map((l, i) => ({
+            icon: '🔀', label: l, hint: SJ.WB_LOGIC_SUB[i],
+            run: () => { e.logic = i; paintButtons(); }
+          })), SJ.el('div', { class: 'sheet-head' }, '次关键词要怎么算「通过」？')) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '次关键词逻辑'),
+              SJ.el('div', { class: 'row-sub' }, SJ.WB_LOGIC_SUB[Number(e.logic) || 0])
+            ]),
+            logicText
           ]),
           SJ.el('button', { class: 'btn', onclick: saveIt }, '保存'),
           isNew ? null : SJ.el('button', {
             class: 'btn danger',
             onclick: () => confirmBox('删掉这张设定卡？', () => { SJ.deleteEntry(e.id); homeView(); })
           }, '删除这张卡')
+        ].filter(Boolean)));
+      }
+
+      /* 关键词预览：拿一句话试，看会按什么顺序读到哪几张。
+         这是唯一能当场验证「她到底读到了什么」的地方，别藏在设置里。 */
+      function previewView() {
+        root.innerHTML = '';
+        root.append(navBar('关键词预览', { back: homeView }));
+        let asChar = onlyChar || ((SJ.state.characters || [])[0] || {}).id || '';
+        const input = SJ.el('textarea', {
+          class: 'field area sm',
+          placeholder: '打一句她会看到的话，比如「你还记得那个秘密吗」'
+        });
+        const head = SJ.el('div', { class: 'hint' });
+        const whoText = SJ.el('div', { class: 'row-time' });
+        const out = SJ.el('div', {});
+        input.addEventListener('input', paint);
+
+        function paint() {
+          whoText.textContent = asChar ? charName(asChar) + ' ›' : '通用视角 ›';
+          const txt = input.value.trim();
+          const c = asChar ? findChar(asChar) : null;
+          const r = SJ.wbPreview(txt ? [{ me: true, text: txt }] : [], c || (asChar ? asChar : null));
+          head.textContent = txt
+            ? '按她读到的顺序，命中 ' + r.used.length + ' 张、共 ' + r.len + ' 字 / 上限 ' + r.cap
+              + (r.dropped.length ? '；另有 ' + r.dropped.length + ' 张被上限挤掉了' : '')
+            : '还没输入。空着的时候只有常驻卡会命中。';
+          out.innerHTML = '';
+          r.used.forEach((x, i) => out.append(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, (i + 1) + '. ' + x.title + (x.constant ? ' · 常驻' : '')),
+              SJ.el('div', { class: 'row-sub' }, x.cat + ' · ' + x.len + ' 字')
+            ])
+          ])));
+          r.dropped.forEach(x => out.append(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, x.title),
+              SJ.el('div', { class: 'row-sub' }, '被字数上限挤掉了 · ' + x.cat + ' · ' + x.len + ' 字')
+            ])
+          ])));
+          if (!r.used.length && !r.dropped.length) out.append(SJ.el('div', { class: 'empty' }, '一张都没命中。'));
+        }
+
+        root.append(SJ.el('div', { class: 'pad' }, [
+          input,
+          SJ.el('div', { class: 'row', onclick: () => sheet([{ icon: '🌍', label: '通用视角', hint: '只看通用卡', run: () => { asChar = ''; paint(); } }].concat((SJ.state.characters || []).map(c => ({
+            icon: '🙂', label: c.name,
+            hint: c.wbRead === false ? '他关着世界书，读不到任何卡' : '以他的视角看',
+            run: () => { asChar = c.id; paint(); }
+          }))), SJ.el('div', { class: 'sheet-head' }, '以谁的视角看？')) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '用谁的视角试'),
+              SJ.el('div', { class: 'row-sub' }, '不同角色读到的卡不一样')
+            ]),
+            whoText
+          ]),
+          head
         ]));
+        root.append(out);
+        paint();
       }
 
       homeView();

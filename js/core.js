@@ -149,6 +149,7 @@ const DEFAULTS = {
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
+    wbBudget: 3000,      // 一轮最多注入多少字的世界书；0/非法 = 用默认
     historyKeep: 40,     // 原文最多带最近几条（更早的靠记忆卡片顶上）
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
@@ -417,6 +418,43 @@ function migrate(saved) {
     (Array.isArray(out.stickers) ? out.stickers : []).map(bgOk).filter(Boolean)
   )).slice(-STICKER_MAX);
 
+  /* 世界书：也是导入边界（以前这里根本没归一，一个 {content:123} 就能让提示词里
+     出现 undefined）。老存档存的是 scope + charId 的单归属，这里升级成 charIds 数组
+     —— 一张卡可以同时挂给多个角色，写多个就是共享卡。
+     ⚠️ 下面写死分类字面量，不引用文件后面才声明的 WB_CATS：
+     migrate 是在模块初始化时被 load() 调到的，那时那些 const 还在 TDZ 里。 */
+  const WB_CATS_IN = ['破限', '文风', '人设', '世界观', '剧情', '状态', '其他'];
+  const wbSplit = v => (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，、]/))
+    .map(k => String(k).trim()).filter(Boolean).slice(0, 40);
+  out.worldbook = (Array.isArray(out.worldbook) ? out.worldbook : [])
+    .filter(e => e && typeof e === 'object' && !Array.isArray(e))
+    .slice(0, 500)
+    .map((e, i) => {
+      let ids = (Array.isArray(e.charIds) ? e.charIds : []).map(x => String(x || '')).filter(Boolean);
+      if (!ids.length && e.scope === 'char' && e.charId) ids = [String(e.charId)];
+      ids = ids.filter((x, k) => ids.indexOf(x) === k).slice(0, 50);
+      const cat = String(e.cat || '');
+      const lg = Number(e.logic);
+      const od = Number(e.order);
+      return {
+        id: String(e.id || ('wb-' + i)),   // 老规矩：migrate 里不能用 uid()
+        title: String(e.title || '').trim().slice(0, NAME_MAX) || '未命名',
+        keys: wbSplit(e.keys),
+        keysecondary: wbSplit(e.keysecondary),
+        content: String(e.content || '').slice(0, TEXT_MAX),
+        cat: WB_CATS_IN.indexOf(cat) >= 0 ? cat : '其他',
+        logic: [0, 1, 2, 3].indexOf(lg) >= 0 ? lg : 0,
+        order: isFinite(od) ? od : 100,
+        constant: !!e.constant,
+        enabled: e.enabled !== false,
+        charIds: ids
+      };
+    });
+  /* 世界书预算：卡写多了会把聊天记录整个顶出上下文，给个兜底上限。
+     0 / 负数 / 非数字一律回默认，省得用户误填个 0 就把世界书全关掉。 */
+  const bud = Number(out.settings.wbBudget);
+  out.settings.wbBudget = isFinite(bud) && bud >= 200 ? Math.min(bud, 20000) : 3000;
+
   /* 群聊：成员是角色 id 的集合。角色被删掉的就从群里摘掉 —— 留着会在渲染时找不到人。
      一个都不剩的群没有意义，直接丢掉（但不清 chats，万一以后又能加回来）。 */
   const charIds = {};
@@ -592,6 +630,7 @@ function makeCharacter(patch = {}) {
     id: uid(), name: '新角色', avatar: '🙂', avatarImg: '', color: '#9cb9c2',
     desc: '', persona: '', greeting: '',
     alias: '', relation: '', myRelation: '', allowRelation: false,  // 昵称 / TA认为的关系 / 我认为的关系 / 允许TA自己改
+    wbRead: true, // 读不读世界书。关掉 = 这套设定对他不成立（穿越来的、不知情的角色）
     memUpTo: 0,   // 已经总结到第几条消息
     ts: Date.now()
   }, patch, { name: String(patch.name || '新角色').slice(0, NAME_MAX) });
@@ -895,6 +934,7 @@ function normalizeCharacter(c, i) {
     myRelation: String(c.myRelation || '').slice(0, 60),
     allowRelation: !!c.allowRelation,
     blocked: c.blocked === true,
+    wbRead: c.wbRead !== false,          // 默认读；只有显式 false 才关
     chatBg: avatarSrc(c.chatBg),         // 这个人的聊天背景，空 = 跟全局
     lastTalk: Number(c.lastTalk) || 0,   // 真实时间戳：你们最后一次说话
     proactiveAt: Number(c.proactiveAt) || 0, // 上次主动找你是什么时候（防刷屏）
@@ -1184,32 +1224,101 @@ function chatList() {
    别在 App 里各自拼提示词。
    ══════════════════════════════════════════════════════ */
 
-/* ── 世界书：关键词触发的设定卡 ──
+/* ── 世界书：分门别类的设定卡 ──
    命中就把正文塞进系统提示词，没问到就完全不占 token。
-   constant 的卡永远注入（放「无论聊什么都不能忘」的硬设定）。 */
+   constant（常驻）的卡永远注入 —— 「无论聊什么都不能忘」的硬设定，
+   聊得再偏也不会崩人设。
+
+   分类顺序 = 注入优先级：越靠前的那一类越先被模型读到。
+   「破限」排第一位是有讲究的 —— 它管的是「怎么说话」（别跳出角色、别复述、
+   格式规矩），必须比「说什么」更早读到；人设一崩，后面写什么都没有用。 */
+const WB_CATS = ['破限', '文风', '人设', '世界观', '剧情', '状态', '其他'];
+const WB_CAT_SUB = {
+  '破限': '管「怎么说话」的硬规矩：别跳出角色、别复述、格式怎么摆',
+  '文风': '怎么写：句子长短、第几人称、要不要旁白',
+  '人设': '性格、经历、习惯 —— 补人设字段里没写完的部分',
+  '世界观': '地点、组织、规则、历史：这个世界长什么样',
+  '剧情': '进行到哪了、已经发生过什么、接下来该发生什么',
+  '状态': '要她一直记住的数值、好感度、时间、随身物品',
+  '其他': '没归类的都先放这儿'
+};
 const KEY_MAX = 40;    // 单张卡最多几个关键词
 const MEM_KEEP = 300;  // 单个角色最多留多少条记忆卡片
+/* 一轮注入的世界书字数上限。卡写到几十张，总有一天一条消息同时命中十几张，
+   把聊天记录整个顶出上下文 —— 那时表现是「她突然失忆 + 接口报 400」，
+   是最难查的一类故障。超出的从尾部（优先级最低那头）砍掉，界面上会直说。 */
+const WB_BUDGET_FALLBACK = 3000;
+
+/* 次关键词的四种逻辑，和 SillyTavern 的 world_info_logic 对齐 */
+const WB_LOGIC = ['任一命中', '并非全都命中', '全都没命中', '全都命中'];
+const WB_LOGIC_SUB = [
+  '次关键词里有一个出现就算通过',
+  '次关键词不全出现才算通过',
+  '次关键词一个都没出现才算通过 —— 做「她现在还不知道」这种反向知识',
+  '次关键词全部出现才算通过'
+];
+
+function wbCat(c) {
+  const s = String(c || '');
+  return WB_CATS.indexOf(s) >= 0 ? s : '其他';
+}
+function wbCatIndex(c) { return WB_CATS.indexOf(wbCat(c)); }
+
+/* 关键词体检：挑出「一定会误触发」的词。
+   一个字的词、「我/她/雨」这种人一开口就有的词，等于悄悄把卡变成了常驻，
+   用户自己看不出来 —— 只会在某天发现她说的话莫名其妙。 */
+const WB_NOISY = ['我', '你', '他', '她', '它', '们', '的', '是', '了', '在', '有', '和', '就', '不', '人',
+  '这', '那', '上', '下', '雨', '天', '吃', '走', '看', '说', '想',
+  '一个', '什么', '怎么', '为什么', '今天', '明天', '昨天', '现在', '时候',
+  '可以', '知道', '觉得', '感觉', '然后', '但是', '因为', '所以', '可能', '应该', '真的', '好像',
+  '一起', '过来', '过去', '没事', '有点', '一下', '不是', '还是', '已经', '其实'];
+function keyWarn(k) {
+  const s = String(k || '').trim();
+  if (!s) return '';
+  /* 先判「太常见」再判「只有一个字」：『我』『她』『雨』两头都占，
+     但「你几乎每句话都会提到它」才是用户真正需要知道的那句话。 */
+  if (WB_NOISY.indexOf(s) >= 0) return '「' + s + '」太常见了，几乎每句话都会提到它 —— 基本等于常驻';
+  if (s.length <= 1) return '「' + s + '」只有这一个字，很容易到处都命中';
+  if (s.length > 8) return '「' + s + '」太长了，她很难原样说出这一串';
+  return '';
+}
+/* 一段关键词里所有值得提醒的，拼成一行给界面用；没有就返回空串 */
+function keysWarn(v) {
+  const list = (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，、]/))
+    .map(k => String(k).trim()).filter(Boolean);
+  const out = [];
+  list.forEach(k => { const w = keyWarn(k); if (w) out.push(w); });
+  return out.slice(0, 3).join('；');
+}
 
 function makeEntry(patch = {}) {
   return Object.assign({
-    id: uid(), title: '新设定', keys: [], content: '',
+    id: uid(), title: '新设定', keys: [], keysecondary: [],
+    content: '', cat: '其他', logic: 0,
     order: 100, constant: false, enabled: true,
-    scope: 'global', charId: ''      // global = 通用世界书；char = 个人世界书（只在他自己的聊天里生效）
+    charIds: []     // 空 = 通用（谁都能读到）；有值 = 只有这些角色读得到（写多个就是共享卡）
   }, patch);
 }
 
 function saveEntry(e) {
   e.title = String(e.title || '').trim().slice(0, NAME_MAX) || '未命名';
   // 关键词允许写成一整串（逗号分隔），存的时候统一成数组
-  e.keys = (Array.isArray(e.keys) ? e.keys : String(e.keys || '').split(/[,，、]/))
+  const split = v => (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，、]/))
     .map(k => String(k).trim()).filter(Boolean).slice(0, KEY_MAX);
+  e.keys = split(e.keys);
+  e.keysecondary = split(e.keysecondary);
   e.content = String(e.content || '').slice(0, TEXT_MAX);
   const n = Number(e.order);
   e.order = isFinite(n) ? n : 100;
+  e.cat = wbCat(e.cat);
+  const lg = Number(e.logic);
+  e.logic = [0, 1, 2, 3].indexOf(lg) >= 0 ? lg : 0;
   e.constant = !!e.constant;
   e.enabled = e.enabled !== false;
-  e.scope = e.scope === 'char' ? 'char' : 'global';
-  e.charId = e.scope === 'char' ? String(e.charId || '') : '';
+  /* 归属：同一张卡可以挂给多个角色。去重 + 砍掉空白，
+     已经被删掉的角色 id 故意保留 —— 卡不该因为角色没了就人间蒸发。 */
+  const ids = (Array.isArray(e.charIds) ? e.charIds : []).map(x => String(x || '')).filter(Boolean);
+  e.charIds = ids.filter((x, i) => ids.indexOf(x) === i).slice(0, 50);
   const i = state.worldbook.findIndex(x => x.id === e.id);
   if (i < 0) state.worldbook.push(e); else state.worldbook[i] = e;
   save();
@@ -1221,53 +1330,180 @@ function deleteEntry(id) {
   save();
 }
 
-/* 世界书 App 用的分组：先「通用」，再每个有个人卡的角色。
-   被删掉的角色留下的卡也单独成组，不然它们会悄悄消失、用户找不到。 */
-function wbGroups() {
-  const byChar = {};
-  const globals = [];
-  state.worldbook.forEach(e => {
-    if (e.scope === 'char' && e.charId) (byChar[e.charId] = byChar[e.charId] || []).push(e);
-    else globals.push(e);
-  });
-  const groups = [{ key: 'global', charId: '', label: '通用世界书', sub: '所有角色的聊天里都可能触发', list: globals }];
-  Object.keys(byChar).forEach(cid => {
-    const c = (state.characters || []).find(x => x.id === cid);
-    groups.push({
-      key: cid, charId: cid,
-      label: c ? c.name : '已删除的角色',
-      sub: c ? '只在他/她的聊天里触发' : '角色已经删了，这些卡不会再触发',
-      list: byChar[cid]
-    });
-  });
-  return groups;
+/* 同一个分类里把卡往上/下挪一位。列表顺序就是注入顺序，
+   所以「挪」= 调 order 数值，和 SillyTavern 的 order 语义也还对得上。
+   dir < 0 = 往前（更先被读到 = 优先级更高）。 */
+function moveEntry(id, dir) {
+  const e = state.worldbook.find(x => x.id === id);
+  if (!e) return false;
+  const sibs = wbSorted(state.worldbook.filter(x => wbCat(x.cat) === wbCat(e.cat)));
+  const i = sibs.findIndex(x => x.id === id);
+  const j = i + (dir < 0 ? -1 : 1);
+  if (i < 0 || j < 0 || j >= sibs.length) return false;
+  const other = sibs[j];
+  const a = Number(e.order) || 0, b = Number(other.order) || 0;
+  if (a === b) e.order = b + (dir < 0 ? -1 : 1);   // 撞号了：错开一格，否则永远换不动
+  else { e.order = b; other.order = a; }
+  save();
+  return true;
 }
 
-/* 优先级高的排前面（列表只是给人看的；注入顺序另说，见 activeEntries） */
-function wbSorted(list) {
-  return (list || []).slice().sort((a, b) => (Number(b.order) || 0) - (Number(a.order) || 0));
+/* 世界书页的分组。默认按「分类」分（分类顺序就是注入优先级），
+   切到「角色」视角时改成按角色分 —— 那是「他到底读得到哪几张」的看法。
+   角色被删掉后留下的卡仍然单独成组，不然它们会悄悄消失、用户再也找不到。 */
+function wbGroups(opts) {
+  const o = opts || {};
+  const q = String(o.q || '').trim().toLowerCase();
+  const filter = o.filter === 'global' || o.filter === 'char' ? o.filter : 'all';
+  const onlyChar = String(o.charId || '');
+
+  let list = state.worldbook.slice();
+  if (filter === 'global') {
+    list = list.filter(e => !(e.charIds || []).length);
+  } else if (filter === 'char') {
+    /* 留下「他名下的」和「通用的」两类：从角色页点进来时，通用卡也是他真的读得到的，
+       漏掉它们，这个页面就变成了「他只读到一半」。 */
+    list = list.filter(e => {
+      const own = (e.charIds || []).map(String);
+      if (!own.length) return true;
+      return !onlyChar || own.indexOf(onlyChar) >= 0;
+    });
+  }
+  if (o.onlyConst === true) list = list.filter(e => e.constant);
+  if (q) {
+    list = list.filter(e =>
+      String(e.title || '').toLowerCase().includes(q) ||
+      String(e.content || '').toLowerCase().includes(q) ||
+      (e.keys || []).some(k => String(k).toLowerCase().includes(q)) ||
+      (e.keysecondary || []).some(k => String(k).toLowerCase().includes(q)));
+  }
+
+  if (filter === 'char') {
+    /* 一张共享卡会同时出现在几个角色底下，这是对的：想看的本来就是「他能读到什么」。 */
+    const uni = list.filter(e => !(e.charIds || []).length);
+    const owned = list.filter(e => (e.charIds || []).length);
+    const ids = [];
+    owned.forEach(e => (e.charIds || []).forEach(cid => { if (ids.indexOf(cid) < 0) ids.push(cid); }));
+    const known = (state.characters || []).map(c => c.id);
+    const rank = cid => { const i = known.indexOf(cid); return i < 0 ? 9999 : i; };
+    ids.sort((a, b) => rank(a) - rank(b));
+    const groups = ids.map(cid => {
+      const c = (state.characters || []).find(x => x.id === cid);
+      return {
+        key: cid, kind: 'char', charId: cid,
+        label: c ? c.name : '已删除的角色',
+        sub: c
+          ? (c.wbRead === false ? '他关掉了「读世界书」，这些卡现在不会生效' : '他能读到的设定')
+          : '角色已经删了，这些卡不会再触发',
+        list: wbSorted(owned.filter(e => (e.charIds || []).map(String).indexOf(cid) >= 0))
+      };
+    });
+    /* 通用卡单独收一组放在最后：它不是「谁的」，但人人都读得到 */
+    if (uni.length) groups.push({
+      key: 'uni', kind: 'uni',
+      label: onlyChar ? '通用（他也读得到）' : '通用',
+      sub: '所有角色都读得到',
+      list: wbSorted(uni)
+    });
+    return groups;
+  }
+
+  const byCat = {};
+  list.forEach(e => { const c = wbCat(e.cat); (byCat[c] = byCat[c] || []).push(e); });
+  return WB_CATS.filter(c => byCat[c] && byCat[c].length).map(c => ({
+    key: 'cat:' + c, kind: 'cat', cat: c,
+    label: c, sub: WB_CAT_SUB[c] || '',
+    list: wbSorted(byCat[c])
+  }));
 }
-/* 命中的卡，按 order 从小到大（= 优先级从低到高）。history 永远传「全部消息」——
-   裁剪只发生在真正发给模型的那一段（见 askCharacter），否则刚滚出窗口的关键词就永远触发不了。
-   char 用于过滤「个人世界书」：scope==='char' 的卡只在这个角色的聊天里参与。 */
-function activeEntries(history, char) {
-  if (state.settings.wbOn === false) return [];
+
+/* 列表顺序 = 注入顺序 = 优先级：越靠前越先被读到。
+   所以这里是「从小到大」，和 activeEntries 保持一致 ——
+   列表长什么样，她读到的就是什么样，不让用户自己猜。 */
+function wbSorted(list) {
+  return (list || []).slice().sort((a, b) => {
+    const d = (Number(a.order) || 0) - (Number(b.order) || 0);
+    return d !== 0 ? d : String(a.id).localeCompare(String(b.id));
+  });
+}
+
+/* 次关键词：和主关键词配合，做「提到了 A，而且没有提 B」这种条件。
+   四种逻辑跟 SillyTavern 的 world_info_logic 一致。没填次关键词就直接通过。 */
+function matchSecondary(e, text) {
+  const sec = (e.keysecondary || []).map(k => String(k).trim().toLowerCase()).filter(Boolean);
+  if (!sec.length) return true;
+  const hit = sec.map(k => text.includes(k));
+  switch (Number(e.logic) || 0) {
+    case 3: return hit.every(Boolean);    // 全都命中
+    case 1: return !hit.every(Boolean);   // 并非全都命中
+    case 2: return !hit.some(Boolean);    // 全都没命中
+    default: return hit.some(Boolean);    // 任一命中
+  }
+}
+
+/* 这一轮到底会读到哪些卡 —— 返回 {used, dropped, cap, chars}。
+   分出 used/dropped 是为了能在界面上直说「还有 N 张被预算挤掉了」；
+   静默截断比超预算更危险：用户会以为「我明明写了」。 */
+function wbResolve(history, char) {
+  const cap = Math.max(200, Number(state.settings.wbBudget) || WB_BUDGET_FALLBACK);
+  const out = { used: [], dropped: [], cap: cap, chars: 0 };
+  if (state.settings.wbOn === false) return out;
+
   const depth = Math.max(1, Number(state.settings.scanDepth) || 4);
   const text = (history || []).slice(-depth)
     .map(m => String((m && m.text) || '')).join('\n').toLowerCase();
-  /* char 可以是：null / 角色对象 / 角色 id / 它们组成的数组。
-     群聊要把每个成员的个人卡都算上，所以得能一次传一组；
-     传 null 或空数组时个人卡一律不参与（不会串台）。 */
-  const cids = (Array.isArray(char) ? char : [char])
-    .map(c => String((c && c.id) || c || '')).filter(Boolean);
-  return state.worldbook
-    .filter(e => {
-      if (e.enabled === false) return false;
-      if (e.scope === 'char' && cids.indexOf(String(e.charId || '')) < 0) return false;
-      return e.constant || (e.keys || []).some(k => k && text.includes(String(k).toLowerCase()));
-    })
-    .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+  /* 谁在场。数组 = 群聊，要一次算上每个成员的个人卡；
+     null / 空 = 没传角色（生成店名那种），只看通用卡。 */
+  const raw = (Array.isArray(char) ? char : [char]).filter(Boolean);
+  const ids = raw.map(c => String((c && c.id) || c || '')).filter(Boolean);
+  /* 角色级「读不读世界书」：关掉的人当它不在场 —— 穿越来的、不知情的角色用这个。
+     在场的人全都关掉了，那通用卡也不注入，因为这才是那个开关的意思。
+     ⚠️ 只有对象上「真的带了」wbRead 才算数：群聊传进来的是 {id} 这种壳子，
+     把它当成「没关」会把角色自己的设置整个盖掉（这个坑被自检抓到过一次）。 */
+  const own = {};
+  raw.forEach(c => {
+    if (c && typeof c === 'object' && c.id && c.wbRead !== undefined) own[String(c.id)] = c.wbRead === false;
+  });
+  const readers = ids.filter(id => {
+    if (Object.prototype.hasOwnProperty.call(own, id)) return !own[id];
+    const c = (state.characters || []).find(x => x.id === id);
+    return !(c && c.wbRead === false);
+  });
+  if (ids.length && !readers.length) return out;
+
+  const hit = state.worldbook.filter(e => {
+    if (e.enabled === false) return false;
+    const owners = (e.charIds || []).map(String);
+    if (owners.length) {
+      if (!readers.length) return false;                    // 没传角色，个人卡一律不参与（不串台）
+      if (!owners.some(o => readers.indexOf(o) >= 0)) return false;
+    }
+    if (e.constant) return true;                            // 常驻卡不看向量关键词
+    if (!(e.keys || []).some(k => k && text.includes(String(k).toLowerCase()))) return false;
+    return matchSecondary(e, text);
+  });
+
+  hit.sort((a, b) => {
+    const d = wbCatIndex(a.cat) - wbCatIndex(b.cat);
+    if (d !== 0) return d;
+    const o = (Number(a.order) || 0) - (Number(b.order) || 0);
+    return o !== 0 ? o : String(a.id).localeCompare(String(b.id));
+  });
+
+  hit.forEach(e => {
+    const n = String(e.content || '').length;
+    if (out.chars + n > cap && out.used.length) { out.dropped.push(e); return; }
+    out.chars += n;
+    out.used.push(e);
+  });
+  return out;
 }
+
+/* 命中的卡，按「分类顺序 → 类内顺序」= 注入顺序。
+   history 永远传「全部消息」—— 裁剪只发生在真正发给模型的那一段（见 askCharacter），
+   否则刚滚出窗口的关键词就永远触发不了了。 */
+function activeEntries(history, char) { return wbResolve(history, char).used; }
 
 /* 世界书的注入块 —— 所有「以角色身份开口」和「生成这个世界里的东西」的地方都走它。
    以前只有 buildSystem 会拼这一块，后果是：聊天里她认得的地方，
@@ -1280,6 +1516,18 @@ function wbBlock(history, char) {
   const body = wb.map(e => String(e.content || '').trim()).filter(Boolean).join('\n');
   if (!body) return '';
   return '# 世界设定（以下是已经成立的事实，直接当真，别否认、别当新鲜事说出来）\n' + body + '\n';
+}
+
+/* 预览：拿一段话（或一段真实聊天）试一下，看按什么顺序读到哪几张。
+   两个地方用它：世界书页的「拿一句话试试」，聊天里的「她现在读到哪几张」。 */
+function wbPreview(history, char) {
+  const r = wbResolve(history, char);
+  const brief = e => ({
+    id: e.id, title: e.title, cat: wbCat(e.cat),
+    constant: !!e.constant, len: String(e.content || '').length
+  });
+  /* len 是「多少个字」，别叫 chars —— 这个 App 里「角色」太常见了，一读就串 */
+  return { cap: r.cap, len: r.chars, used: r.used.map(brief), dropped: r.dropped.map(brief) };
 }
 
 /* ── 记忆卡片：聊过的内容蒸馏成短句，比原文省 token，也活得更久 ── */
@@ -3237,6 +3485,8 @@ window.SJ = {
   voiceOn, hasSpeech, voiceOf, redpacketOf, stripMarks, voiceDur, voiceList, speak, stopSpeak, putBlob,
   /* 世界书 / 记忆 / 日历 */
   makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
+  moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
+  WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,

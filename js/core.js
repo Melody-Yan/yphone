@@ -1446,14 +1446,17 @@ function deleteEntry(id) {
 function moveEntry(id, dir) {
   const e = state.worldbook.find(x => x.id === id);
   if (!e) return false;
+  /* 兄弟按「分类」算，跟列表里看到的分组一致 */
   const sibs = wbSorted(state.worldbook.filter(x => wbCat(x.cat) === wbCat(e.cat)));
-  const i = sibs.findIndex(x => x.id === id);
-  const j = i + (dir < 0 ? -1 : 1);
-  if (i < 0 || j < 0 || j >= sibs.length) return false;
-  const other = sibs[j];
-  const a = Number(e.order) || 0, b = Number(other.order) || 0;
-  if (a === b) e.order = b + (dir < 0 ? -1 : 1);   // 撞号了：错开一格，否则永远换不动
-  else { e.order = b; other.order = a; }
+  const a = sibs.findIndex(x => x.id === id);
+  const b = a + (dir < 0 ? -1 : 1);
+  if (a < 0 || b < 0 || b >= sibs.length) return false;
+  /* 真的交换两边的 order —— 「取中间值」在 100 和 200 之间会取到 140，
+     排完先后没变，用起来就像 ↑↓ 坏了。 */
+  const oa = Number(sibs[a].order) || 100;
+  const ob = Number(sibs[b].order) || 100;
+  sibs[a].order = ob;
+  sibs[b].order = oa === ob ? oa + (dir < 0 ? 1 : -1) : oa;
   save();
   return true;
 }

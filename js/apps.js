@@ -3375,8 +3375,9 @@ const APPS = [
           /* 书架是一块，下面这些是另一块 —— 拉开距离，别糊在一起 */
             listBox.append(SJ.el('div', { class: 'wb-sep' }));
             listBox.append(SJ.el('div', { class: 'group-title' }, '世界书设置'));
-          listBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
-          listBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
+          const setBox = SJ.el('div', { class: 'wb-set' });
+          setBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
+          setBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
           /* 导入的文件选择器。display:none 也能 .click() 唤起，
              但 iOS Safari 要求它得在文档里 —— 所以挂在这里而不是创建完就丢。 */
           const fileInp = SJ.el('input', {
@@ -3385,7 +3386,7 @@ const APPS = [
           });
           fileInp.addEventListener('change', () => readFiles(fileInp));
 
-          listBox.append(SJ.el('div', { class: 'pad' }, [
+          setBox.append(SJ.el('div', { class: 'pad' }, [
             SJ.el('div', { class: 'row', onclick: previewView }, [
               SJ.el('div', { class: 'row-main' }, [
                 SJ.el('div', { class: 'row-title' }, '关键词预览'),
@@ -3411,6 +3412,7 @@ const APPS = [
             ]),
             fileInp
           ]));
+          listBox.append(setBox);
         }
       }
 
@@ -3505,6 +3507,18 @@ const APPS = [
       }
 
       /* 一张词条卡。名字沿用 .row / .row-title —— 老断言和「按行找卡」的习惯都靠它。 */
+      /* 优先级：三档，点了直接改直接存。类型管「这是什么卡」，优先级管「先读哪张」。 */
+      function pickPri(e) {
+        const cur = SJ.wbPriOf(e.order);
+        const set = (order, say) => { e.order = order; SJ.saveEntry(e); toast('优先级改成「' + say + '」'); paintBook(); };
+        window.popover([
+          { svg: 'pin', label: '高', hint: cur === 'high' ? '当前 · 优先读' : '最先塞给她看', run: () => set(50, '高') },
+          { svg: 'note', label: '中', hint: cur === 'medium' ? '当前 · 正常' : '按顺序读', run: () => set(100, '中') },
+          { svg: 'note', label: '低', hint: cur === 'low' ? '当前 · 排后面' : '最后才轮到', run: () => set(200, '低') }
+        ], { head: '优先级', at: 'top' });
+      }
+
+
       function entryCard(e, total) {
         const card = SJ.el('div', { class: 'row wb-ecard' });
         const body = SJ.el('div', { class: 'wb-ec-body' }, e.content || '（没写内容）');
@@ -3516,11 +3530,14 @@ const APPS = [
             more.textContent = open ? '收起' : '展开全文';
           }
         }, '展开全文');
-        const openIt = () => { editBook = SJ.wbBook(e); entryView(e); };
+        const openIt = () => { editBook = SJ.wbBook(e); entryView(e.id); };
 
         card.append(SJ.el('div', { class: 'wb-ec-top', onclick: openIt }, [
           SJ.el('div', { class: 'row-main', onclick: openIt }, [SJ.el('div', { class: 'row-title' }, e.title)]),
-          SJ.el('span', { class: 'wb-tag pri' }, '优先级 ' + SJ.wbPriLabel(e.order)),
+          SJ.el('button', {
+            class: 'wb-tag pri pick',
+            onclick: ev => { ev.stopPropagation(); pickPri(e); }
+          }, '优先级 ' + SJ.wbPriLabel(e.order) + ' \u25be'),
           e.constant ? SJ.el('span', { class: 'wb-tag' }, '常驻') : null,
           SJ.el('span', { class: 'wb-ec-mv' }, [
             SJ.el('button', { class: 'row-x mv', onclick: ev => { ev.stopPropagation(); SJ.moveEntry(e.id, -1); paintBook(); } }, '↑'),

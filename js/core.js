@@ -92,6 +92,10 @@ const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
    migrate 里的 e.title.slice(0, NAME_MAX) 就抛 ReferenceError，
    被 load() 的 catch 吃掉 → 整台手机看起来像被清空（角色、聊天、备忘录全没了）。 */
 const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
+/* 世界书卡自己的上限，比 TEXT_MAX 宽得多：一张卡就是一整节设定，
+   导一份进来就被静默砍到 4000 字是不能接受的。
+   （聊天消息、人设那些还是 4000，那边的上限是为了提示词不爆，不是同一回事。） */
+const WB_TEXT_MAX = 20000;
 /* 自己上传的壁纸最多几张。一张 1280px 的 JPEG 转成 data URI 大约 300KB，
    localStorage 一共就 5MB 左右，再往上存就要开始丢东西了。 */
 const WALL_IMG_MAX = 6;
@@ -149,7 +153,6 @@ const DEFAULTS = {
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
-    wbBudget: 3000,      // 一轮最多注入多少字的世界书；0/非法 = 用默认
     historyKeep: 40,     // 原文最多带最近几条（更早的靠记忆卡片顶上）
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
@@ -441,7 +444,7 @@ function migrate(saved) {
         title: String(e.title || '').trim().slice(0, NAME_MAX) || '未命名',
         keys: wbSplit(e.keys),
         keysecondary: wbSplit(e.keysecondary),
-        content: String(e.content || '').slice(0, TEXT_MAX),
+        content: String(e.content || '').slice(0, WB_TEXT_MAX),
         cat: WB_CATS_IN.indexOf(cat) >= 0 ? cat : '其他',
         logic: [0, 1, 2, 3].indexOf(lg) >= 0 ? lg : 0,
         order: isFinite(od) ? od : 100,
@@ -450,10 +453,6 @@ function migrate(saved) {
         charIds: ids
       };
     });
-  /* 世界书预算：卡写多了会把聊天记录整个顶出上下文，给个兜底上限。
-     0 / 负数 / 非数字一律回默认，省得用户误填个 0 就把世界书全关掉。 */
-  const bud = Number(out.settings.wbBudget);
-  out.settings.wbBudget = isFinite(bud) && bud >= 200 ? Math.min(bud, 20000) : 3000;
 
   /* 群聊：成员是角色 id 的集合。角色被删掉的就从群里摘掉 —— 留着会在渲染时找不到人。
      一个都不剩的群没有意义，直接丢掉（但不清 chats，万一以后又能加回来）。 */
@@ -1247,7 +1246,6 @@ const MEM_KEEP = 300;  // 单个角色最多留多少条记忆卡片
 /* 一轮注入的世界书字数上限。卡写到几十张，总有一天一条消息同时命中十几张，
    把聊天记录整个顶出上下文 —— 那时表现是「她突然失忆 + 接口报 400」，
    是最难查的一类故障。超出的从尾部（优先级最低那头）砍掉，界面上会直说。 */
-const WB_BUDGET_FALLBACK = 3000;
 
 /* 次关键词的四种逻辑，和 SillyTavern 的 world_info_logic 对齐 */
 const WB_LOGIC = ['任一命中', '并非全都命中', '全都没命中', '全都命中'];
@@ -1307,7 +1305,7 @@ function saveEntry(e) {
     .map(k => String(k).trim()).filter(Boolean).slice(0, KEY_MAX);
   e.keys = split(e.keys);
   e.keysecondary = split(e.keysecondary);
-  e.content = String(e.content || '').slice(0, TEXT_MAX);
+  e.content = String(e.content || '').slice(0, WB_TEXT_MAX);
   const n = Number(e.order);
   e.order = isFinite(n) ? n : 100;
   e.cat = wbCat(e.cat);
@@ -1441,12 +1439,10 @@ function matchSecondary(e, text) {
   }
 }
 
-/* 这一轮到底会读到哪些卡 —— 返回 {used, dropped, cap, chars}。
-   分出 used/dropped 是为了能在界面上直说「还有 N 张被预算挤掉了」；
-   静默截断比超预算更危险：用户会以为「我明明写了」。 */
+/* 这一轮到底会读到哪些卡 —— 返回 {used, chars}。
+   不再截断：你写的设定就应该全部到达，不能因为拼不下就静默丢掉。 */
 function wbResolve(history, char) {
-  const cap = Math.max(200, Number(state.settings.wbBudget) || WB_BUDGET_FALLBACK);
-  const out = { used: [], dropped: [], cap: cap, chars: 0 };
+  const out = { used: [], chars: 0 };
   if (state.settings.wbOn === false) return out;
 
   const depth = Math.max(1, Number(state.settings.scanDepth) || 4);
@@ -1492,9 +1488,7 @@ function wbResolve(history, char) {
   });
 
   hit.forEach(e => {
-    const n = String(e.content || '').length;
-    if (out.chars + n > cap && out.used.length) { out.dropped.push(e); return; }
-    out.chars += n;
+    out.chars += String(e.content || '').length;
     out.used.push(e);
   });
   return out;
@@ -1527,7 +1521,159 @@ function wbPreview(history, char) {
     constant: !!e.constant, len: String(e.content || '').length
   });
   /* len 是「多少个字」，别叫 chars —— 这个 App 里「角色」太常见了，一读就串 */
-  return { cap: r.cap, len: r.chars, used: r.used.map(brief), dropped: r.dropped.map(brief) };
+  return { len: r.chars, used: r.used.map(brief) };
+}
+
+/* ── 导入：把一份文件切成世界书卡 ──
+   目标不是「解析某种格式」，而是「把你手里那份看得懂的东西切成人能用的卡」。
+   两种切法：
+     coarse（按段）—— 空行分段，一段一张。适合「一章一节」的稿子。
+     fine（按条）  —— 段落里以 1. / * / - 开头的每条各切一张。适合清单式的破限规则。
+   一个文件只切出一张时，标题用文件名（文件就是那张卡，名字比正文第一行准）——
+   这件事由调用方做，这里只管内容。 */
+const WB_LIST_MARK = /^\s*(?:\d+[.、)]|[*\-•])\s+/;
+
+/* 从一行里挑个能当标题的东西出来 */
+function wbTitleFrom(line) {
+  const s0 = String(line || '').trim();
+  /* * [非重复性原则]：… → 非重复性原则 */
+  const named = s0.match(/^[*\-•]?\s*[[【]([^\]】]{2,24})[\]】]/);
+  if (named) return named[1].trim();
+  let t = s0.replace(WB_LIST_MARK, '');
+  t = t.replace(/^[[【]?["'“”「」\s]+/, '').replace(/["'“”「」\]】\s]+$/, '');
+  const c = t.search(/[:：]/);
+  if (c >= 2 && c <= 24) t = t.slice(0, c);
+  return t.trim().slice(0, 24).trim();
+}
+
+/* 文件名 → 默认标题：去掉扩展名和尾巴上的 byXXX */
+function wbTitleFromFile(name) {
+  let t = String(name || '').replace(/\.[a-z0-9]+$/i, '');
+  t = t.replace(/[\s_-]*by[\s_-]*[^\s_-]+$/i, '');
+  return t.trim().slice(0, 24).trim() || '导入的设定';
+}
+
+/* 把一份纯文本切成 [{title, content}]。纯函数，好测。 */
+function wbSections(text, mode) {
+  const lines = String(text == null ? '' : text)
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(l => l.replace(/\s+$/, ''));
+
+  const blocks = [];
+  let cur = [];
+  const flush = () => { if (cur.some(l => l.trim())) blocks.push(cur); cur = []; };
+  lines.forEach(l => { if (l.trim()) cur.push(l); else flush(); });
+  flush();
+
+  const secs = [];
+  blocks.forEach(b => {
+    const marks = [];
+    b.forEach((l, i) => { if (WB_LIST_MARK.test(l)) marks.push(i); });
+    if (mode === 'fine' && marks.length >= 2) {
+      if (marks[0] > 0) secs.push(b.slice(0, marks[0]));      // 前面的说明/标题自己成一张
+      marks.forEach((m, k) => secs.push(b.slice(m, k + 1 < marks.length ? marks[k + 1] : b.length)));
+    } else {
+      secs.push(b);
+    }
+  });
+
+  return secs.map(sec => ({
+    title: wbTitleFrom(sec.find(l => l.trim()) || ''),
+    content: sec.join('\n').trim()
+  })).filter(x => x.content);
+}
+
+/* 导入时猜一下归哪一类 —— 只猜一次，下一步就是让人改。
+   命中「指令味」的词就是破限，命中「人物味」的词就是人设，都不像就丢到「其他」。
+   猜错了代价只有一下，不值得弄得很神。 */
+function wbGuessCat(text) {
+  const t = String(text || '');
+  const count = re => (t.match(re) || []).length;
+  const bans = count(/禁止|不许|不要|不得|必须|严禁|避免|切勿|规则|原则|never|must|avoid|do not|forbid/gi);
+  const who = count(/性格|人设|角色|口头禅|说话方式|personality|character|她|他/gi);
+  if (bans >= 2 && bans >= who) return '破限';
+  if (who >= 3) return '人设';
+  return '其他';
+}
+
+/* .docx 里的正文是一串 <w:p>，属于「顺手就能挖出来」的那种。
+   ⚠️ 第一步必须先干掉「标签之间的排版空白」：有的写出工具会把 XML 缩进换行，
+   不处理的话每个 <w:p> 前面都多一个换行，段落结构整个被切碎。
+   （只吃「两个标签之间纯空白」那一种，不动 <w:t> 里的正文。） */
+function xmlToText(xml) {
+  return String(xml || '')
+    .replace(/>\s+</g, '><')
+    .replace(/<w:p\b[^>]*\/>/g, '\n')      // 空段落 <w:p/> 是一条换行
+    .replace(/<w:tab\b[^>]*\/?>/g, '\t')
+    .replace(/<w:br\b[^>]*\/?>/g, '\n')
+    .replace(/<\/w:p>/g, '\n')
+    .replace(/<\/w:tr>/g, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+/* 浏览器自带的解压。老 Safari / 没有它，或者数据不是真 deflate，都返回 null，
+   让调用方去说「这份 .docx 拆不开，另存成 .txt 再试」。 */
+async function inflateRaw(data) {
+  if (typeof DecompressionStream !== 'function' || typeof Response !== 'function') return null;
+  try {
+    const stream = new Response(data).body.pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(stream).text();
+  } catch (e) { return null; }
+}
+
+/* .docx = 一个 zip，正文在 word/document.xml。
+   没有第三方库，所以手写一个「只读一个文件」的最小 zip 解析。
+   读不懂就返回 null —— 不要猜，也不要把一堆二进制当正文导进去。 */
+async function docxText(buf) {
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  /* 从尾巴往前找 EOCD（0x06054b50）—— zip 后面可能还挂着一截注释 */
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  for (let n = 0; n < count; n++) {
+    if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) return null;
+    const method = dv.getUint16(p + 10, true);
+    const csize = dv.getUint32(p + 20, true);
+    const fnLen = dv.getUint16(p + 28, true);
+    const exLen = dv.getUint16(p + 30, true);
+    const cmLen = dv.getUint16(p + 32, true);
+    const lho = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + fnLen));
+    if (/^word\/document\.xml$/i.test(name)) {
+      const lfn = dv.getUint16(lho + 26, true);
+      const lex = dv.getUint16(lho + 28, true);
+      const start = lho + 30 + lfn + lex;
+      const data = u8.subarray(start, start + csize);
+      if (method === 0) return xmlToText(new TextDecoder().decode(data));
+      if (method !== 8) return null;
+      const xml = await inflateRaw(data);
+      return xml == null ? null : xmlToText(xml);
+    }
+    p += 46 + fnLen + exLen + cmLen;
+  }
+  return null;
+}
+
+/* 中文 .txt 很多是 GBK（Windows 记事本的默认）。先按 UTF-8 严格试，
+   试不过再按 GBK 试 —— 不能因为编码猜错就把一整份设定导成乱码。 */
+function decodeText(buf) {
+  const u8 = new Uint8Array(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); }
+  catch (e) {
+    try { return new TextDecoder('gbk').decode(u8); }
+    catch (e2) { return new TextDecoder().decode(u8); }
+  }
 }
 
 /* ── 记忆卡片：聊过的内容蒸馏成短句，比原文省 token，也活得更久 ── */
@@ -3486,6 +3632,8 @@ window.SJ = {
   /* 世界书 / 记忆 / 日历 */
   makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
   moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
+  wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, docxText, decodeText, xmlToText,
+  WB_TEXT_MAX,
   WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,
   memories, addMemory, deleteMemory, clearMemories,
   summarize, memorizeNow, autoMemorize,

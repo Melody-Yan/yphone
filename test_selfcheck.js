@@ -160,7 +160,10 @@ function makeSandbox() {
       setItem: (k, v) => store.set(k, String(v)),
       removeItem: k => store.delete(k)
     },
-    document: body
+    document: body,
+    /* core.js 里 decodeText / docxText 用的是浏览器自带件。node 24 全都有，
+       给沙箱补上，导入那一套才能在自检里真的跑一遍解压。 */
+    TextDecoder, TextEncoder, Response, DecompressionStream
   };
   s.window = s; s.globalThis = s;
   return s;
@@ -1643,32 +1646,169 @@ ok('群里所有人都关了世界书 → 一张卡都不注入', (() => {
   return !grp.includes('这台手机里住着一个人。') && !grp.includes('永远不要以 AI 的身份说话。');
 })(), '');
 
-/* ── 预算上限：超了从尾部砍 ── */
-const withBudget = (cap, body) => {
-  const keepWb = wb.state.worldbook, keepBud = wb.state.settings.wbBudget, keepQ = wb.state.settings.wbOn;
-  wb.state.worldbook = []; wb.state.settings.wbBudget = cap; wb.state.settings.wbOn = true;
-  ['PA', 'PB', 'PC', 'PD'].forEach((t, i) => mk({
-    title: t, content: t.toLowerCase().repeat(30), cat: '剧情', constant: true, order: i + 1
+/* ── 没有字数上限：说了「取消上限」，就要真的不砍 ── */
+const withBigBook = (n, len, body) => {
+  const keep = wb.state.worldbook, keepBud = wb.state.settings.wbBudget;
+  /* 直接塞 state，不走 saveEntry —— 否则 6 万字全进 localStorage，后面 boot() 还得再读一遍 */
+  wb.state.worldbook = [];
+  for (let i = 0; i < n; i++) wb.state.worldbook.push(wb.makeEntry({
+    title: 'B' + i, content: 'x'.repeat(len), cat: '剧情', constant: true, order: i + 1
   }));
   const r = body();
-  wb.state.worldbook = keepWb; wb.state.settings.wbBudget = keepBud; wb.state.settings.wbOn = keepQ;
+  wb.state.worldbook = keep;
+  if (keepBud === undefined) delete wb.state.settings.wbBudget; else wb.state.settings.wbBudget = keepBud;
   return r;
 };
-ok('预算满了就从尾部（优先级最低那头）砍',
-  withBudget(200, () => {
+ok('世界书不再有字数上限：6 万字也全给',
+  withBigBook(20, 3000, () => {
     const r = wb.wbResolve([], null);
-    return r.used.map(e => e.title).join(',') === 'PA,PB,PC' && r.dropped.map(e => e.title).join(',') === 'PD';
+    return r.used.length === 20 && r.chars === 60000;
   }), '');
-ok('预算按字数算，不是按张数', withBudget(200, () => wb.wbResolve([], null).chars === 180), '');
-ok('被砍掉的那张会在预览里说出来',
-  withBudget(200, () => {
+ok('大书全注入时顺序照旧（分类 → 类内 order）',
+  withBigBook(20, 3000, () => wb.wbResolve([], null).used.map(e => e.title).join(',')
+    === Array.from({ length: 20 }, (_, i) => 'B' + i).join(',')), '');
+ok('wbPreview 里再没有「上限 / 被挤掉」这两个字段',
+  withBigBook(3, 3000, () => {
     const p = wb.wbPreview([], null);
-    return p.dropped.length === 1 && p.dropped[0].title === 'PD' && p.cap === 200;  }), '');
-ok('砍也不能砍成一张不剩（第一张永远留下）',
-  withBudget(200, () => {
-    wb.state.worldbook.forEach(e => { e.content = 'x'.repeat(5000); wb.saveEntry(e); });
-    return wb.wbResolve([], null).used.length === 1;
+    return p.cap === undefined && p.dropped === undefined && p.len === 9000;
   }), '');
+ok('老存档带下来的 wbBudget 也砍不动卡（上限是真删了，不是换了个默认值）',
+  withBigBook(3, 3000, () => {
+    wb.state.settings.wbBudget = 200;
+    const n = wb.wbResolve([], null).used.length;
+    delete wb.state.settings.wbBudget;
+    return n === 3;
+  }), '');
+
+/* ── 从文件导入：切分 / 取标题 / 猜归类 / 真的解一份 zip ── */
+{
+  /* 样例和用户那份参考文件同构 —— 参考文件在 .gitignore 里，自检不能依赖磁盘 */
+  const S_DOC = [
+    '[""High EQ Romantic Partner Setting"]',
+    'The character is warm and doting.',
+    '',
+    '1. Deciphering Irony: never misunderstand.',
+    '2. Doting Response: pat the head.',
+    '3. Offering an Out: give a graceful exit.',
+    '',
+    'Speech Style: High-Level Sweet Talk】',
+    '1. Daily Sweet Words: compliments.',
+    '2. Exclusive Nicknames: only for us.'
+  ].join('\n');
+  const S_RULES = [
+    '请你严格遵守以下两个核心对话原则：',
+    ' * [非重复性原则]：不要重复上一句，必须提供新信息。',
+    ' * [话题跟随原则]：跟着用户的话题走。'
+  ].join('\n');
+
+  const c1 = wb.wbSections(S_DOC, 'coarse');
+  ok('按段落切：三个小节就是三张', c1.length === 3, JSON.stringify(c1.map(x => x.title)));
+  ok('标题剥掉方括号和引号，太长就截断', c1[0].title === 'High EQ Romantic Partner', c1[0].title);
+  ok('标题在冒号处截断（1. Deciphering Irony: … → Deciphering Irony）',
+    c1[1].title === 'Deciphering Irony', c1[1].title);
+  ok('带「】」的标题也认得', c1[2].title === 'Speech Style', c1[2].title);
+  ok('切出来的正文是原文，一行没丢',
+    c1[1].content.split('\n').length === 3 && c1[1].content.includes('3. Offering an Out'),
+    JSON.stringify(c1[1].content));
+
+  const f1 = wb.wbSections(S_DOC, 'fine');
+  ok('按每一条切：条目拆开，条目前的说明自己一张', f1.length === 7, JSON.stringify(f1.map(x => x.title)));
+  ok('拆出来的条目用条目名当标题',
+    f1[1].title === 'Deciphering Irony' && f1[5].title === 'Daily Sweet Words',
+    JSON.stringify(f1.map(x => x.title)));
+
+  ok('整段说明式的破限，按段落切就是一张', wb.wbSections(S_RULES, 'coarse').length === 1, '');
+  const f2 = wb.wbSections(S_RULES, 'fine');
+  ok('带 [原则名] 的清单，每个原则各一张', f2.length === 3, JSON.stringify(f2.map(x => x.title)));
+  ok('方括号里的名字直接当标题',
+    f2[1].title === '非重复性原则' && f2[2].title === '话题跟随原则', JSON.stringify(f2.map(x => x.title)));
+
+  ok('文件里只有一张卡时，标题用文件名（去掉扩展名和尾巴上的 byXXX）',
+    wb.wbTitleFromFile('避免聊天多次重复同一话题by黑色.txt') === '避免聊天多次重复同一话题',
+    wb.wbTitleFromFile('避免聊天多次重复同一话题by黑色.txt'));
+  ok('中文文件名照旧吃得下',
+    wb.wbTitleFromFile('char成为高情商引导型恋人by少女骨.docx') === 'char成为高情商引导型恋人',
+    wb.wbTitleFromFile('char成为高情商引导型恋人by少女骨.docx'));
+
+  ok('猜归类：清单式的禁令 → 破限',
+    wb.wbGuessCat('禁止重复上一句。不要复述。必须遵守规则。') === '破限',
+    wb.wbGuessCat('禁止重复上一句。不要复述。必须遵守规则。'));
+  ok('猜归类：人物描写 → 人设',
+    wb.wbGuessCat('她性格温柔，说话方式很软，口头禅是「好呀」，这个角色的语气要稳。') === '人设',
+    wb.wbGuessCat('她性格温柔，说话方式很软，口头禅是「好呀」，这个角色的语气要稳。'));
+  ok('猜归类：什么都不像 → 其他', wb.wbGuessCat('苹果 香蕉 橘子') === '其他', wb.wbGuessCat('苹果 香蕉 橘子'));
+
+  ok('空文件切不出东西，也不炸',
+    wb.wbSections('', 'coarse').length === 0 && wb.wbSections(null, 'fine').length === 0 &&
+    wb.wbSections('\n\n   \n', 'coarse').length === 0);
+
+  ok('docx 的 XML 能还原成正文',
+    wb.xmlToText('<w:p><w:r><w:t>第一段</w:t></w:r></w:p><w:p><w:r><w:t>第二段</w:t></w:r></w:p>').trim() === '第一段\n第二段',
+    JSON.stringify(wb.xmlToText('<w:p><w:r><w:t>第一段</w:t></w:r></w:p><w:p><w:r><w:t>第二段</w:t></w:r></w:p>')));
+  ok('XML 实体要还原（&amp; 不能留成 &amp;）',
+    wb.xmlToText('<w:p><w:t>a &amp; b &lt;tag&gt;</w:t></w:p>').includes('a & b <tag>'),
+    JSON.stringify(wb.xmlToText('<w:p><w:t>a &amp; b &lt;tag&gt;</w:t></w:p>')));
+  ok('docx 的换行标记认得', wb.xmlToText('<w:p><w:t>a</w:t><w:br/><w:t>b</w:t></w:p>').includes('a\nb'), '');
+  /* 这条是踩过的坑：有的写出工具会把 XML 缩进换行，不处理的话每个 <w:p> 前都多一个换行，
+     段落结构整个被切碎 —— 一份 5 小节的稿子会变成 20 张。 */
+  ok('XML 标签之间的排版空白不能当成正文换行',
+    wb.wbSections(wb.xmlToText('<w:p>\n  <w:r><w:t>甲</w:t></w:r>\n</w:p>\n<w:p>\n  <w:r><w:t>乙</w:t></w:r>\n</w:p>'), 'coarse').length === 1,
+    JSON.stringify(wb.xmlToText('<w:p>\n  <w:r><w:t>甲</w:t></w:r>\n</w:p>\n<w:p>\n  <w:r><w:t>乙</w:t></w:r>\n</w:p>')));
+  ok('空段落 <w:p/> 是一条换行，不是被吞掉',
+    wb.xmlToText('<w:p><w:t>甲</w:t></w:p><w:p/><w:p><w:t>乙</w:t></w:p>').indexOf('甲\n\n乙') >= 0,
+    JSON.stringify(wb.xmlToText('<w:p><w:t>甲</w:t></w:p><w:p/><w:p><w:t>乙</w:t></w:p>')));
+
+  /* 中文 .txt 很多是 GBK，猜错编码会把一整份设定导成乱码 */
+  ok('GBK 的中文 txt 也读得对（UTF-8 严格解码失败就换 GBK）',
+    wb.decodeText(new Uint8Array([0xC4, 0xE3, 0xBA, 0xC3]).buffer) === '你好',
+    JSON.stringify(wb.decodeText(new Uint8Array([0xC4, 0xE3, 0xBA, 0xC3]).buffer)));
+  ok('UTF-8 的中文照旧读得对',
+    wb.decodeText(new Uint8Array([0xE4, 0xBD, 0xA0, 0xE5, 0xA5, 0xBD]).buffer) === '你好', '');
+
+  /* 真 zip：这份 .docx 是 python zipfile 现打的（deflate 压缩），
+     word/document.xml 故意放在中间 —— 验解析器真的在走中央目录，不是抓第一个。 */
+  const docxBytes = Uint8Array.from(atob('UEsDBBQAAAAIADVeRV2/7OqhkAAAALIAAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbCWOSw7CMAxErxJ537qwQAgl6aLACcoBrOB+RJtEjUHl9qR06XkzntH1Ok/qw0sagzdwKCtQ7F14jr438GjvxRlqq9tv5KSy1ScDg0i8ICY38EypDJF9Jl1YZpJ8Lj1Gci/qGY9VdUIXvLCXQrYfYPWVO3pPom5rlvfaHAfV7L6tygDFOI2OJGPcKFqN/xH2B1BLAwQUAAAACAA1XkVduuYJE2YBAADfAgAAEQAAAHdvcmQvZG9jdW1lbnQueG1sjZJNT8MwDIbv/AqrB260AySEyjYugEBCfG2Is0m9NiJxoiSl67/HGSAhwcQuVizrfWy/8fR8bQ28U4ja8aw4LCcFECvXaG5nxfPy6uC0gJiQGzSOaVaMFIvz+d50qBunekucQAgc62FWdCn5uqqi6shiLJ0nltrKBYtJ0tBWgwuND05RjNLAmupoMjmpLGou5oJ8dc24YfuchRzS/Fq3HVw+wgOGxBRgQSmJeFrlYo5hE/0v4bIjUB0GVElkOsKAwcI+Wn8GjcuMcguk+sU6LOGClPYdBdHBTXA81sAkzoHVsedGLMw2bUP+YB0Ja9Menih6x5Fq8Jggybwd4S6I4xLuV6vPWZDhvk81tPqdAKGVfWnVG6C1TrsvuPBEqoNFGo2Mkz0/uJXtDCwGogRLNG//j5VdQm3GL9GL/HasQTnrjc6nEndz53KtTB/zOndavTFaEopj4cotQf83pfo6n/z4Ps35B1BLAwQUAAAACAA1XkVd0nf8t20AAAB7AAAAHAAAAHdvcmQvX3JlbHMvZG9jdW1lbnQueG1sLnJlbHNNjEEOAiEMRa9CuneKLowxw8xuDmD0AA1WIA6FUGI8vixd/rz3/rx+824+3DQVcXCcLBgWX55JgoPHfTtcYF3mG+/Uh6ExVTUjEXUQe69XRPWRM+lUKssgr9Iy9TFbwEr+TYHxZO0Z2/8H4PIDUEsBAhQAFAAAAAgANV5FXb/s6qGQAAAAsgAAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAAUAAAACAA1XkVduuYJE2YBAADfAgAAEQAAAAAAAAAAAAAAgAHBAAAAd29yZC9kb2N1bWVudC54bWxQSwECFAAUAAAACAA1XkVd0nf8t20AAAB7AAAAHAAAAAAAAAAAAAAAgAFWAgAAd29yZC9fcmVscy9kb2N1bWVudC54bWwucmVsc1BLBQYAAAAAAwADAMoAAAD9AgAAAAA='), ch => ch.charCodeAt(0));
+  const dxText = await wb.docxText(docxBytes.buffer);
+  ok('真的 .docx 能解出正文（zip → deflate → XML）',
+    typeof dxText === 'string' && dxText.includes('Deciphering Irony') && dxText.includes('Daily Sweet Words'),
+    JSON.stringify(dxText && dxText.slice(0, 70)));
+  ok('解出来的正文能直接切分，和手写样例同构',
+    wb.wbSections(dxText, 'coarse').length === 3 && wb.wbSections(dxText, 'fine').length === 7,
+    JSON.stringify(wb.wbSections(dxText, 'coarse').map(x => x.title)));
+  ok('不是 zip 的东西不会硬解出乱码', (await wb.docxText(new Uint8Array([1, 2, 3, 4, 5]).buffer)) === null, '');
+
+  /* 卡的正文长度：以前所有字段共用一个 4000 的坎，导一整节设定会被静默砍掉 */
+  ok('一张卡能写超过 4000 字（导进来的整节设定不会被砍）', (() => {
+    const e = wb.saveEntry(wb.makeEntry({ title: '长卡', content: 'x'.repeat(6000), cat: '其他' }));
+    const n = e.content.length;
+    wb.deleteEntry(e.id);
+    return n === 6000;
+  })(), '');
+  ok('超过 WB_TEXT_MAX 才砍，而且正好砍在上限上', (() => {
+    const e = wb.saveEntry(wb.makeEntry({ title: '超长卡', content: 'y'.repeat(wb.WB_TEXT_MAX + 500), cat: '其他' }));
+    const n = e.content.length;
+    wb.deleteEntry(e.id);
+    return n === wb.WB_TEXT_MAX;
+  })(), String(wb.WB_TEXT_MAX));
+
+  /* 导入入口本身 */
+  const iv = wbApp();
+  ok('世界书页里有「从文件导入」入口', rowEl(iv, '从文件导入') !== undefined, '');
+  ok('设置页里再没有「世界书字数上限」这一行',
+    !walk(iv).some(n => n.textContent === '世界书字数上限'), '');
+  /* 这张卡踩过坑：paint() 里原本有两处 return，世界书一张卡都没有时整块
+     「上下文 / 关键词预览 / 导入」都跟着消失 —— 而空世界书恰恰最想导入。 */
+  const emptyV = (() => {
+    const keep = wb.state.worldbook;
+    wb.state.worldbook = [];
+    const v = wbApp();
+    const r = { imp: rowEl(v, '从文件导入') !== undefined, pv: rowEl(v, '关键词预览') !== undefined };
+    wb.state.worldbook = keep;
+    return r;
+  })();
+  ok('一张卡都没有时，「从文件导入」还在', emptyV.imp, JSON.stringify(emptyV));
+  ok('一张卡都没有时，「关键词预览」也还在', emptyV.pv, JSON.stringify(emptyV));
+}
 
 /* ── 关键词体检 ── */
 ok('单个字的关键词会被警告', /只有这一个字/.test(wb.keyWarn('伞')), wb.keyWarn('伞'));
@@ -1797,7 +1937,7 @@ clickSheet('她现在读到哪几张');
 const wbSheet = walk(byId.phone).map(n => n.textContent).join('|');
 ok('面板里按顺序列出了命中的卡',
   wbSheet.includes('关联专属') && wbSheet.includes('关联通用'), wbSheet.slice(0, 200));
-ok('面板里说了共多少字、上限多少', /共 \d+ 字 \/ 上限 \d+/.test(wbSheet), wbSheet.slice(0, 180));
+ok('面板里说了这一轮共多少字', /\u5171 \d+ 字/.test(wbSheet) && !/\u4e0a\u9650/.test(wbSheet), wbSheet.slice(0, 180));
 while (S.SHELL.stack.length) S.closeTop(true);
 
 
@@ -2589,8 +2729,8 @@ console.log('\n[24] 存档读取不许弄丢数据');
   ok('常驻状态原样保留', by('L10').constant === true);
   ok('老存档没有 wbRead 时角色默认读世界书', sandbox.SJ.state.characters[0].wbRead === true,
     String(sandbox.SJ.state.characters[0].wbRead));
-  ok('老存档没有 wbBudget 时补上默认额度', sandbox.SJ.state.settings.wbBudget === 3000,
-    String(sandbox.SJ.state.settings.wbBudget));
+  ok('世界书上限删了以后，老存档没这个键也不会被补出来',
+    sandbox.SJ.state.settings.wbBudget === undefined, String(sandbox.SJ.state.settings.wbBudget));
   /* 迁移上来的卡必须真的能注入 —— 字段对了但匹配不上等于没迁移 */
   ok('迁移上来的老个人卡真的只在甲那儿命中',
     sandbox.SJ.activeEntries([{ me: true, text: '我有个秘密' }], 'a').some(e => e.id === 'L1')
@@ -2607,18 +2747,20 @@ console.log('\n[24] 存档读取不许弄丢数据');
     sandbox.SJ.activeEntries([{ me: true, text: '随便说点什么' }], 'a').some(e => e.id === 'L10'));
   store.delete('xiaoshouji.v1.broken');
 
-  /* 预算那几个边界：0 / 太小 / 太大 都得回落到合法值，不能把世界书关掉 */
-  const budOf = v => {
-    store.set('xiaoshouji.v1', JSON.stringify({ settings: { wbBudget: v } }));
-    boot();
-    return sandbox.SJ.state.settings.wbBudget;
-  };
-  ok('wbBudget = 0 → 回默认（0 不该等于「把世界书全关掉」）', budOf(0) === 3000, String(budOf(0)));
-  ok('wbBudget = 50（太小）→ 回默认', budOf(50) === 3000, String(budOf(50)));
-  ok('wbBudget = -9999 → 回默认', budOf(-9999) === 3000, String(budOf(-9999)));
-  ok('wbBudget = "abc" → 回默认', budOf('abc') === 3000, String(budOf('abc')));
-  ok('wbBudget = 5000 → 原样留着', budOf(5000) === 5000, String(budOf(5000)));
-  ok('wbBudget = 999999 → 封顶 20000', budOf(999999) === 20000, String(budOf(999999)));
+  /* 字数上限已经删掉：老存档里留着的 wbBudget 不该被补默认，更不该再砍卡 */
+  store.set('xiaoshouji.v1', JSON.stringify({
+    worldbook: [
+      { id: 'BD1', title: '一', content: 'x'.repeat(5000), cat: '剧情', order: 1, constant: true },
+      { id: 'BD2', title: '二', content: 'y'.repeat(5000), cat: '剧情', order: 2, constant: true }
+    ],
+    settings: { wbBudget: 200, wbOn: true }
+  }));
+  boot();
+  const budR = sandbox.SJ.wbResolve([], null);
+  ok('老存档里的 wbBudget 拦不住卡了（1 字也不能砍）',
+    budR.used.length === 2 && budR.chars === 10000, budR.used.length + ' 张 / ' + budR.chars + ' 字');
+  ok('wbBudget 也不会再被改成别的数',
+    sandbox.SJ.state.settings.wbBudget === 200, String(sandbox.SJ.state.settings.wbBudget));
 
   /* 原档放回去，别影响后面的用例 */
   store.set('xiaoshouji.v1', good);

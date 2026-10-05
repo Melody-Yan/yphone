@@ -2611,7 +2611,7 @@ const APPS = [
         const giftThing = () => giftVia('礼物');
 
         /* 当场看这一轮她到底读到了哪几张卡。世界书写了却不生效时，
-           这里是唯一能一眼看出「是被关键词漏了、被他关了、还是被字数上限挤了」的地方。 */
+           这里是唯一能一眼看出「是被关键词漏了、还是被他关了」的地方。 */
         function showWbRead() {
           const hist = SJ.messages(id);
           const r = SJ.wbPreview(hist, G ? G.members.map(mid => ({ id: mid })) : c);
@@ -2621,20 +2621,14 @@ const APPS = [
           ];
           if (SJ.state.settings.wbOn === false) rows.push(SJ.el('div', { class: 'hint' }, '世界书总开关关着，一张都没注入。'));
           if (c.wbRead === false) rows.push(SJ.el('div', { class: 'hint' }, '你把他设成了「不读世界书」，所以一张都没注入。'));
-          if (!r.used.length && !r.dropped.length) rows.push(SJ.el('div', { class: 'empty' }, '这一轮一张都没命中。'));
+          if (!r.used.length) rows.push(SJ.el('div', { class: 'empty' }, '这一轮一张都没命中。'));
           r.used.forEach((x, i) => rows.push(SJ.el('div', { class: 'row' }, [
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, (i + 1) + '. ' + x.title + (x.constant ? ' · 常驻' : '')),
               SJ.el('div', { class: 'row-sub' }, x.cat + ' · ' + x.len + ' 字')
             ])
           ])));
-          r.dropped.forEach(x => rows.push(SJ.el('div', { class: 'row' }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, x.title),
-              SJ.el('div', { class: 'row-sub' }, '被字数上限挤掉了 · ' + x.len + ' 字')
-            ])
-          ])));
-          rows.push(SJ.el('div', { class: 'hint' }, '共 ' + r.len + ' 字 / 上限 ' + r.cap));
+          rows.push(SJ.el('div', { class: 'hint' }, '共 ' + r.len + ' 字'));
           sheet([], SJ.el('div', { class: 'pad' }, rows));
         }
 
@@ -3000,17 +2994,18 @@ const APPS = [
 
         function paint() {
           listBox.innerHTML = '';
-          if (!wb().length) {
-            listBox.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张。'));
-            return;
+          /* ⚠️ 这里以前是两处 return：世界书一张卡都没有时，下面那块「上下文 / 关键词预览 / 从文件导入」
+             就跟着消失了 —— 而空世界书恰恰是最想导入的时候。所以只跳过列表，不提前返回。 */
+          const allCards = wb();
+          if (!allCards.length) {
+            listBox.append(SJ.el('div', { class: 'empty' }, '还没有设定卡。\n右上角「＋」新建一张，或者从文件导入。'));
           }
-          const groups = SJ.wbGroups({
+          const groups = allCards.length ? SJ.wbGroups({
             filter: tab === 'char' ? 'char' : (tab === 'global' ? 'global' : 'all'),
             charId: onlyChar, q: q, onlyConst: onlyConst
-          });
-          if (!groups.length) {
+          }) : [];
+          if (allCards.length && !groups.length) {
             listBox.append(SJ.el('div', { class: 'empty' }, q || onlyConst ? '这个条件下没有卡。' : '还没有卡。'));
-            return;
           }
 
           groups.forEach(g => {
@@ -3022,11 +3017,18 @@ const APPS = [
             g.list.forEach((e, i) => listBox.append(entryRow(e, i, g.list.length)));
           });
 
-          /* 上下文预算：这三个数决定每次发给模型多少东西，直接影响花费 */
+          /* 上下文：这两个数决定每次发给模型多少东西，直接影响花费 */
           listBox.append(SJ.el('div', { class: 'group-title' }, '上下文'));
           listBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
           listBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
-          listBox.append(numRow('世界书字数上限', '一轮最多注入多少字，超了先砍排在最后的', 'wbBudget', 200, 20000));
+          /* 导入的文件选择器。display:none 也能 .click() 唤起，
+             但 iOS Safari 要求它得在文档里 —— 所以挂在这里而不是创建完就丢。 */
+          const fileInp = SJ.el('input', {
+            type: 'file', multiple: true, accept: '.txt,.md,.text,.docx,.json',
+            style: { display: 'none' }
+          });
+          fileInp.addEventListener('change', () => readFiles(fileInp));
+
           listBox.append(SJ.el('div', { class: 'pad' }, [
             SJ.el('div', { class: 'row', onclick: previewView }, [
               SJ.el('div', { class: 'row-main' }, [
@@ -3034,7 +3036,15 @@ const APPS = [
                 SJ.el('div', { class: 'row-sub' }, '拿一句话试试，当场看会触发哪几张、按什么顺序')
               ]),
               SJ.el('div', { class: 'row-time' }, '试试 ›')
-            ])
+            ]),
+            SJ.el('div', { class: 'row', onclick: () => fileInp.click() }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, '从文件导入'),
+                SJ.el('div', { class: 'row-sub' }, '.txt / .docx 按内容自己切成卡，导完还能改')
+              ]),
+              SJ.el('div', { class: 'row-time' }, '导入 ›')
+            ]),
+            fileInp
           ]));
         }
       }
@@ -3262,8 +3272,7 @@ const APPS = [
           const c = asChar ? findChar(asChar) : null;
           const r = SJ.wbPreview(txt ? [{ me: true, text: txt }] : [], c || (asChar ? asChar : null));
           head.textContent = txt
-            ? '按她读到的顺序，命中 ' + r.used.length + ' 张、共 ' + r.len + ' 字 / 上限 ' + r.cap
-              + (r.dropped.length ? '；另有 ' + r.dropped.length + ' 张被上限挤掉了' : '')
+            ? '按她读到的顺序，命中 ' + r.used.length + ' 张、共 ' + r.len + ' 字'
             : '还没输入。空着的时候只有常驻卡会命中。';
           out.innerHTML = '';
           r.used.forEach((x, i) => out.append(SJ.el('div', { class: 'row' }, [
@@ -3272,13 +3281,7 @@ const APPS = [
               SJ.el('div', { class: 'row-sub' }, x.cat + ' · ' + x.len + ' 字')
             ])
           ])));
-          r.dropped.forEach(x => out.append(SJ.el('div', { class: 'row' }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, x.title),
-              SJ.el('div', { class: 'row-sub' }, '被字数上限挤掉了 · ' + x.cat + ' · ' + x.len + ' 字')
-            ])
-          ])));
-          if (!r.used.length && !r.dropped.length) out.append(SJ.el('div', { class: 'empty' }, '一张都没命中。'));
+          if (!r.used.length) out.append(SJ.el('div', { class: 'empty' }, '一张都没命中。'));
         }
 
         root.append(SJ.el('div', { class: 'pad' }, [
@@ -3298,6 +3301,135 @@ const APPS = [
         ]));
         root.append(out);
         paint();
+      }
+
+      /* ── 从文件导入 ──
+         目标：不管你手里是 .txt 还是 .docx，都能导进来，而且导进来的就是普通的卡 ——
+         能改、能删、能调顺序。不搞「导入完就是一团黑盒」。
+         切得对不对不靠猜：先把切出来的拿给人看，人点头才落盘。 */
+      let pending = null;      // 刚读完的 [{name, text}]
+      let impMode = 'coarse';  // 记住上次选的切法
+      let impCat = '其他';
+      let impConst = true;     // 导进来的卡很难自动猜出关键词，先当常驻最不会白导
+
+      /* 组装出「这次会建哪几张卡」 */
+      function buildSections() {
+        const out = [];
+        (pending || []).forEach(f => {
+          let secs = SJ.wbSections(f.text, impMode);
+          if (!secs.length) return;
+          /* 一个文件只切出一张时，它就是这张卡 —— 文件名比正文第一行准 */
+          if (secs.length === 1) secs = [{ title: SJ.wbTitleFromFile(f.name), content: secs[0].content }];
+          secs.forEach(x => out.push({
+            title: x.title || SJ.wbTitleFromFile(f.name),
+            content: x.content, file: f.name
+          }));
+        });
+        return out;
+      }
+
+      async function readFiles(inp) {
+        const files = Array.from((inp && inp.files) || []);
+        if (!files.length) return;
+        const got = [];
+        for (const f of files) {
+          let text = null;
+          try {
+            const buf = await f.arrayBuffer();
+            text = /\.docx$/i.test(f.name) ? await SJ.docxText(buf) : SJ.decodeText(buf);
+          } catch (e) { text = null; }
+          if (text == null || !String(text).trim()) {
+            toast('「' + f.name + '」没读出来' + (/\.docx$/i.test(f.name) ? '，另存成 .txt 再试' : ''));
+            continue;
+          }
+          got.push({ name: f.name, text: String(text) });
+        }
+        inp.value = '';                 // 下次选同一个文件也要能触发 change
+        if (!got.length) return;
+        pending = got;
+        impCat = SJ.wbGuessCat(got.map(f => f.text).join('\n'));
+        importView();
+      }
+
+      function importView() {
+        root.innerHTML = '';
+        root.append(navBar('导入世界书', { back: () => homeView() }));
+
+        const segBox = SJ.el('div', { class: 'seg' });
+        const info = SJ.el('div', { class: 'hint' });
+        const catSub = SJ.el('div', { class: 'row-sub' });
+        const constSub = SJ.el('div', { class: 'row-sub' });
+        const list = SJ.el('div', {});
+        const goBtn = SJ.el('button', { class: 'btn', onclick: doImport });
+
+        function paintSections() {
+          segBox.innerHTML = '';
+          [['coarse', '按段落切'], ['fine', '按每一条切']].forEach(([v, label]) => {
+            segBox.append(SJ.el('button', {
+              class: impMode === v ? 'on' : '',
+              onclick: () => { impMode = v; paintSections(); }
+            }, label));
+          });
+
+          const secs = buildSections();
+          const total = secs.reduce((n, x) => n + x.content.length, 0);
+          /* 卡有自己的长度上限。超了会被砍尾巴 —— 砍了就得说出来，
+             不能让人导完才发现少了一截。 */
+          const over = secs.filter(x => x.content.length > SJ.WB_TEXT_MAX).length;
+          info.textContent = (pending || []).length + ' 个文件 → ' + secs.length + ' 张卡，共 ' + total + ' 字。'
+            + (over
+              ? '有 ' + over + ' 张超过 ' + SJ.WB_TEXT_MAX + ' 字，多的会被砍掉 —— 换成「按每一条切」，或者拆成几份再导。'
+              : (secs.length ? '导进来就是普通的卡，随时能改。' : '一张都没切出来。'));
+          catSub.textContent = impCat;
+          constSub.textContent = impConst
+            ? '每次对话都会带上 · ' + total + ' 字'
+              + (total > 8000 ? '，有点重，可以只导其中几个文件' : '')
+            : '只有聊到关键词才读到（导进来的卡没关键词，等于不会触发）';
+          goBtn.textContent = '导入 ' + secs.length + ' 张卡';
+
+          list.innerHTML = '';
+          secs.forEach((x, i) => list.append(SJ.el('div', { class: 'row' }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, (i + 1) + '. ' + (x.title || '未命名')),
+              SJ.el('div', { class: 'row-sub' }, x.content.length + ' 字 · ' + x.content.split('\n')[0].slice(0, 28))
+            ])
+          ])));
+        }
+
+        function doImport() {
+          const secs = buildSections();
+          if (!secs.length) { toast('没切出内容来'); return; }
+          secs.forEach(x => SJ.saveEntry(SJ.makeEntry({
+            title: x.title, content: x.content, cat: impCat, constant: impConst,
+            charIds: onlyChar ? [onlyChar] : []
+          })));
+          toast('导进来 ' + secs.length + ' 张卡');
+          homeView();
+        }
+
+        root.append(SJ.el('div', { class: 'pad' }, [info, segBox]));
+        root.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_CATS.map(c => ({
+            icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+            label: c, run: () => { impCat = c; paintSections(); }
+          })), SJ.el('div', { class: 'sheet-head' }, '导进来的卡算哪一类？')) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, '归到哪一类'),
+              catSub
+            ]),
+            SJ.el('div', { class: 'row-time' }, '改 ›')
+          ]),
+          SJ.el('div', { class: 'row', onclick: () => { impConst = !impConst; paintSections(); } }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, impConst ? '全部做成常驻：开' : '全部做成常驻：关'),
+              constSub
+            ]),
+            SJ.el('div', { class: 'row-time' }, impConst ? '开' : '关')
+          ])
+        ]));
+        root.append(list);
+        root.append(SJ.el('div', { class: 'pad' }, [goBtn]));
+        paintSections();
       }
 
       homeView();

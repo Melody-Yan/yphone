@@ -2240,7 +2240,11 @@ const APPS = [
         /* 正在画的那条在 state.chats 里的下标。长按删除要用它定位 ——
            消息本身没有 id 字段，加一套 id 得改存档格式和归一，不值得。 */
         let curIndex = -1;
+        let curMsg = null;
         function row(inner, me, src) {
+        /* 这一行属于哪条真实消息 —— 建行的这一刻就抓下来，
+           别等事件触发再读（那时 curMsg 已经指向最后一条了） */
+        const myMsg = curMsg;
           const speaker = (!me && G && curWho) ? SJ.memberOf(G, curWho) : null;
           const face = speaker || c;
           /* 群里的每条消息都挂 grp（包括我自己发的）—— 「这是群聊」是整条会话的属性，
@@ -2292,7 +2296,7 @@ const APPS = [
                 const txt = (inner && inner.textContent) || m.text;
                 if (!txt) return;                      // 图片/语音那种本来就没正文，不给菜单
                 const rc = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
-                openMsgSheet(Object.assign({}, m, { text: txt, srcObj: m }), rc);
+                openMsgSheet(Object.assign({}, m, { text: txt, srcObj: (m && m.srcObj) || myMsg || m }), rc);
               }, 480);
             };
             const stop = () => clearTimeout(hold);
@@ -2321,6 +2325,9 @@ const APPS = [
                    以前一上来按文本找，语音条（文本空 / 跟别的条重了）就会删错人：
                    数据里少一条、界面上的语音还在，再删还提示「已经不在了」。 */
                 const real = m.srcObj || m;   /* 长按传进来的是副本，原对象在 srcObj */
+                /* 比文本要用**真实消息**的文本：语音那种合成对象，text 是它念的内容，
+                   而长按拿到的 m.text 可能是气泡上的时长 —— 拿错了就永远回退到按文字找 */
+                const wantTxt = String((m.srcObj && m.srcObj.text) || m.text || '');
                 let at = list2.indexOf(real);
                 if (at < 0) at = Number(m.index);
                 if (!(at >= 0 && at < list2.length) || list2[at] !== real) {
@@ -2330,7 +2337,7 @@ const APPS = [
                   }
                   if (at < 0) {
                     for (let k = list2.length - 1; k >= 0; k--) {
-                      if (String(list2[k].text) === String(m.text) && !!list2[k].me === !!m.me) { at = k; break; }
+                      if (String(list2[k].text) === wantTxt && !!list2[k].me === !!m.me) { at = k; break; }
                     }
                   }
                 }
@@ -2391,20 +2398,22 @@ const APPS = [
             bars,
             SJ.el('div', { class: 'vc-sec' }, secs + '″')
           ]);
+          /* 点「文」把这条语音的文字摊出来（再点收起）——
+             语音条本身点一下还是播放，两个动作别打架。
+             ⚠️ 按钮必须在点击处理器**外面**建：放里面等于每次点击才试一次，
+             而且那时的 txt 还没定义，按钮永远出不来。 */
+          const txt = String(m.text || '');
+          const showTxt = () => {
+            const old = b.querySelector ? b.querySelector('.vb-txt') : null;
+            if (old) { old.remove(); return; }
+            b.append(SJ.el('div', { class: 'vb-txt' }, txt));
+          };
+          if (txt) b.append(SJ.el('button', {
+            class: 'vb-more',
+            onclick: e => { if (e.stopPropagation) e.stopPropagation(); showTxt(); }
+          }, '文'));
           let playing = false;
           b.addEventListener('click', () => {
-            /* 点「文」把这条语音的文字摊出来（再点收起）——
-               语音条本身点一下是播，两个动作别打架。 */
-            const showTxt = () => {
-              let t = b.querySelector ? b.querySelector('.vb-txt') : null;
-              if (t) { t.remove(); return; }
-              t = SJ.el('div', { class: 'vb-txt' }, txt);
-              b.append(t);
-            };
-            if (txt) b.append(SJ.el('button', {
-              class: 'vb-more',
-              onclick: e => { e.stopPropagation(); showTxt(); }
-            }, '文'));
             if (playing) { SJ.stopSpeak(); playing = false; b.classList.remove('playing'); return; }
             playing = true;
             b.classList.add('playing');
@@ -2559,6 +2568,9 @@ const APPS = [
           for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
           h.forEach((m, i) => {
             curIndex = i;
+            /* 正在画哪条真实消息 —— voiceBubble 那些是合成对象，
+               按对象找消息时得靠它，不然语音/图片永远删不掉 */
+            curMsg = m;
             renderMsg(m);
             /* 有好几版的回复，末尾挂个 ‹ 1/2 › —— 翻版本不用重问一次 */
             if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
@@ -2568,6 +2580,7 @@ const APPS = [
               readTag = SJ.el('div', { class: 'msg-read' }, m.read ? '已读' : '未读');
               if (lastRow) lastRow.append(readTag);
             }
+          curMsg = null;   /* 画完了 —— 之后新建的气泡没有对应消息，别拿旧对象 */
           });
           lastRow = null;
         }

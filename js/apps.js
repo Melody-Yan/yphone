@@ -2370,8 +2370,11 @@ const APPS = [
           } else {
             inner = SJ.el('div', { class: 'bubble-sticker' }, m.img || '🖼');
           }
-          const b = SJ.el('div', { class: 'bubble me media' + (m.sticker ? ' as-sticker' : '') }, [inner]);
-          row(b, true);
+          /* ⚠️ 不能写死 true：角色发来的图也是媒体气泡，方向跟 m.me ——
+             写死就跑右边配我的头像，跟左边的文字错开。 */
+          const mine = !!m.me;
+                    const b = SJ.el('div', { class: 'bubble ' + (mine ? 'me' : 'ta') + ' media' + (m.sticker ? ' as-sticker' : '') }, [inner]);
+          row(b, mine, m);
           return b;
         }
         function transferBubble(m) {

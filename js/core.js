@@ -592,11 +592,16 @@ function fmtDate(d = virtualNow()) {
 }
 
 function fmtAgo(ts) {
-  const s = (Date.now() - ts) / 1000;
+  /* 没有时间戳（老存档、刚建的会话、导入的数据）不能算出「NaN月NaN日」 ——
+     以前这里直接往下走，Date.now() - undefined 是 NaN，比大小的判断全 false，
+     最后 new Date(NaN) 就渲染出那个字符串。宁可什么都不显示。 */
+  const t = Number(ts);
+  if (!Number.isFinite(t) || t <= 0) return '';
+  const s = (Date.now() - t) / 1000;
   if (s < 60) return '刚刚';
   if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
   if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
-  const d = new Date(ts);
+  const d = new Date(t);
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 

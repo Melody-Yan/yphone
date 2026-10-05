@@ -4,27 +4,121 @@
    手机本体是 #phone，桌面端居中成一块屏，手机屏上自动铺满。
    所有颜色都走 :root 变量 —— 换色只改这一块。
    ══════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════
+   设计令牌（唯一真相）
+   色值全部按 WCAG AA 量过：正文 4.5:1、大字与图标 3.0:1。
+   底下「旧名字的别名」是给老规则用的 —— 改令牌，全站跟着变，
+   不需要去 2200 行里逐个替换字面量。
+   ══════════════════════════════════════════════════════ */
 :root {
   /* 双保险：meta 之外再声明一次，缓存里存着旧 index.html 时也挡得住浏览器自动反色。
      写 `only light`——`light` 挡不住（见 index.html 里的注释）。 */
   color-scheme: only light;
-  --paper: #faf8f5;          /* App 内容底：暖白纸 */
-  --paper-2: #f1ede7;        /* 次级底 */
-  --fg: #4b463f;             /* 主文字：暖炭灰 */
-  --fg-dim: #9a9289;         /* 次要文字 */
-  --line: rgba(75, 70, 63, .1);
-  --panel: rgba(255, 255, 255, .78);
-  --accent: #7d9c94;         /* 鼠尾草绿 */
-  --accent-ink: #5d7a72;
-  --accent-soft: rgba(125, 156, 148, .14);
-  --danger: #c4756b;
-  --shadow-s: 0 2px 8px rgba(96, 88, 78, .08);
-  --shadow-m: 0 8px 22px rgba(96, 88, 78, .12);
-  --nav-h: 52px;
-  --sb-h: 36px;
-  --radius: 46px;
+
+  /* ── 表面 ── */
+  --bg: #f2efe9;             /* App 内容底：暖白纸。比白卡片深一档，卡片才「浮」得出来 */
+  --bg-2: #e9e5de;           /* 次级底：凹陷/输入/未选中 */
+  --card: #fff;
+  --card-2: #faf8f4;         /* 卡片下缘那一点渐变，给面一点厚度 */
+  --line: rgba(44, 40, 36, .085);
+  --line-2: rgba(44, 40, 36, .14);
+
+  /* ── 文字（对比度：13.4 / 5.1 / 3.2 压在 --bg 上）── */
+  --ink: #2c2824;
+  --ink-2: #6e655b;          /* 时间、副标题、提示：4.5:1 达标的下限附近 */
+  --ink-3: #7a7268;          /* 弱文字/图标/占位符：压白底 4.74:1 */
+
+  /* ── 强调：一支鼠尾草绿，分「装饰填充」和「承载文字」两种用法 ── */
+  --accent: #7d9c94;         /* 图标、进度条、圆点（上面没有文字） */
+  --accent-ink: #4e6e64;     /* 强调色文字：5.16:1 */
+  --accent-soft: rgba(125, 156, 148, .17);
+  --accent-solid: #567a6e;   /* 实心面：白字 4.77:1 */
+  --accent-solid-2: #47655c;
+  --grad-accent: linear-gradient(160deg, var(--accent-solid), var(--accent-solid-2));
+  --on-accent: #fff;
+
+  /* ── 语义色 ── */
+  --danger: #ad4f46;         /* 4.84:1 */
+  --danger-soft: rgba(173, 79, 70, .11);
+  --warn: #8a6224;           /* 5.01:1 */
+  --warn-soft: rgba(138, 98, 36, .12);
+  --ok: #3f7a5e;             /* 4.64:1 */
+  --ok-soft: rgba(63, 122, 94, .12);
+
+  /* ── 玻璃 ── */
+  --glass: rgba(255, 255, 255, .72);
+  --glass-strong: rgba(252, 250, 247, .84);
+  --glass-blur: blur(22px) saturate(180%);
+  --glass-line: rgba(255, 255, 255, .62);
+
+  /* ── 层级：先色差、后阴影；--edge 是卡片上沿那道高光，立体感一半靠它 ── */
+  --el-1: 0 1px 2px rgba(44, 40, 36, .06), 0 4px 10px -4px rgba(44, 40, 36, .13);
+  --el-2: 0 2px 4px rgba(44, 40, 36, .07), 0 14px 28px -10px rgba(44, 40, 36, .22);
+  --el-3: 0 4px 10px rgba(44, 40, 36, .10), 0 26px 60px -20px rgba(44, 40, 36, .40);
+  --edge: inset 0 1px 0 rgba(255, 255, 255, .92);
+  --edge-dim: inset 0 1px 0 rgba(255, 255, 255, .55);
+
+  /* 纸纹：极淡一层，平涂区立刻不像 demo（4% 不到，不影响任何对比度） */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+
+  /* ── 圆角（三档 + 胶囊）── */
+  --r-s: 12px;
+  --r-m: 16px;
+  --r-l: 20px;
+  --r-full: 999px;
+  --radius: 46px;            /* 手机壳 */
+
+  /* ── 间距（4px 网格）── */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+
+  /* ── 字 ── */
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+  --fs-cap: 11px;            /* 下限：角标、页签 */
+  --fs-sm: 12.5px;           /* 时间、计数、标签 */
+  --fs-base: 13.5px;         /* 副标题、说明 */
+  --fs-md: 15px;             /* 正文 */
+  --fs-lg: 17px;             /* 导航标题、行主标题 */
+  --fs-xl: 22px;
+  --fs-2xl: 34px;
+  --lh-body: 1.5;
+  --lh-title: 1.25;
+
+  /* ── 动效：时长 4 档、缓动 4 条，不再手写 ── */
+  --dur-1: 120ms;            /* 按压、微反馈 */
+  --dur-2: 200ms;            /* 状态切换 */
+  --dur-3: 300ms;            /* 页面、弹层 */
+  --dur-4: 440ms;            /* 大块换场 */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease-soft: cubic-bezier(.4, 0, .2, 1);
+  --spring: var(--ease-out); /* 不支持 linear() 的浏览器退回普通缓出 */
+  --stagger: 40ms;
+
+  /* ── 旧名字的别名（老规则继续用，值全部跟着上面升级）── */
+  --paper: var(--bg);
+  --paper-2: var(--bg-2);
+  --fg: var(--ink);
+  --fg-dim: var(--ink-2);
+  --panel: var(--glass);
+  --shadow-s: var(--el-1);
+  --shadow-m: var(--el-2);
+  --nav-h: 52px;
+  --sb-h: 36px;
+}
+
+/* 弹性曲线：Chrome 113+ / Safari 17.2+ 支持 linear()，
+   松手回弹、勾选、气泡弹出都用它，退回上面那条 ease-out 也不难看。 */
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --spring: linear(
+      0, .0039 1.6%, .0157 3.4%, .0625 6.3%, .1406 9.5%, .25 13.1%, .3906 17.1%,
+      .5625 21.6%, .7109 25.3%, .8242 28.6%, .9102 31.9%, .9688 35.2%, 1.0039 38.6%,
+      1.0195 42.1%, 1.0195 45.4%, 1.0039 49.6%, .9805 54.3%, .9648 59.1%, .9609 64.4%,
+      .9688 70.3%, .9844 77.5%, .9961 86.7%, 1
+    );
+  }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -141,11 +235,11 @@ html, body {
 #pages {
   flex: 1;
   display: flex;
-  transition: transform .3s cubic-bezier(.22,1,.36,1);
+  transition: transform var(--dur-3) var(--spring);
 }
 .page {
   flex: 0 0 100%;
-  padding: 14px 20px 0;
+  padding: 8px 20px 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-auto-rows: min-content;
@@ -259,9 +353,10 @@ html, body {
 #phone.dark-wall #statusbar,
 #phone.dark-wall #home,
 #phone.dark-wall #lock {
-  --fg: #f3f1ee; --fg-dim: rgba(255,255,255,.7);
+  --ink: #f3f1ee; --fg: #f3f1ee;
+  --ink-2: rgba(255,255,255,.74); --fg-dim: rgba(255,255,255,.74);
   --line: rgba(255,255,255,.14); --panel: rgba(38,36,34,.72);
-  color: var(--fg);
+  color: var(--ink);
 }
 #phone.dark-wall #statusbar { color: #fff; }
 #phone.dark-wall .icon { color: #fff; }
@@ -273,7 +368,11 @@ html, body {
   opacity: 1;
   filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .5));   /* 给足和底块的分离度 */
 }
-#phone.dark-wall .icon-name { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+#phone.dark-wall .icon-name {
+  color: #fff;
+  /* 壁纸中间那段没有纱，照片一亮名字就看不见了：三层投影压住高光 */
+  text-shadow: 0 1px 2px rgba(0,0,0,.7), 0 1px 6px rgba(0,0,0,.5), 0 0 12px rgba(0,0,0,.4);
+}
 #phone.dark-wall .widget { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.16); color: #fff; }
 #phone.dark-wall #dock { background: rgba(30, 28, 26, .42); border-color: rgba(255, 255, 255, .16); }
 #phone.dark-wall #dots i { background: rgba(255,255,255,.3); }
@@ -1553,9 +1652,24 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ── 按压反馈：所有可点的地方都给一点位移，手感立刻不一样 ── */
 .nav-btn:active, .row:active, .wt:active, .btn:active { transform: translateY(1px); }
 
-/* 尊重系统设置：用户要求减少动效就全关掉 */
+/* 尊重系统设置：用户要求减少动效就全关掉。
+   位移和缩放这类会让人不适的全停，但「状态变了」这件事还得看得出来 ——
+   所以进场换成一段很短的淡入（下面那条 !important 规则最终说了算）。 */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: .01ms !important;
+  }
+  .app-view.in > *,
+  .app-view.in .list > *,
+  .app-view.in .pad > *,
+  .app-view.in .wfeed > *,
+  .app-view.in .shop-list > *,
+  .app-view.in .gd-grid > *,
+  .app-view.in .cat-grid > *,
+  .app-view.in .cart-rows > * { animation: fadeIn .15s ease-out both !important; }
+  .mask, .sheet, .toast, .bubble { transition-duration: 150ms !important; animation-duration: 150ms !important; }
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2215,3 +2329,409 @@ input.field[type="range"]::-webkit-slider-thumb {
 .money-amt::-webkit-outer-spin-button, .money-amt::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .money-chips { padding: 2px 22px 10px; }
 .money-go { width: calc(100% - 44px); margin: 4px 22px 6px; }
+
+/* ══════════════════════════════════════════════════════
+   设计系统 v2：立体感 · 手感 · 动效
+   ─────────────────────────────────────────────────────
+   只做三件事，全部落在令牌上，不碰 DOM：
+     ① 立体感：卡片有真实光影方向（--el-* + --edge 上沿高光）
+     ② 手感：所有可点的地方都有按压/聚焦反馈，时长只有 4 档
+     ③ 动效：任何 App 打开都有进场（不再有硬切），列表错位、退场淡出
+   放在文件最后：跟上面「视觉精修」同级时由这里说了算，
+   但 #phone.no-anim 和 prefers-reduced-motion 的 !important 仍然赢。
+   ══════════════════════════════════════════════════════ */
+
+/* ── 纸纹 + 顶部一层极淡的受光：平涂区不再是「一块死白」 ── */
+#phone, .app-view, .sheet, #lock { background-image: var(--grain); background-repeat: repeat; }
+.app-view {
+  background-color: var(--bg);
+  background-image: var(--grain), linear-gradient(180deg, rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 190px);
+  background-repeat: repeat, no-repeat;
+}
+
+/* ── 卡片：先色差、后阴影；--edge 是上沿那道高光，立体感一半靠它 ── */
+.me-card, .gd-card, .hot-card, .cat-cell, .shop-card, .order-card,
+.wal-row, .wal-sum-i, .mc-row, .mo, .cart-bar {
+  /* 面：上亮下暗一丁点 —— 纯平涂读作色块，带一点渐变才读作「一张纸」 */
+  background: linear-gradient(180deg, var(--card), var(--card-2));
+  border: 0;                      /* 不要再描边：色差 + 影子已经分层，描边只会显脏 */
+  border-radius: var(--r-m);
+  box-shadow: var(--el-2), var(--edge);
+}
+/* 小控件轻一级，别跟卡片抢层次 */
+.avatar, .wall, .ck, .pk, .seg button.on, .chip, .row-ico, .cat-i, .mo-prev, .buy-cart {
+  box-shadow: var(--el-1), var(--edge-dim);
+}
+.ck, .pk, .avatar, .wall, .mo-prev { border-radius: var(--r-m); }
+
+/* ── 列表：更松的呼吸、更轻的分隔线，行内层级靠字重和颜色拉开 ── */
+.list { padding: var(--sp-3) 0 calc(44px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+.row { padding: 15px var(--sp-5); gap: 13px; }
+.row-main { line-height: var(--lh-body); }
+.row-title { font-size: var(--fs-md); font-weight: 500; letter-spacing: .1px; }
+.row-sub { font-size: var(--fs-base); color: var(--ink-2); margin-top: 3px; }
+.row-time { font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.group-title { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); letter-spacing: .4px; padding: 20px var(--sp-5) 6px; }
+.hint { font-size: var(--fs-base); color: var(--ink-2); line-height: 1.65; }
+.pad { gap: 14px; }
+
+/* ── 导航栏：玻璃 + 标题有分量；按钮是胶囊，按下去会缩 ── */
+.nav {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 var(--glass-line);
+  padding: 0 var(--sp-2) 0 var(--sp-1);
+}
+.nav-title { font-size: var(--fs-lg); font-weight: 600; letter-spacing: .2px; color: var(--ink); }
+.nav-btn {
+  border-radius: var(--r-full);
+  padding: 8px 13px;
+  transition: background var(--dur-1) var(--ease-soft),
+              transform var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-soft);
+}
+.nav-btn:active { background: var(--accent-soft); transform: scale(.94); }
+
+/* ── 底部页签：选中的胶囊落到位置上，脚下一条短横线跟着弹出来 ── */
+.wtab {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-top: 1px solid var(--line);
+}
+.wt { transition: color var(--dur-2) var(--ease-soft), transform var(--dur-1) var(--ease-out); }
+.wt-i {
+  padding: 4px 14px 3px;
+  border-radius: var(--r-full);
+  transition: background var(--dur-2) var(--ease-soft),
+              opacity var(--dur-2) var(--ease-soft),
+              transform var(--dur-2) var(--spring);
+}
+.wt.on .wt-i { background: var(--accent-soft); transform: translateY(-1px); }
+.wt.on { color: var(--accent-ink); font-weight: 600; }
+.wt-l { font-size: var(--fs-cap); letter-spacing: .2px; }
+.wt:active { transform: scale(.94); }
+.wt::after {
+  bottom: 4px; width: 14px; height: 1.5px; background: var(--accent-ink);
+  transition: opacity var(--dur-2) var(--ease-soft), transform var(--dur-2) var(--spring);
+}
+
+/* ── 聊天：气泡有体积感，自己那条是渐变实心 ── */
+.chat-list { padding: 20px var(--sp-4) 24px; gap: 8px; overscroll-behavior: contain; }
+.bubble { border-radius: var(--r-l); padding: 11px 15px; font-size: var(--fs-md); line-height: 1.55; box-shadow: var(--el-1); }
+.bubble.me {
+  background: var(--grad-accent);
+  color: var(--on-accent);
+  border-bottom-right-radius: 7px;
+  box-shadow: 0 2px 8px -2px rgba(71, 101, 92, .40), inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+.bubble.ta {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 7px;
+  box-shadow: var(--el-1), var(--edge);
+}
+.chat-bar {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-top: 1px solid var(--line);
+  padding: 10px var(--sp-3) calc(22px + env(safe-area-inset-bottom));
+}
+.chat-input {
+  border-radius: var(--r-full);
+  background: var(--card);
+  padding: 11px 16px;
+  box-shadow: var(--el-1), var(--edge-dim);
+  transition: border-color var(--dur-2) var(--ease-soft), box-shadow var(--dur-2) var(--ease-soft);
+}
+.chat-input:focus { border-color: var(--accent); box-shadow: var(--el-1), 0 0 0 3px var(--accent-soft); }
+.chat-send {
+  border-radius: var(--r-full);
+  background: var(--grad-accent);
+  box-shadow: 0 3px 10px -2px rgba(71, 101, 92, .40), inset 0 1px 0 rgba(255, 255, 255, .16);
+  transition: transform var(--dur-1) var(--ease-out), filter var(--dur-1) var(--ease-soft);
+}
+.chat-send:active { transform: scale(.94); filter: brightness(.95); }
+
+/* ── 按钮：渐变的体 + 外投影 + 上沿高光，按下去「陷」一下 ── */
+.btn {
+  border-radius: var(--r-m);
+  padding: 14px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: .2px;
+  background: var(--grad-accent);
+  box-shadow: var(--el-2), inset 0 1px 0 rgba(255, 255, 255, .16);
+  transition: transform var(--dur-1) var(--ease-out),
+              box-shadow var(--dur-2) var(--ease-soft),
+              filter var(--dur-1) var(--ease-soft);
+}
+.btn:active { transform: translateY(1px) scale(.985); box-shadow: var(--el-1); filter: brightness(.95); }
+.btn.ghost { background: var(--bg-2); color: var(--ink); box-shadow: var(--el-1), var(--edge-dim); }
+.btn.danger { background: var(--danger-soft); color: var(--danger); box-shadow: var(--el-1), var(--edge-dim); }
+
+/* ── 输入：16px 起（iOS 聚焦不再放大整页），聚焦有光圈 ── */
+#phone input, #phone textarea, #phone select { font-size: 16px; }
+#phone .field.tiny { font-size: 22px; }
+#phone .money-amt { font-size: 30px; }
+.field {
+  border-radius: var(--r-m);
+  padding: 13px 15px;
+  background: var(--card);
+  box-shadow: var(--el-1), var(--edge-dim);
+  transition: border-color var(--dur-2) var(--ease-soft), box-shadow var(--dur-2) var(--ease-soft);
+}
+.field:focus { border-color: var(--accent); box-shadow: var(--el-1), 0 0 0 3px var(--accent-soft); }
+.field::placeholder { color: var(--ink-3); }
+
+/* ── 分段 / 芯片 / 键盘：状态切换有过渡，按下去有回弹 ── */
+.seg { border-radius: var(--r-full); background: var(--bg-2); padding: 3px; box-shadow: inset 0 1px 2px rgba(44, 40, 36, .05); }
+.seg button {
+  border-radius: var(--r-full);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  transition: background var(--dur-2) var(--ease-soft),
+              color var(--dur-2) var(--ease-soft),
+              box-shadow var(--dur-2) var(--ease-soft);
+}
+.seg button.on { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: var(--el-1); }
+.seg button:active { transform: scale(.97); }
+.chip {
+  border-radius: var(--r-full);
+  transition: background var(--dur-2) var(--ease-soft), color var(--dur-2) var(--ease-soft),
+              box-shadow var(--dur-2) var(--ease-soft), transform var(--dur-1) var(--ease-out);
+}
+.chip:active { transform: scale(.95); }
+.emoji, .swatch, .wall {
+  transition: transform var(--dur-1) var(--ease-out),
+              border-color var(--dur-2) var(--ease-soft),
+              box-shadow var(--dur-2) var(--ease-soft);
+}
+/* 键盘按键：计算器和密码盘全靠这一下「按到了」 */
+.ck, .pk { transition: transform var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-soft); }
+.ck:active, .pk:active { transform: scale(.94); }
+
+/* ── 弹层 / 吐司：玻璃 + 更沉的下投影 ── */
+.mask { background: rgba(22, 19, 16, .34); }
+.confirm { border-radius: var(--r-l); box-shadow: var(--el-3), var(--edge); }
+.sheet {
+  border-radius: var(--r-l) var(--r-l) 0 0;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 -2px 8px rgba(44, 40, 36, .06), 0 -22px 60px -20px rgba(44, 40, 36, .34);
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+/* 顶上的把手：既是「可以往下拖」的暗示，也是拖拽热区 */
+.sheet-grab {
+  width: 40px; height: 4px; margin: 8px auto 4px;
+  border-radius: var(--r-full); background: rgba(44, 40, 36, .16);
+  touch-action: none; cursor: grab;
+  transition: background var(--dur-2) var(--ease-soft);
+}
+.sheet-grab:active { background: rgba(44, 40, 36, .3); }
+.toast {
+  border-radius: var(--r-full);
+  background: rgba(44, 40, 36, .93);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--el-3);
+  padding: 11px 20px;
+  font-size: var(--fs-base);
+}
+
+/* ── 空态：一句主句 + 一句解释 ── */
+.empty { font-size: var(--fs-md); color: var(--ink-2); line-height: 1.7; }
+.empty::before { width: 64px; height: 64px; margin-bottom: var(--sp-4); box-shadow: var(--el-1), inset 0 0 0 1px var(--line); }
+
+/* ══════════════════════════════════════════════════════
+   动效
+   ══════════════════════════════════════════════════════ */
+
+/* App 推入用弹性曲线：尾巴那一点点回弹就是「不是网页」的感觉 */
+.app-view { transition: transform var(--dur-3) var(--spring), opacity var(--dur-3) var(--ease-soft); }
+.app-view:not(.in) { opacity: .7; }
+#home { transition: transform var(--dur-3) var(--spring), filter var(--dur-3) var(--ease-soft), opacity var(--dur-3) var(--ease-soft); }
+
+@keyframes viewIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 兜底：任何 App 打开，它的每一块都浮起一次。
+   以前只给名单里的容器挂动画，名单外的页面（时钟、计算器、聊天…）是硬切 ——
+   现在新页面不用再来「报个到」。 */
+.app-view.in > * { animation: viewIn var(--dur-3) var(--ease-out) both; }
+/* 导航栏是「机身」不是「内容」：只淡入，不跟着滑 —— 带 backdrop-filter 的元素位移容易闪 */
+.app-view.in > .nav { animation: fadeIn var(--dur-2) var(--ease-out) both; }
+.app-view.in > :nth-child(2) { animation-delay: var(--stagger); }
+.app-view.in > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.app-view.in > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.app-view.in > :nth-child(n+5) { animation-delay: calc(var(--stagger) * 4); }
+
+/* 已经做了行级错位的容器，自己只淡入 —— 容器跟行一起位移会「走两次」 */
+.app-view.in > .list,
+.app-view.in > .pad,
+.app-view.in > .wfeed,
+.app-view.in > .shop-list,
+.app-view.in > .cat-rail,
+.app-view.in > .chips,
+.app-view.in > .cart-rows,
+.app-view.in > .gd-grid,
+.app-view.in > .cat-grid,
+.app-view.in > .hot-rail,
+.app-view.in > .chat-list { animation: fadeIn var(--dur-2) var(--ease-out) both; }
+
+/* 行级错位：步长收进令牌，不再一行一个手写数字 */
+.app-view.in .list > *,
+.app-view.in .pad > *,
+.app-view.in .wfeed > *,
+.app-view.in .shop-list > *,
+.app-view.in .cat-rail > *,
+.app-view.in .chips > *,
+.app-view.in .cart-rows > *,
+.app-view.in .gd-grid > *,
+.app-view.in .cat-grid > *,
+.app-view.in .hot-rail > * { animation: riseIn var(--dur-3) var(--ease-out) both; }
+.app-view.in .list > :nth-child(2), .app-view.in .wfeed > :nth-child(2) { animation-delay: var(--stagger); }
+.app-view.in .list > :nth-child(3), .app-view.in .wfeed > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.app-view.in .list > :nth-child(4), .app-view.in .wfeed > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.app-view.in .list > :nth-child(5), .app-view.in .wfeed > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.app-view.in .list > :nth-child(n+6), .app-view.in .wfeed > :nth-child(n+6) { animation-delay: calc(var(--stagger) * 5); }
+
+/* 聊天记录：气泡一条条落下来，而不是整屏糊上来。
+   只给最近几条错位 —— 一屏几十条的老聊天记录不该等 2 秒。 */
+.app-view.in .chat-list > * { animation: riseIn var(--dur-3) var(--ease-out) both; }
+.app-view.in .chat-list > :nth-child(n+4) { animation-delay: 0ms; }
+
+/* 弹层、吐司、气泡：进出同一套时长与缓动 */
+.mask { animation: fadeIn var(--dur-2) var(--ease-out); }
+.sheet { animation: sheetUp var(--dur-3) var(--spring); }
+.mask.out .sheet { animation: sheetDown var(--dur-2) var(--ease-in) forwards; }
+.toast { animation: toastIn var(--dur-3) var(--spring); }
+.toast.out { animation: toastOut var(--dur-2) var(--ease-in) forwards; }
+.bubble { animation: pop var(--dur-3) var(--spring); }
+
+/* ══════════════════════════════════════════════════════
+   无障碍与响应式
+   ══════════════════════════════════════════════════════ */
+
+/* 键盘 / 读屏用户也要看得见焦点在哪 */
+#phone button:focus-visible,
+#phone a:focus-visible,
+#phone input:focus-visible,
+#phone textarea:focus-visible,
+#phone select:focus-visible,
+#phone [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 横滚列表的右边缘渐隐：不渐隐的话最后一个芯片会被硬切，看着像没做完。
+   只遮右边 —— 左边是起点，渐隐了反而像被吃掉。 */
+.walls, .chips, .cat-rail, .hot-rail {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+
+/* 手机里不该出现桌面滚动条 */
+#phone * { scrollbar-width: none; }
+#phone *::-webkit-scrollbar { width: 0; height: 0; }
+
+/* 小屏（320-360px）：留白收一档，别把内容挤没 */
+@media (max-width: 360px) {
+  .row { padding: 14px 14px; gap: 11px; }
+  .row::after { left: 66px; }
+  .pad { padding: 14px; }
+  .chat-list { padding: 16px 12px 20px; }
+  .nav-title { font-size: var(--fs-md); }
+}
+
+/* 矮屏 / 横屏：别把字顶出去 */
+@media (max-height: 560px) {
+  #lock-time { font-size: 62px; }
+  .widget-time { font-size: 34px; }
+  #pages { gap: 14px 8px; }
+}
+
+/* ══════════════════════════════════════════════════════
+   命中区与字号下限
+   实测（uiaudit）：42 个小目标里 21 个是导航按钮 —— 按不准的
+   恰好是最常按的东西。这里统一给到 44px（Apple HIG / Material 的下限），
+   滤镜芯片这类密集控件给 36px（和 iOS 分段控件同档）。
+   ══════════════════════════════════════════════════════ */
+#phone .nav-btn { min-height: 44px; padding: 0 14px; }
+#phone .nav-btn.plus { padding: 0 14px; }
+#phone .btn { min-height: 46px; }
+#phone .row-go {
+  min-height: 40px; padding: 0 14px;
+  display: inline-flex; align-items: center; border-radius: var(--r-full);
+}
+#phone .chip {
+  min-height: 36px; padding: 0 15px;
+  display: inline-flex; align-items: center;
+}
+#phone .cal-nav { width: 44px; height: 44px; border-radius: var(--r-s); }
+/* 商品卡右上角的收藏：视觉还是小的，但手指按得到（伪元素撑出 44px） */
+#phone .gd-fav { width: 30px; height: 30px; color: var(--ink-3); }
+#phone .gd-fav.on { color: var(--danger); }
+#phone .gd-fav::after { content: ''; position: absolute; inset: -7px; }
+
+/* 字号下限 11px：这些标注原本 10-10.5px，在手机上是一团虚影。
+   用 #phone 前缀压过各自的单类名规则，不必去改十几处。 */
+#phone .qk-name,
+#phone .wb-tag,
+#phone .msg-time,
+#phone .shop-rank,
+#phone .dish-hot,
+#phone .gd-off,
+#phone .gd-tag,
+#phone .gd-sales,
+#phone .wt-l,
+#phone .wg-wd,
+#phone .dbg-caret,
+#phone .msg-read,
+#phone .qt-who,
+#phone .qb-who { font-size: var(--fs-cap); }
+
+/* 数字一律等宽：余额、时间、价格刷新时不再左右跳 */
+#phone .row-time,
+#phone .msg-time,
+#phone .wal-bal-n,
+#phone .gd-price,
+#phone .cal-cell,
+#phone .wg-cell,
+#phone .vc-sec { font-variant-numeric: tabular-nums; }
+
+/* ══════════════════════════════════════════════════════
+   对比度根因：--accent(#7d9c94) 是装饰色，压在白底上只有 2.74:1。
+   实测（vischeck）抓出来的两类：
+     ① 用强调色「写文字」的 → 一律走 --accent-ink（5.16:1）
+     ② 白字压在强调色「面上」的 → 一律走 --accent-solid（4.77:1）
+   漏一个就等于漏一类，所以这张名单要跟着新页面一起长；
+   新写页面时直接用 var(--accent-ink) / var(--accent-solid)，不要用 --accent。
+   ══════════════════════════════════════════════════════ */
+#phone .cart-total,
+#phone .price,
+#phone .row-sub.done,
+#phone .dish-price,
+#phone .od-amt,
+#phone .hot-price,
+#phone .gd-price,
+#phone .gd-price i,
+#phone .mc-price,
+#phone .addr-def { color: var(--accent-ink); }
+
+#phone .ck.eq,
+#phone .cal-cell.today,
+#phone .dish-add,
+#phone .wg-cell.now { background: var(--accent-solid); }
+
+/* 橙黄系文字：原来 2.5–3.2:1，换成语义色里过标的那一支 */
+#phone .shop-star,
+#phone .dish-hot { color: var(--warn); }
+#phone .wb-warn,
+#phone .tag-sale,
+#phone .addr-act.danger { color: var(--danger); }
+

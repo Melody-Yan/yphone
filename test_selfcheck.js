@@ -5835,6 +5835,14 @@ console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
     dispatch(finp, 'change', {});
     await sleep(60);
   }
+  ok('没有时间戳的会话不乱算日期（老的 NaN月NaN日）',
+    sandbox.fmtAgo(undefined) === '' && sandbox.fmtAgo(0) === '' &&
+    sandbox.fmtAgo(null) === '' && sandbox.fmtAgo(NaN) === '',
+    JSON.stringify([sandbox.fmtAgo(undefined), sandbox.fmtAgo(0), sandbox.fmtAgo(NaN)]));
+  ok('有时间戳的照样算得出来',
+    sandbox.fmtAgo(Date.now() - 1000) === '刚刚' &&
+    /月/.test(sandbox.fmtAgo(Date.now() - 86400000 * 5)),
+    sandbox.fmtAgo(Date.now() - 86400000 * 5));
   ok('世界书 .json 不会被误建成人（提示一声就完事）',
     A.state.characters.length === 1 && /没认出角色卡/.test(toasts()), toasts() + ' / ' + A.state.characters.length);
 }

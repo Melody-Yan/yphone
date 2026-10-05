@@ -406,6 +406,9 @@ function myAvatarNode() {
 function sheet(items, head) {
   const mask = SJ.el('div', { class: 'mask sheet-mask' });
   const panel = SJ.el('div', { class: 'sheet' });
+  /* 顶上的把手：既是「可以往下拖」的暗示，也是拖拽热区（见下面的跟手关闭） */
+  const grab = SJ.el('div', { class: 'sheet-grab' });
+  panel.append(grab);
   if (head) panel.append(typeof head === 'string' ? SJ.el('div', { class: 'sheet-head' }, head) : head);
   items.forEach(it => panel.append(SJ.el('button', {
     class: 'sheet-item' + (it.off ? ' off' : ''),
@@ -420,6 +423,37 @@ function sheet(items, head) {
   ].filter(Boolean))));
   mask.append(panel);
   mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
+  /* ── 跟手下滑关闭：底部弹层的标准手势 ──
+     按住把手往下拖，面板跟着手指走、遮罩同步变淡；松手时
+     「拖过 80px」或「甩得够快（40px / 260ms 内）」就关，否则弹回去。
+     只挂在把手上：面板里可能有能滚的长列表，整块接管会抢掉滚动。
+     自检垫片不派发 pointer 事件，所以这段只影响真机。 */
+  if (typeof PointerEvent !== 'undefined') {
+    let y0 = 0, dy = 0, t0 = 0, down = false;
+    grab.addEventListener('pointerdown', e => {
+      down = true; y0 = e.clientY; dy = 0; t0 = Date.now();
+      panel.style.animation = 'none';       /* 进场动画的 transform 会压住跟手位移 */
+      panel.style.transition = 'none';
+      try { grab.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    grab.addEventListener('pointermove', e => {
+      if (!down) return;
+      dy = Math.max(0, e.clientY - y0);
+      panel.style.transform = 'translateY(' + dy + 'px)';
+      mask.style.opacity = String(Math.max(.2, 1 - dy / 340));
+    });
+    const grabEnd = () => {
+      if (!down) return;
+      down = false;
+      panel.style.transition = '';
+      const flick = dy > 40 && Date.now() - t0 < 260;
+      if (dy > 80 || flick) { dismiss(mask); return; }   /* dismiss 会加 .out 播滑出 */
+      panel.style.transform = '';                        /* 没够：弹回去 */
+      mask.style.opacity = '';
+    };
+    grab.addEventListener('pointerup', grabEnd);
+    grab.addEventListener('pointercancel', grabEnd);
+  }
   document.getElementById('phone').append(mask);
   return mask;
 }
@@ -676,7 +710,7 @@ const APPS = [
         box.append(SJ.el('div', { class: 'row', onclick: () => cardInp.click() }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '导入角色卡'),
-            SJ.el('div', { class: 'row-sub' }, '酒馆卡（.png / .json）、.docx 、.txt 都行，导进来还能改')
+            SJ.el('div', { class: 'row-sub' }, '.png / .json / .docx / .txt 都行')
           ]),
           SJ.el('div', { class: 'row-time' }, '导入 ›')
         ]), cardInp);

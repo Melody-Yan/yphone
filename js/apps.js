@@ -665,8 +665,21 @@ const APPS = [
         }));
         const box = SJ.el('div', { class: 'list' });
         if (!SJ.state.characters.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有角色。点右上角 ＋ 造一个，再去「微信」跟他说话。'));
+          box.append(SJ.el('div', { class: 'empty' }, '还没有角色。点右上角 ＋ 造一个，或者把别处的卡导进来。'));
         }
+        /* 导入卡片。选择器得挂在文档里（iOS Safari 的要求），
+           所以跟列表一起放 —— display:none 也能 .click() 唤起。 */
+        const cardInp = SJ.el('input', {
+          type: 'file', multiple: true, accept: '.png,.json,.docx,.txt,.md', style: { display: 'none' }
+        });
+        cardInp.addEventListener('change', () => importCard(cardInp));
+        box.append(SJ.el('div', { class: 'row', onclick: () => cardInp.click() }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, '导入角色卡'),
+            SJ.el('div', { class: 'row-sub' }, '酒馆卡（.png / .json）、.docx 、.txt 都行，导进来还能改')
+          ]),
+          SJ.el('div', { class: 'row-time' }, '导入 ›')
+        ]), cardInp);
         SJ.state.characters.slice().sort((a, b) => b.ts - a.ts).forEach(c => {
           box.append(SJ.el('div', { class: 'row', onclick: () => editView(c.id) }, [
             avatarNode(c),
@@ -681,6 +694,35 @@ const APPS = [
           ]));
         });
         root.append(box);
+      }
+
+      /* 把别处的卡读成一个人。读完直接存下来并打开编辑页 ——
+         卡里总有几个框对不上 yphone 的，让人当场改比我们猜得准。
+         .json 只当酒馆卡看：世界书也是 json，它落不到卡片的几个字段上，
+         当成纯文本再暖一遍只会变成一个乱七八糟的人。 */
+      async function importCard(inp) {
+        const files = Array.from((inp && inp.files) || []);
+        inp.value = '';
+        if (!files.length) return;
+        let first = null, made = 0;
+        for (const f of files) {
+          let card = null;
+          try {
+            const buf = await f.arrayBuffer();
+            if (/\.png$/i.test(f.name)) card = SJ.cardFromPng(buf);
+            else if (/\.docx$/i.test(f.name)) card = SJ.cardFromText(await SJ.docxText(buf));
+            else if (/\.json$/i.test(f.name)) card = SJ.cardFromJson(SJ.decodeText(buf));
+            else card = SJ.cardFromText(SJ.decodeText(buf));
+          } catch (e) { card = null; }
+          if (!card) { toast('「' + f.name + '」里没认出角色卡'); continue; }
+          const c = SJ.makeCharacter(card);
+          SJ.saveCharacter(c);
+          if (!first) first = c;
+          made++;
+        }
+        if (!made) return;
+        toast(made > 1 ? '导进来 ' + made + ' 个角色' : '导进来了 · 下面都能改');
+        editView(first.id);
       }
 
       function editView(id) {
@@ -1815,7 +1857,13 @@ const APPS = [
         const send = SJ.el('button', { class: 'chat-send' }, '发送');
         /* 引用条：长按某条消息 → 「引用回复」，它就出现在输入框上面 */
         const quoteBar = SJ.el('div', { class: 'quote-bar hide' });
-        root.append(list, quoteBar, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+        /* 接口监视面板的位置：夹在消息列表和输入框之间。
+           它跟输入框一样是正常排布的一块，所以压不到消息、压不到底栏、也压不到输入框
+           —— 以前它是挂在手机壳上的浮层，一开就把整条底部页签盖住。 */
+        const dbgHostEl = SJ.el('div', { class: 'dbg-host' });
+        root.append(list, quoteBar, dbgHostEl, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+        /* ⚠️ window.SHELL，不是 SJ.SHELL —— SHELL 只挂在 window 上（本文件其他地方也都这么写） */
+        if (window.SHELL && window.SHELL.setDebugHost) window.SHELL.setDebugHost(dbgHostEl);
 
         let quote = null;
         let readTag = null;
@@ -3042,9 +3090,18 @@ const APPS = [
             SJ.el('div', { class: 'row', onclick: () => fileInp.click() }, [
               SJ.el('div', { class: 'row-main' }, [
                 SJ.el('div', { class: 'row-title' }, '从文件导入'),
-                SJ.el('div', { class: 'row-sub' }, '.txt / .docx 按内容自己切成卡，导完还能改')
+                SJ.el('div', { class: 'row-sub' }, '.txt / .docx / .json 都能，按内容自己切成卡')
               ]),
               SJ.el('div', { class: 'row-time' }, '导入 ›')
+            ]),
+            SJ.el('div', { class: 'row', onclick: exportBook }, [
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, '导出世界书'),
+                SJ.el('div', { class: 'row-sub' },
+                  (n => n ? n + ' 张卡存成一个 .json —— 换台机器导回来一张不差'
+                          : '还没有卡可导')((SJ.state.worldbook || []).length))
+              ]),
+              SJ.el('div', { class: 'row-time' }, '导出 ›')
             ]),
             fileInp
           ]));
@@ -3255,6 +3312,36 @@ const APPS = [
 
       /* 关键词预览：拿一句话试，看会按什么顺序读到哪几张。
          这是唯一能当场验证「她到底读到了什么」的地方，别藏在设置里。 */
+      /* 导出整本。下载在某些浏览器 / 独立 PWA 里会被拦，
+         所以同时给一条「复制」—— 两条路总有一条能走，不会叫人卡在那里。 */
+      function exportBook() {
+        const cards = SJ.state.worldbook || [];
+        if (!cards.length) { toast('还没有卡可导'); return; }
+        const json = SJ.wbToJson(cards);
+        const d = new Date();
+        const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0')
+          + String(d.getDate()).padStart(2, '0');
+        sheet([
+          {
+            icon: '📄', label: '存成 .json 文件', hint: 'yphone-世界书-' + stamp + '.json',
+            run: () => toast(SJ.saveText('yphone-世界书-' + stamp + '.json', json)
+              ? '导好了 · ' + cards.length + ' 张卡'
+              : '这台设备不让下载，用下面那条「复制」')
+          },
+          {
+            icon: '📋', label: '复制 JSON', hint: '粘到哪儿都行，回头再导进来',
+            run: () => {
+              try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(json); toast('世界书 JSON 复制好了'); return;
+                }
+              } catch (e) {}
+              toast('这台设备不让复制，用上面那条「存成文件」');
+            }
+          }
+        ], SJ.el('div', { class: 'sheet-head' }, '导出 ' + cards.length + ' 张卡'));
+      }
+
       function previewView() {
         root.innerHTML = '';
         root.append(navBar('关键词预览', { back: homeView }));
@@ -3346,7 +3433,13 @@ const APPS = [
           keysecondary: json ? (x.keysecondary || []) : [],
           constant: json ? x.constant === true : impConst,
           enabled: json ? x.enabled !== false : true,
-          order: json && isFinite(Number(x.order)) ? Number(x.order) : 100
+          order: json && isFinite(Number(x.order)) ? Number(x.order) : 100,
+          /* 从 yphone 自己导出去的 JSON 带着归类 / 逻辑 / 绑定角色，原样还回去；
+             别处来的 JSON 没这一块，就用用户在上面选的归类。 */
+          cat: (json && x.cat) || impCat,
+          logic: json && isFinite(Number(x.logic)) ? Number(x.logic) : 0,
+          charIds: json && x.charIds && x.charIds.length
+            ? x.charIds.slice() : (onlyChar ? [onlyChar] : [])
         };
       }
 
@@ -3411,7 +3504,9 @@ const APPS = [
               : (secs.length
                 ? (anyJson ? 'JSON 里自带的关键词和常驻都照着搬。' : '导进来就是普通的卡，随时能改。')
                 : '一张都没切出来。'));
-          catSub.textContent = impCat;
+          catSub.textContent = secs.some(x => x.fromJson && x.cat)
+            ? 'JSON 里自带的归类（没带的才用下面选的：' + impCat + '）'
+            : impCat;
           constSub.textContent = impConst
             ? '没有关键词的卡每次对话都会带上 · ' + total + ' 字'
               + (total > 8000 ? '，有点重，可以只导其中几个文件' : '')
@@ -3448,7 +3543,7 @@ const APPS = [
               title: c.title, content: c.content,
               keys: c.keys, keysecondary: c.keysecondary,
               constant: c.constant, enabled: c.enabled, order: c.order,
-              cat: impCat, charIds: onlyChar ? [onlyChar] : []
+              cat: c.cat, logic: c.logic, charIds: c.charIds
             }));
           });
           toast('导进来 ' + secs.length + ' 张卡');
@@ -5214,10 +5309,11 @@ const APPS = [
           modelTip
         ]));
 
-        /* 调试控制栏：每次请求的 token / 耗时 / 报错。开着的时候右上角会多一条监视面板 */
+        /* 调试控制栏：每次请求的 token / 耗时 / 报错。
+           它只出现在聊天页、夹在消息和输入框之间，所以开着也不挡任何东西。 */
         box.append(SJ.el('div', { class: 'group-title' }, '调试'));
         box.append(toggleRow('接口监视',
-          '显示每次请求的 token、耗时和报错日志（只记在内存里，刷新就清空）',
+          '在聊天页输入框上面显示每次请求的 token、耗时和报错（点一下那一条可以折叠，只记在内存里，刷新就清空）',
           SJ.state.settings.debug === true,
           () => {
             const on = SJ.state.settings.debug !== true;

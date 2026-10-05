@@ -12,13 +12,19 @@ const homeEl = SJ.$('#home');
 const lockEl = SJ.$('#lock');
 
 /* ══════════════════════════════════════════════════════
-   调试控制栏：每次请求的 token / 耗时 / 报错。
-   挂在手机壳上而不是某个 App 里 —— 切 App 不该把它弄丢，排查问题时它得一直在。
+   调试控制栏（接口监视）：每次请求的 token / 耗时 / 报错。
+   ⚠️ 它只活在聊天页里，夹在消息列表和输入框之间。
+   以前是挂在手机壳上的常驻半透明浮层，把底部页签整个盖住 ——
+   开了以后微信点不进去、消息也发不出去，等于整台手机被它锁死。
+   现在折叠起来只有一行字（跟输入框一起排在上面），展开也只是把消息列表
+   往上顶，压不到底栏、压不到输入框。
    日志本身只放内存（core 那边管），刷新即清空。
    ══════════════════════════════════════════════════════ */
-let debugEl = null;
+let debugEl = null;      // 面板根节点；没开 / 不在聊天页就是 null
 let debugListEl = null;
 let debugSumEl = null;
+let debugHost = null;    // 聊天页留给它的位置，每次进聊天页都会换一个新的
+let debugOpen = false;   // 展开还是折叠（跟着 settings.dbgOpen 存）
 
 function debugPaint() {
   if (!debugListEl) return;
@@ -51,31 +57,60 @@ function debugPaint() {
   });
 }
 
-function mountDebug(on) {
-  if (debugEl) { debugEl.remove(); debugEl = null; debugListEl = null; debugSumEl = null; }
+/* 把面板挂进「聊天页留给它的那个位置」。没开、或者不在聊天页，就什么都不挂。 */
+function mountDebug() {
+  if (debugEl) debugEl.remove();
+  debugEl = null; debugListEl = null; debugSumEl = null;
   window.__dshApiLog = null;
-  if (!on) return;
-  const head = SJ.el('div', { class: 'dbg-head' }, [
+  if (!debugHost || SJ.state.settings.debug !== true) return;
+
+  debugOpen = SJ.state.settings.dbgOpen === true;
+  debugSumEl = SJ.el('span', { class: 'dbg-sum' }, '');
+  const caret = SJ.el('span', { class: 'dbg-caret' }, debugOpen ? '▾' : '▸');
+  const head = SJ.el('div', { class: 'dbg-head', onclick: () => toggleDebug() }, [
+    caret,
     SJ.el('span', { class: 'dbg-title' }, '接口监视'),
-    debugSumEl = SJ.el('span', { class: 'dbg-sum' }, '')
+    debugSumEl
   ]);
-  debugListEl = SJ.el('div', { class: 'dbg-list' });
-  const bar = SJ.el('div', { class: 'dbg-bar' }, [
-    SJ.el('button', { class: 'dbg-btn', onclick: () => { SJ.apiLogClear(); debugPaint(); } }, '清空'),
-    SJ.el('button', { class: 'dbg-btn', onclick: () => setDebug(false) }, '关闭')
+  const body = SJ.el('div', { class: 'dbg-body' + (debugOpen ? '' : ' hide') }, [
+    debugListEl = SJ.el('div', { class: 'dbg-list' }),
+    SJ.el('div', { class: 'dbg-bar' }, [
+      SJ.el('button', { class: 'dbg-btn', onclick: () => { SJ.apiLogClear(); debugPaint(); } }, '清空'),
+      SJ.el('button', { class: 'dbg-btn', onclick: () => setDebug(false) }, '关闭')
+    ])
   ]);
-  debugEl = SJ.el('div', { class: 'dbg-panel' }, [head, debugListEl, bar]);
-  phone.append(debugEl);
+  debugEl = SJ.el('div', { class: 'dbg-panel' }, [head, body]);
+  debugEl._body = body;
+  debugEl._caret = caret;
+  debugHost.append(debugEl);
   /* core 那边每记一条就往这儿推一次，不用轮询 */
   window.__dshApiLog = () => debugPaint();
   debugPaint();
 }
 
+function toggleDebug() {
+  debugOpen = !debugOpen;
+  SJ.state.settings.dbgOpen = debugOpen;
+  SJ.save();
+  if (!debugEl) return;
+  debugEl._body.classList.toggle('hide', !debugOpen);
+  debugEl._caret.textContent = debugOpen ? '▾' : '▸';
+  if (debugOpen) debugPaint();
+}
+
+/* 聊天页进来时调它登记位置；离开时说一声「位置没了」。
+   设置页那个开关就是靠这个把面板挂到「底下那个还活着的聊天页」上 ——
+   不然在设置里开了，返回聊天还得再进一次才看得见。 */
+function setDebugHost(el) {
+  debugHost = el || null;
+  mountDebug();
+}
+
 function setDebug(on) {
   SJ.state.settings.debug = !!on;
   SJ.save();
-  mountDebug(!!on);
-  if (window.toast) window.toast(on ? '接口监视已打开' : '接口监视已关闭');
+  mountDebug();
+  if (window.toast) window.toast(on ? '接口监视已打开 · 在聊天页输入框上面' : '接口监视已关闭');
 }
 
 
@@ -914,12 +949,12 @@ function boot() {
 
   // 暴露给调试和自检
   window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper,
-                   setDebug, mountDebug, debugPaint };
+                   setDebug, mountDebug, setDebugHost, debugPaint };
   // 设置页开启锁屏后，立刻锁上给用户看一眼
   window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };
 
-  /* 调试控制栏：上次开着的话，进来就还在（排查问题时不该每次重新打开） */
-  mountDebug(SJ.state.settings.debug === true);
+  /* 接口监视面板只活在聊天页里，等聊天页自己来登记位置（见 apps.js 的 chatView）。
+     这里不再往手机壳上挂东西 —— 挂上去就会盖住底部页签。 */
 
   /* 图片真实字节在 IndexedDB 里，读它是异步的。先拿占位图把桌面撑起来，
      开机那把读完再重画一次 —— 比让用户盯着白屏等一秒好。 */

@@ -1627,10 +1627,168 @@ function wbFromJson(text) {
       keysecondary: split(e.keysecondary || e.key2),
       constant: e.constant === true || e.constant === 'true',
       enabled: !(e.disable === true || e.disable === 'true' || e.enabled === false),
-      order: isFinite(Number(e.order)) ? Number(e.order) : 100
+      order: isFinite(Number(e.order)) ? Number(e.order) : 100,
+      /* yphone 自己导出来的会带这一块（归类 / 次关键词逻辑 / 绑定角色）。
+         别处的 JSON 没有，就是空值 —— 调用方自己回落到「用户在上面选的归类」。 */
+      cat: (e.x_yphone || e.yphone || {}).cat ? String((e.x_yphone || e.yphone).cat) : '',
+      logic: (e.x_yphone || e.yphone || {}).logic != null ? Number((e.x_yphone || e.yphone).logic) || 0 : 0,
+      charIds: Array.isArray((e.x_yphone || e.yphone || {}).charIds)
+        ? (e.x_yphone || e.yphone).charIds.map(String).filter(Boolean) : []
     });
   });
   return out.length ? out : null;
+}
+
+/* 世界书 → JSON。故意就用 wbFromJson 认得的那副骨架，
+   所以导出来的能原样再导回去（自己导自己不会掉东西）；
+   yphone 自己的归类 / 次关键词逻辑 / 绑定角色塞在 x_yphone 里 ——
+   酒馆那份格式不认这些，放在扩展字段里两边都干净（它忽略未知字段，我们读得到）。 */
+function wbToJson(list) {
+  const entries = {};
+  (list || state.worldbook || []).forEach((e, i) => {
+    if (!e) return;
+    entries[i] = {
+      uid: i,
+      comment: String(e.title || ''),
+      key: (e.keys || []).slice(),
+      keysecondary: (e.keysecondary || []).slice(),
+      content: String(e.content || ''),
+      constant: e.constant === true,
+      disable: e.enabled === false,
+      order: isFinite(Number(e.order)) ? Number(e.order) : 100,
+      x_yphone: { cat: wbCat(e.cat), logic: Number(e.logic) || 0, charIds: (e.charIds || []).slice() }
+    };
+  });
+  return JSON.stringify({ name: 'yphone 世界书', entries }, null, 2);
+}
+
+/* 存成一个文件。浏览器里就是「造 Blob → 造 a → 点一下」，没什么好封装的，就这一处。
+   失败返回 false —— 调用方要能告诉用户「没存成」，不能静默。 */
+function saveText(name, text, mime = 'application/json') {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = el('a', { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ══ 角色卡：把别处的卡读成 yphone 的一个人 ══
+   酒馆（SillyTavern）那套字段名 V1 / V2 基本一样，V2 只是多包了一层 data ——
+   有 data 就用它，没有就用顶层。
+   认得出就认，认不出返回 null，让调用方去提示；不硬套成一个空角色。 */
+
+function b64ToBytes(s) {
+  const bin = atob(String(s == null ? '' : s).replace(/\s+/g, ''));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 255;
+  return out;
+}
+/* 只管 ASCII 的那几段（关键字、base64）—— 真正的正文都在这之后当 UTF-8 解 */
+function asciiOf(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+  return s;
+}
+
+/* PNG 里藏卡：tEXt / iTXt 块的 keyword 是 chara（V2）或 ccv3（V3），值是 base64 的 JSON。
+   块结构：[长度4][类型4][数据…][crc4]，从第 8 字节开始（前 8 个是 PNG 签名）。
+   ⚠️ iTXt 的 keyword 后面还跟着「压缩位 / 压缩法 / 语言 / 译名」四个 \0 段，得跳过去。
+   ⚠️ 按长度走，不认识的块一律跳过 —— 认块名去找会被 IDAT 里的巧合字节骗到。 */
+function pngCardText(buf) {
+  const u8 = new Uint8Array(buf || []);
+  if (u8.length < 16) return '';
+  const be = i => ((u8[i] << 24) | (u8[i + 1] << 16) | (u8[i + 2] << 8) | u8[i + 3]) >>> 0;
+  let p = 8;
+  while (p + 8 <= u8.length) {
+    const len = be(p);
+    if (p + 12 + len > u8.length) break;
+    const type = String.fromCharCode(u8[p + 4], u8[p + 5], u8[p + 6], u8[p + 7]);
+    if (type === 'tEXt' || type === 'iTXt') {
+      const body = u8.subarray(p + 8, p + 8 + len);
+      let z = -1;
+      for (let i = 0; i < body.length; i++) if (body[i] === 0) { z = i; break; }
+      if (z > 0) {
+        const key = asciiOf(body.subarray(0, z));
+        if (key === 'chara' || key === 'ccv3') {
+          let at = z + 1;
+          if (type === 'iTXt') {
+            let n = 0;
+            for (let i = at; i < body.length; i++) if (body[i] === 0) { n++; if (n === 4) { at = i + 1; break; } }
+          }
+          try { return decodeText(b64ToBytes(asciiOf(body.subarray(at)))); } catch (e) { return ''; }
+        }
+      }
+    }
+    if (type === 'IEND') break;
+    p += 12 + len;
+  }
+  return '';
+}
+
+/* 酒馆卡 JSON → yphone 的人。
+   一张卡能带的设定比 yphone 一个字段多，所以按 yphone 的几个框重新归置：
+   描写 / 性格 / 场景 / 示例对话都进「人设」，开场白单独留一个框。 */
+function cardFromJson(text) {
+  let d;
+  try { d = JSON.parse(String(text)); } catch (e) { return null; }
+  if (!d || typeof d !== 'object') return null;
+  const v = (d.data && typeof d.data === 'object') ? d.data : d;
+  const str = x => String(x == null ? '' : x).trim();
+  const parts = [];
+  const put = (label, val) => { const t = str(val); if (t) parts.push(label ? label + '\n' + t : t); };
+  put('', v.description);
+  put('性格', v.personality);
+  put('场景', v.scenario);
+  /* 示例对话是模仿口吻最有用的一段，别丢；但要写清是给口吻当参考，不是让它照抄剧情 */
+  put('说话方式参考（照着这个口吻，别照抄内容）', v.mes_example || v.example_dialogue);
+  const persona = parts.join('\n\n');
+  const name = str(v.name || v.char_name);
+  if (!name && !persona) return null;
+  return {
+    name: (name || '导入的角色').slice(0, NAME_MAX),
+    desc: str(v.creator_notes).split('\n')[0].slice(0, 60),
+    persona,
+    greeting: str(v.first_mes || v.greeting)
+  };
+}
+
+function cardFromPng(buf) {
+  const t = pngCardText(buf);
+  return t ? cardFromJson(t) : null;
+}
+
+/* .docx / .txt 没有标准格式，所以只抓两件确定的事：
+   「名字：X」那一行当名字、「开场白」那一段当开场白，其余全进人设。
+   猜错了最多是名字难看一点，正文一个字都不会丢（都在卡里，编辑器里能改）。 */
+function cardFromText(text) {
+  const raw = String(text || '').replace(/\r/g, '').trim();
+  if (!raw) return null;
+  const lines = raw.split('\n');
+  /* 去掉 markdown / 大纲符号再比，不然「# 名字：小雨」这种就漏了 */
+  const head = l => String(l).replace(/^[\s#*\-–—>•]+/, '').trim();
+  const NAME_RE = /^(?:名字|姓名|名称|角色名|称呼|name|char_name)\s*[:：]\s*(.+)$/i;
+  const GREET_RE = /^(?:开场白|问候语|初次见面|第一句话|first_mes|greeting)\s*[:：]?\s*$/i;
+  let name = '', gAt = -1;
+  lines.forEach((l, i) => {
+    if (!name) {
+      const m = head(l).match(NAME_RE);
+      if (m) { name = m[1].trim().slice(0, NAME_MAX); return; }
+    }
+    if (gAt < 0 && GREET_RE.test(head(l))) gAt = i;
+  });
+  const before = (gAt < 0 ? lines : lines.slice(0, gAt)).join('\n').trim();
+  const greet = gAt < 0 ? '' : lines.slice(gAt + 1).join('\n').trim();
+  /* 连名字行都没写：拿第一行当名字，但那一行仍然留在人设里 —— 宁可重复，不可丢 */
+  if (!name) {
+    const first = head(lines.find(l => String(l).trim()) || '');
+    if (first && first.length <= NAME_MAX && !/[。！？!?]$/.test(first)) name = first;
+  }
+  if (!before && !greet) return null;
+  return { name: name || '导入的角色', desc: '', persona: before, greeting: greet };
 }
 
 function wbGuessCat(text) {
@@ -3690,7 +3848,9 @@ window.SJ = {
   /* 世界书 / 记忆 / 日历 */
   makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups, wbSorted,
   moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
-  wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, wbFromJson, docxText, decodeText, xmlToText,
+  wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, wbFromJson, wbToJson, saveText,
+  cardFromJson, cardFromPng, cardFromText, pngCardText,
+  docxText, decodeText, xmlToText,
   WB_TEXT_MAX,
   WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,
   memories, addMemory, deleteMemory, clearMemories,

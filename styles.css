@@ -1891,23 +1891,31 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 #phone.dark-wall .od-gift { color: #e2c489; }
 
 /* ── 调试控制栏（接口监视）──
-   挂在 #phone 上面，覆盖在底部页签之上。刻意做成半透明深色：
-   它是排查工具，不该跟手机本身的长相混在一起，一眼就知道是「外挂」。 */
+   夹在消息列表和输入框之间，是正常排布的一块，不是浮层。
+   以前它 position:absolute 贴在手机壳底部、半透明盖在页签之上 ——
+   开了以后微信点不进去、消息也发不出去，等于整台手机被它锁死。
+   折叠起来一行字；展开也只是把消息列表顶上去，压不到任何东西。
+   刻意做成半透明深色：它是排查工具，不该跟手机本身的长相混在一起。 */
+.dbg-host { flex: 0 0 auto; }
 .dbg-panel {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 95;
-  max-height: 46%; display: flex; flex-direction: column;
+  display: flex; flex-direction: column;
+  max-height: 46vh;
   background: rgba(38, 35, 32, .94); color: #f2eee9;
   font-size: 11.5px; line-height: 1.5;
   border-top: 1px solid rgba(255, 255, 255, .18);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .dbg-head {
   display: flex; align-items: baseline; gap: 8px;
-  padding: 8px 12px 6px; border-bottom: 1px solid rgba(255, 255, 255, .12);
+  padding: 7px 12px; cursor: pointer;
 }
+.dbg-head:active { background: rgba(255, 255, 255, .08); }
+.dbg-caret { flex: 0 0 auto; color: #bdb5aa; font-size: 10px; }
 .dbg-title { font-weight: 600; font-size: 12px; flex: 0 0 auto; }
 .dbg-sum { color: #bdb5aa; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbg-list { overflow-y: auto; padding: 4px 0; flex: 1 1 auto; }
+/* 折叠 = 只剩 .dbg-head 那一行；展开时 .dbg-body 撑开，消息列表自己缩短 */
+.dbg-body { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; border-top: 1px solid rgba(255, 255, 255, .12); }
+.dbg-body.hide { display: none; }
+.dbg-list { overflow-y: auto; padding: 4px 0; flex: 1 1 auto; min-height: 0; }
 .dbg-empty { padding: 10px 12px; color: #8d857b; }
 .dbg-row { padding: 5px 12px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
 .dbg-row.err { background: rgba(190, 90, 80, .22); }

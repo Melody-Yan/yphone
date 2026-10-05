@@ -163,7 +163,7 @@ function makeSandbox() {
     document: body,
     /* core.js 里 decodeText / docxText 用的是浏览器自带件。node 24 全都有，
        给沙箱补上，导入那一套才能在自检里真的跑一遍解压。 */
-    TextDecoder, TextEncoder, Response, DecompressionStream
+    TextDecoder, TextEncoder, Response, DecompressionStream, atob, btoa
   };
   s.window = s; s.globalThis = s;
   return s;
@@ -5257,20 +5257,26 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   App.apiLog({ tag: '聊天', ms: 12, usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 } });
   App.apiLog({ tag: '聊天', ms: 30, error: 'HTTP 503 · 无可用渠道' });
   if (sandbox.SHELL && sandbox.SHELL.mountDebug) {
-    sandbox.SHELL.mountDebug(true);
-    const panel = walk(byId.phone).find(n => n._class.has('dbg-panel'));
+    /* 面板只活在聊天页里，所以先给它一个位置（真跑时由 chatView 登记）。
+       顺手钉住那个 bug：它不该挂在 #phone 上 —— 挂上去就盖住底部页签。 */
+    const dbgHost = sandbox.SJ.el('div', { class: 'dbg-host' });
+    byId.stack.append(dbgHost);
+    sandbox.SHELL.setDebugHost(dbgHost);
+    const panel = walk(dbgHost).find(n => n._class.has('dbg-panel'));
     ok('调试栏面板画出来了', !!panel, '没找到 .dbg-panel');
+    ok('调试栏不挂在手机壳上（压不到底部页签）',
+      !walk(byId.phone).some(n => n._class.has('dbg-panel') && n.parentNode === byId.phone));
     ok('面板上显示累计 token', !!panel && /token/.test(panel.textContent), panel && panel.textContent.slice(0, 80));
-    const rows = walk(byId.phone).filter(n => n._class.has('dbg-row'));
+    const rows = walk(dbgHost).filter(n => n._class.has('dbg-row'));
     ok('两条日志都列出来了', rows.length === 2, String(rows.length));
-    const errRow = walk(byId.phone).find(n => n._class.has('dbg-row') && n._class.has('err'));
+    const errRow = walk(dbgHost).find(n => n._class.has('dbg-row') && n._class.has('err'));
     ok('报错那条被标成 err', !!errRow, JSON.stringify(rows.map(r => [...r._class].join('.'))));
     ok('报错正文看得见', !!errRow && errRow.textContent.includes('无可用渠道'), errRow && errRow.textContent);
     const tokenRow = rows.find(r => !r._class.has('err'));
     ok('成功那条显示 token 明细', !!tokenRow && tokenRow.textContent.includes('11'),
       tokenRow && tokenRow.textContent);
-    sandbox.SHELL.mountDebug(false);
-    ok('关掉之后面板没了', !walk(byId.phone).some(n => n._class.has('dbg-panel')));
+    sandbox.SHELL.setDebug(false);
+    ok('关掉之后面板没了', !walk(dbgHost).some(n => n._class.has('dbg-panel')));
   } else {
     ok('SHELL 暴露了 mountDebug', false, 'sandbox.SHELL.mountDebug 不存在');
   }
@@ -5635,6 +5641,204 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
   ok('总开关关掉后群里也不带', !App.buildGroupSystem(grp, histSecret).includes('修仙世界'));
   App.state.settings.wbOn = true;
 }
+
+/* 19. 接口监视（折叠 + 只属于聊天页）/ 世界书导出 / 角色卡导入 */
+console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
+{
+  /* 前面的用例里有人又 boot() 过，直接拿 sandbox.SJ 会拿到前一份旧沙箱的引用 ——
+     改它的 state 改的是废物。自己先 boot 一次，再取。 */
+  boot();
+  const A = sandbox.SJ, Sh = sandbox.SHELL;
+  const nodes = n => walk(n);
+  const topNodes = () => nodes(Sh.stack[Sh.stack.length - 1].node);
+
+  /* ── 接口监视：以前挂在手机壳上，把底部页签整个盖住 ──
+     现在它只属于聊天页，是一个正常排布的块，折叠起来只有一行。 */
+  sandbox.SJ.state.characters = [];
+  sandbox.SJ.state.chats = {};
+  const mon = A.saveCharacter(A.makeCharacter({ name: '监视用', desc: 'x', persona: 'y', greeting: 'z' }));
+  A.state.settings.debug = true;
+  A.state.settings.dbgOpen = false;
+  Sh.closeAll();
+  Sh.openApp('chat');
+  nodes(Sh.stack[0].node).find(n => n._class.has('row') && n.textContent.includes('监视用')).click();
+
+  const chat = Sh.stack[Sh.stack.length - 1].node;
+  ok('聊天页里挂上了接口监视面板', nodes(chat).some(n => n._class.has('dbg-panel')));
+  /* 这条就是用户报的那个 bug：面板贴在 #phone 上 = 盖住底栏，微信点不进去 */
+  ok('面板不再挂在手机壳上（所以压不到底部页签）',
+    !nodes(byId.phone).some(n => n._class.has('dbg-panel') && n.parentNode === byId.phone));
+  const kids = chat.children;
+  const iList = kids.findIndex(n => n._class.has('chat-list'));
+  const iDbg = kids.findIndex(n => n._class.has('dbg-host'));
+  const iBar = kids.findIndex(n => n._class.has('chat-bar'));
+  ok('面板夹在消息列表和输入框之间（顺序：列表 → 面板位 → 输入条）',
+    iList >= 0 && iDbg > iList && iBar > iDbg, `${iList} / ${iDbg} / ${iBar}`);
+  const body = nodes(chat).find(n => n._class.has('dbg-body'));
+  ok('打开后默认是折叠的，只剩一行', !!body && body._class.has('hide'));
+  nodes(chat).find(n => n._class.has('dbg-head')).click();
+  ok('点那一行能展开', !body._class.has('hide'));
+  ok('展开后能看到「清空 / 关闭」', nodes(chat).some(n => n._class.has('dbg-btn') && n.textContent === '关闭'));
+  nodes(chat).find(n => n._class.has('dbg-head')).click();
+  ok('再点一下收起', body._class.has('hide'));
+
+  /* 设置页那个开关：聊天页还在底下时，开了就该当场挂上去（不用退出去重进） */
+  A.state.settings.debug = false;
+  Sh.setDebug(false);
+  ok('关掉后聊天页里就没有面板了', !nodes(chat).some(n => n._class.has('dbg-panel')));
+  Sh.setDebug(true);
+  ok('从设置里打开，底下还活着的聊天页当场就有了',
+    nodes(chat).some(n => n._class.has('dbg-panel')));
+  /* 别的页面不该有它 —— 「只在聊天界面能看到」 */
+  Sh.openApp('settings');
+  const st = Sh.stack[Sh.stack.length - 1].node;
+  ok('设置页里没有这个面板', !nodes(st).some(n => n._class.has('dbg-panel')));
+  ok('聊天页里那个还在（只是被设置页盖住在下面）',
+    nodes(chat).some(n => n._class.has('dbg-panel')));
+  Sh.setDebug(false);
+  A.state.settings.debug = false;
+
+  /* ── 世界书导出：导出来得能原样导回去 ── */
+  A.state.worldbook = [];
+  A.saveEntry(A.makeEntry({
+    title: '雨城', content: '这里常年下雨。', keys: ['雨城', '下雨'], keysecondary: ['伞'],
+    constant: false, enabled: true, order: 30, cat: '世界观', logic: 1, charIds: ['zz']
+  }));
+  A.saveEntry(A.makeEntry({
+    title: '铁律', content: '永远不要跳出角色。', constant: true, enabled: false, order: 100, cat: '破限'
+  }));
+  const dumped = A.wbToJson(A.state.worldbook);
+  ok('导出的是 JSON，顶层是 entries', /"entries"/.test(dumped), dumped.slice(0, 40));
+  const reload = A.wbFromJson(dumped);
+  ok('导出来的能原样导回来（2 张卡）', !!reload && reload.length === 2,
+    JSON.stringify(reload && reload.map(c => c.title)));
+  ok('标题 / 正文 / 关键词 / 次关键词 一张不差',
+    reload[0].title === '雨城' && reload[0].content === '这里常年下雨。' &&
+    reload[0].keys.join('|') === '雨城|下雨' && reload[0].keysecondary.join('|') === '伞',
+    JSON.stringify(reload[0]).slice(0, 120));
+  ok('常驻 / 停用 / order 也原样回来',
+    reload[1].constant === true && reload[0].constant === false &&
+    reload[1].enabled === false && reload[0].order === 30,
+    JSON.stringify(reload.map(c => [c.constant, c.enabled, c.order])));
+  ok('yphone 自己的归类 / 绑定角色 / 逻辑也在（x_yphone 一起走）',
+    reload[0].cat === '世界观' && reload[0].charIds.join('|') === 'zz' && reload[0].logic === 1,
+    JSON.stringify([reload[0].cat, reload[0].charIds, reload[0].logic]));
+  ok('别处来的 JSON 没有 x_yphone 时，归类是空的（好回落到用户选的）',
+    A.wbFromJson('{"entries":{"0":{"content":"x"}}}')[0].cat === '');
+
+  Sh.closeAll();
+  Sh.openApp('worldbook');
+  ok('世界书首页有「导出世界书」那一行',
+    topNodes().some(n => n.textContent.trim() === '导出世界书'));
+  topNodes().find(n => n.textContent.trim() === '导出世界书').click();
+  ok('点它弹出「存成文件 / 复制」两条路', sheetLabels().includes('存成 .json 文件') && sheetLabels().includes('复制 JSON'),
+    JSON.stringify(sheetLabels()));
+  clickSheet('存成 .json 文件');
+  ok('导出成功会说实话（真的存了才说存了）', /导好了|不让下载/.test(toasts()), toasts());
+  Sh.closeAll();
+
+  /* ── 角色卡：酒馆 V2 / V1 / PNG / docx 纯文本 ── */
+  const stV2 = JSON.stringify({
+    spec: 'chara_card_v2', spec_version: '2.0',
+    data: {
+      name: '林小雨', description: '住在海边小镇。', personality: '话少，爱用省略号。',
+      scenario: '{{user}} 是她的邻居。', first_mes: '……你也住这儿？',
+      mes_example: '<START>\n{{user}}: 早\n{{char}}: ……早。', creator_notes: '某站的卡'
+    }
+  });
+  const c2 = A.cardFromJson(stV2);
+  ok('酒馆 V2 卡（data 包一层）读得出名字', !!c2 && c2.name === '林小雨', c2 && c2.name);
+  ok('描写 / 性格 / 场景 都进人设',
+    c2.persona.includes('住在海边小镇') && c2.persona.includes('话少') && c2.persona.includes('邻居'));
+  ok('示例对话进人设，而且写明是照着口吻、别照抄',
+    c2.persona.includes('说话方式参考') && c2.persona.includes('……早。'));
+  ok('first_mes 进开场白', c2.greeting === '……你也住这儿？', c2.greeting);
+  ok('creator_notes 进简介', c2.desc === '某站的卡', c2.desc);
+  const c1 = A.cardFromJson(JSON.stringify({ name: '平铺的', description: 'V1 格式', first_mes: '在。' }));
+  ok('酒馆 V1 卡（没包 data）一样认', !!c1 && c1.name === '平铺的' && c1.greeting === '在。');
+  ok('世界书 JSON / 空对象 / 不是 JSON 都不当成角色卡',
+    A.cardFromJson('{"entries":{"0":{"content":"x"}}}') === null &&
+    A.cardFromJson('[]') === null && A.cardFromJson('这是段话，不是 json') === null);
+
+  /* 手工拼一个带 tEXt / iTXt 块的 PNG：签名 + IHDR + 卡块 + IEND。
+     core 按块长走、不看 CRC，所以这里 CRC 留 0 也能验到真正的读块逻辑。 */
+  function cardPng(obj, keyword, iTXt) {
+    const b64 = Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
+    const body = Buffer.from((keyword || 'chara') + '\0' + (iTXt ? '\0\0\0\0' : '') + b64, 'latin1');
+    const chunk = (type, data) => {
+      const h = Buffer.alloc(8);
+      h.writeUInt32BE(data.length, 0);
+      h.write(type, 4, 'latin1');
+      return Buffer.concat([h, data, Buffer.alloc(4)]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 6;
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+      chunk('IHDR', ihdr), chunk(iTXt ? 'iTXt' : 'tEXt', body), chunk('IEND', Buffer.alloc(0))
+    ]);
+  }
+  const pngCard = A.cardFromPng(cardPng({ spec: 'chara_card_v2', data: { name: 'PNG 里的人', description: '从图里读出来的。' } }));
+  ok('酒馆 PNG 卡（tEXt chara 块）能读出来',
+    !!pngCard && pngCard.name === 'PNG 里的人' && pngCard.persona.includes('从图里读出来的'),
+    JSON.stringify(pngCard).slice(0, 90));
+  ok('ccv3 那个关键字也认',
+    (A.cardFromPng(cardPng({ data: { name: 'V3 的' } }, 'ccv3')) || {}).name === 'V3 的');
+  ok('iTXt 块也认（keyword 后面多四个 \\0 段要跳过）',
+    (A.cardFromPng(cardPng({ data: { name: 'iTXt 的' } }, 'chara', true)) || {}).name === 'iTXt 的');
+  ok('卡块叫别的名字就返回空，不硬套', A.pngCardText(cardPng({ data: { name: 'x' } }, 'Comment')) === '');
+  ok('不是 PNG 的字节也不炸', A.pngCardText(Buffer.from('这不是图片')) === '');
+
+  const dt = '角色设定\n名字：林小雨\n性格：话少\n说话方式：爱用省略号\n\n开场白\n……你也住这儿？\n';
+  const ct = A.cardFromText(dt);
+  ok('纯文本 / docx：「名字：」那一行当名字', ct.name === '林小雨', ct.name);
+  ok('纯文本：「开场白」那一段单独进开场白', ct.greeting.indexOf('你也住这儿') >= 0, ct.greeting);
+  ok('纯文本：开场白以前的正文进人设',
+    ct.persona.includes('角色设定') && ct.persona.includes('爱用省略号') && !ct.persona.includes('你也住这儿'));
+  ok('纯文本：没写「名字：」时拿第一行当名字，正文一个字不丢',
+    (() => { const r = A.cardFromText('林小雨\n她住在海边。'); return r.name === '林小雨' && r.persona.includes('住在海边'); })());
+  ok('空文本返回 null', A.cardFromText('   ') === null);
+
+  /* ── 通讯录：那条入口 + 真走一遍 importCard ── */
+  A.state.characters = [];
+  Sh.closeAll();
+  Sh.openApp('contacts');
+  const cv = Sh.stack[0].node;
+  /* 按 class 找那一行 —— 只看 textContent 的话会挑中里面那个 .row-title，它没有点击行为 */
+  const cardRow = nodes(cv).find(n => n._class.has('row') && n.textContent.includes('导入角色卡'));
+  ok('通讯录里有「导入角色卡」', !!cardRow);
+  /* 光有那一行不算数 —— 它得真接着文件选择器，不然点了没反应 */
+  ok('那一行点得动（接着文件选择器，不是个死的行）',
+    !!cardRow && !!(cardRow._listeners && cardRow._listeners.click && cardRow._listeners.click.length));
+  const finp = nodes(cv).find(n => n.tagName === 'INPUT' && n.attrs.type === 'file');
+  ok('文件选择器挂在视图里（iOS Safari 要求它在文档里才能唤起）', !!finp);
+  if (finp) {
+    finp.files = [{ name: '卡.json', arrayBuffer: async () => {
+      const b = Buffer.from(stV2, 'utf8');
+      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+    } }];
+    dispatch(finp, 'change', {});
+    await sleep(60);
+  }
+  ok('走通 importCard：角色建出来了', A.state.characters.length === 1 && A.state.characters[0].name === '林小雨',
+    JSON.stringify(A.state.characters.map(c => c.name)));
+  ok('人设和开场白都填进去了',
+    !!A.state.characters[0] && A.state.characters[0].persona.includes('海边') && A.state.characters[0].greeting.includes('你也住这儿'));
+  ok('导完直接落在编辑页，当场就能改', topNodes().some(n => n.textContent.trim() === '编辑角色'));
+
+  /* 认不出来的文件：说一声，不能悄悄建个空角色 */
+  if (finp) {
+    finp.files = [{ name: '世界书.json', arrayBuffer: async () => {
+      const b = Buffer.from('{"entries":{"0":{"content":"x","comment":"c"}}}', 'utf8');
+      return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+    } }];
+    dispatch(finp, 'change', {});
+    await sleep(60);
+  }
+  ok('世界书 .json 不会被误建成人（提示一声就完事）',
+    A.state.characters.length === 1 && /没认出角色卡/.test(toasts()), toasts() + ' / ' + A.state.characters.length);
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

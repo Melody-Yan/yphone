@@ -496,6 +496,19 @@ function popover(items, { head, bottom = 92 } = {}) {
   return mask;
 }
 
+/* ── 空态组件 ──
+   以前每个 App 自己写一行灰字（.empty），冷冰冰的。
+   统一成一个：图标底 + 主句 + 解释 + 一个主按钮，新 App 直接用。 */
+function emptyState(icon, title, sub, action, run) {
+  return SJ.el('div', { class: 'empty-state' }, [
+    SJ.el('div', { class: 'es-ico', html: svg(icon, 26) }),
+    SJ.el('div', { class: 'es-title' }, title),
+    sub ? SJ.el('div', { class: 'es-sub' }, sub) : null,
+    action ? SJ.el('button', { class: 'btn es-btn', onclick: run }, action) : null
+  ].filter(Boolean));
+}
+window.emptyState = emptyState;
+
 /* 一闪而过的提示（不做成弹窗，别打断打字） */
 function toast(msg) {
   const t = SJ.el('div', { class: 'toast' }, msg);
@@ -735,36 +748,69 @@ const APPS = [
         root.append(navBar('通讯录', {
           right: SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null) }, '＋')
         }));
-        const box = SJ.el('div', { class: 'list' });
-        if (!SJ.state.characters.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有角色。点右上角 ＋ 造一个，或者把别处的卡导进来。'));
-        }
+        const box = SJ.el('div', { class: 'list contact-list' });
         /* 导入卡片。选择器得挂在文档里（iOS Safari 的要求），
            所以跟列表一起放 —— display:none 也能 .click() 唤起。 */
         const cardInp = SJ.el('input', {
           type: 'file', multiple: true, accept: '.png,.json,.docx,.txt,.md', style: { display: 'none' }
         });
         cardInp.addEventListener('change', () => importCard(cardInp));
-        box.append(SJ.el('div', { class: 'row', onclick: () => cardInp.click() }, [
+        const body = SJ.el('div', { class: 'contact-body' });
+        /* 名册的规模一上去就得能找 —— 名字 / 简介 / 人设一起搜 */
+        const search = SJ.el('input', {
+          class: 'field search', type: 'search', placeholder: '搜名字 / 简介'
+        });
+        search.addEventListener('input', render);
+        box.append(SJ.el('div', { class: 'search-wrap' }, search), body, cardInp);
+
+        function render() {
+          body.innerHTML = '';
+          const q = (search.value || '').trim().toLowerCase();
+          const all = SJ.state.characters.slice().sort((a, b) => b.ts - a.ts);
+          if (!all.length) {
+            body.append(emptyState('people', '还没有角色',
+              '点右上角 ＋ 造一个，或者把别处的卡导进来', '造一个', () => editView(null)));
+            body.append(importRow());        /* 一个人都没有的时候，导入最该给 */
+            return;
+          }
+          const list = q
+            ? all.filter(c => ((c.name || '') + ' ' + (c.desc || '') + ' ' + (c.persona || '')).toLowerCase().indexOf(q) >= 0)
+            : all;
+          body.append(SJ.el('div', { class: 'group-title' },
+            q ? '找到 ' + list.length + ' 个' : all.length + ' 个角色'));
+          if (q && !list.length) {
+            body.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } }, '换个词试试'));
+            return;
+          }
+          list.forEach(c => {
+            const last = SJ.messages(c.id).slice(-1)[0];
+            body.append(SJ.el('div', { class: 'row contact', onclick: () => editView(c.id) }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, c.name),
+                SJ.el('div', { class: 'row-sub' }, c.desc || (c.persona || '').slice(0, 36) || '还没有简介'),
+                c.relation ? SJ.el('div', { class: 'contact-tags' }, [
+                  SJ.el('span', { class: 'tag' }, c.relation)
+                ]) : null
+              ].filter(Boolean)),
+              last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null,
+              SJ.el('button', {
+                class: 'row-go',
+                onclick: e => { e.stopPropagation(); if (window.SHELL) window.SHELL.openApp('chat', c.id); }
+              }, '发消息')
+            ].filter(Boolean)));
+          });
+          /* 导入放最后：它是「加人」的次要入口，不该排在一堆人前面 */
+          body.append(importRow());
+        }
+        const importRow = () => SJ.el('div', { class: 'row row-add', onclick: () => cardInp.click() }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '导入角色卡'),
             SJ.el('div', { class: 'row-sub' }, '.png / .json / .docx / .txt 都行')
           ]),
           SJ.el('div', { class: 'row-time' }, '导入 ›')
-        ]), cardInp);
-        SJ.state.characters.slice().sort((a, b) => b.ts - a.ts).forEach(c => {
-          box.append(SJ.el('div', { class: 'row', onclick: () => editView(c.id) }, [
-            avatarNode(c),
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, c.name),
-              SJ.el('div', { class: 'row-sub' }, c.desc || (c.persona || '').slice(0, 36) || '还没有简介')
-            ]),
-            SJ.el('button', {
-              class: 'row-go',
-              onclick: e => { e.stopPropagation(); if (window.SHELL) window.SHELL.openApp('chat', c.id); }
-            }, '发消息')
-          ]));
-        });
+        ]);
+        render();
         root.append(box);
       }
 
@@ -2797,20 +2843,32 @@ const APPS = [
         root.append(navBar('备忘录', {
           right: SJ.el('button', { class: 'nav-btn', onclick: editView.bind(null, null) }, '＋')
         }));
-        const box = SJ.el('div', { class: 'list' });
+        const box = SJ.el('div', { class: 'list note-list' });
         if (!SJ.state.notes.length) {
-          box.append(SJ.el('div', { class: 'empty' }, '还没有备忘录，点右上角 ＋ 新建'));
+          box.append(emptyState('note', '还没有备忘录', '写点要记住的事，改起来随时能改', '写第一条',
+            () => editView(null)));
+        } else {
+          /* 按天分组：分组标题本身带信息（今天有几条），不是装饰。
+             卡片是两列便签墙 —— 高度随内容变，不是一排等高的格子。 */
+          const all = SJ.state.notes.slice().sort((a, b) => b.ts - a.ts);
+          const day = ts => Math.floor((Date.now() - ts) / 86400000);
+          const BUCKETS = [['今天', n => day(n.ts) < 1], ['昨天', n => day(n.ts) < 2],
+                           ['这一周', n => day(n.ts) < 7], ['更早', () => true]];
+          let rest = all;
+          BUCKETS.forEach(([label, hit]) => {
+            const part = rest.filter(hit);
+            if (!part.length) return;
+            rest = rest.filter(n => part.indexOf(n) < 0);
+            box.append(SJ.el('div', { class: 'group-title' }, label + ' · ' + part.length));
+            const grid = SJ.el('div', { class: 'note-grid' });
+            part.forEach(n => grid.append(SJ.el('div', { class: 'note-card', onclick: () => editView(n.id) }, [
+              SJ.el('div', { class: 'nc-title' }, n.title || '无标题'),
+              n.body ? SJ.el('div', { class: 'nc-body' }, n.body) : null,
+              SJ.el('div', { class: 'nc-time' }, SJ.fmtAgo(n.ts) || '刚刚')
+            ].filter(Boolean))));
+            box.append(grid);
+          });
         }
-        SJ.state.notes
-          .slice()
-          .sort((a, b) => b.ts - a.ts)
-          .forEach(n => box.append(SJ.el('div', { class: 'row', onclick: () => editView(n.id) }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, n.title || '无标题'),
-              SJ.el('div', { class: 'row-sub' }, (n.body || '').slice(0, 40) || '空')
-            ]),
-            SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(n.ts))
-          ])));
         root.append(box);
       }
 

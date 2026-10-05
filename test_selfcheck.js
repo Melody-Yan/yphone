@@ -2191,8 +2191,8 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
 
   /* ── 壁纸：改成「存 id」，不再是整条 CSS ── */
   const wById = id => App.WALLS.find(w => w[0] === id);
-  ok('内置壁纸 8 张照片 + 7 张莫兰迪，id 是写死的字面量', App.wallList().length === 15 &&
-    App.wallList()[0].id === 'p0' && App.wallList()[8].id === 'w0',
+  ok('内置壁纸 11 张照片 + 7 张灰阶，id 是写死的字面量', App.wallList().length === 18 &&
+    App.wallList()[0].id === 'p8' && App.wallList()[11].id === 'w0',
     App.wallList().map(w => w.id).join(','));
   ok('照片壁纸指向 img/ 里的 webp', App.wallCSS('p0') === 'url("img/wall-window.webp") center / cover no-repeat', App.wallCSS('p0'));
   ok('wallCSS 按 id 取回那条渐变', App.wallCSS('w2') === wById('w2')[2]);
@@ -2206,9 +2206,9 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', settings: { lockWallpaper: '' } }));
     const old1 = App.load();
     ok('老存档被换到新的初始桌面 + 锁屏，并盖上 wallRev',
-      old1.wallpaper === 'w6' && old1.settings.lockWallpaper === '' && old1.wallRev === 3,
+      old1.wallpaper === 'p8' && old1.settings.lockWallpaper === 'p9' && old1.wallRev === 4,
       old1.wallpaper + '/' + old1.settings.lockWallpaper + '/' + old1.wallRev);
-    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', wallRev: 3, settings: { lockWallpaper: 'w5' } }));
+    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', wallRev: 4, settings: { lockWallpaper: 'w5' } }));
     const old2 = App.load();
     ok('已经换过的存档不再被覆盖（用户自己选的还算数）',
       old2.wallpaper === 'w3' && old2.settings.lockWallpaper === 'w5', old2.wallpaper + '/' + old2.settings.lockWallpaper);

@@ -128,7 +128,9 @@ function openApp(id, arg) {
 
   if (stack.length >= MAX_DEPTH) closeTop(true);
 
-  const node = SJ.el('div', { class: 'app-view' });
+  /* 挂上 app-<id>：样式表按 App 区分「内容流」和「表单页」——
+     微信的会话列表不该套卡片面板，设置页该套。以前所有 App 共用一个 .list，区分不了。 */
+  const node = SJ.el('div', { class: 'app-view app-' + id });
   const record = { id, node, onUnmount: null };
   record.onUnmount = def.render(node, () => closeTop(), arg) || null;
 

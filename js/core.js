@@ -11,6 +11,11 @@ const KEY = 'xiaoshouji.v1';
    单一来源：外观 App 拿它渲染缩略图，app.js 拿它判断桌面文字颜色，别再各写一份。
    ⚠️ id 是写死的字面量，不是下标 —— 往中间插一张不会把老存档的壁纸串位。 */
 const WALLS = [
+  /* 从 图片素材/ 里挑的三张中性图（按亮度/饱和度量的，不是随手挑的）：
+     石板 = 中间调、饱和 4%，做默认；亚麻 = 浅中性，做锁屏；墨 = 偏暗的一档。 */
+  ['p8', '石板', 'url("img/wall-slate.webp") center / cover no-repeat', false],
+  ['p9', '亚麻', 'url("img/wall-linen.webp") center / cover no-repeat', false],
+  ['p10', '墨', 'url("img/wall-ink.webp") center / cover no-repeat', true],
   ['p0', '窗边', 'url("img/wall-window.webp") center / cover no-repeat', true],
   ['p1', '雨窗', 'url("img/wall-rain.webp") center / cover no-repeat', true],
   ['p2', '抹茶', 'url("img/wall-matcha.webp") center / cover no-repeat', true],
@@ -19,30 +24,32 @@ const WALLS = [
   ['p5', '新叶', 'url("img/wall-leaves.webp") center / cover no-repeat', false],
   ['p6', '枯枝', 'url("img/wall-branch.webp") center / cover no-repeat', false],
   ['p7', '郁金香', 'url("img/wall-tulip.webp") center / cover no-repeat', false],
+  /* 七张渐变全部改成灰阶：黑白界面里留一张绿的紫的没有意义。
+     id 保持不变（老存档引用得到），只改颜色和名字。 */
   ['w0', '晨雾',
-    'radial-gradient(115% 85% at 16% 6%, #fdfbf7 0%, rgba(253,251,247,0) 58%),' +
-    'radial-gradient(95% 75% at 88% 94%, #cdd8d1 0%, rgba(205,216,209,0) 56%),' +
-    'linear-gradient(170deg, #f2eee7, #e1e4de)', false],
+    'radial-gradient(115% 85% at 16% 6%, #fcfcfc 0%, rgba(252,252,252,0) 58%),' +
+    'radial-gradient(95% 75% at 88% 94%, #d4d4d4 0%, rgba(212,212,212,0) 56%),' +
+    'linear-gradient(170deg, #f1f1f1, #e0e0e0)', false],
   ['w1', '灰蓝',
-    'radial-gradient(110% 80% at 20% 10%, #f4f8fa 0%, rgba(244,248,250,0) 60%),' +
-    'radial-gradient(100% 80% at 82% 90%, #b6c7d0 0%, rgba(182,199,208,0) 58%),' +
-    'linear-gradient(168deg, #e9eef1, #ccd7dd)', false],
-  ['w2', '鼠尾草',
-    'radial-gradient(110% 80% at 78% 8%, #f6f8f1 0%, rgba(246,248,241,0) 58%),' +
-    'radial-gradient(100% 80% at 14% 92%, #b3c2ab 0%, rgba(179,194,171,0) 56%),' +
-    'linear-gradient(168deg, #eef1e9, #c9d3c2)', false],
-  ['w3', '陶土',
-    'radial-gradient(110% 80% at 22% 8%, #fdf5f0 0%, rgba(253,245,240,0) 58%),' +
-    'radial-gradient(100% 85% at 84% 92%, #d3a595 0%, rgba(211,165,149,0) 60%),' +
-    'linear-gradient(168deg, #f6ebe4, #e2c8bb)', false],
-  ['w4', '藕荷',
-    'radial-gradient(110% 80% at 76% 10%, #faf5fb 0%, rgba(250,245,251,0) 58%),' +
-    'radial-gradient(100% 82% at 16% 90%, #bdaec4 0%, rgba(189,174,196,0) 58%),' +
-    'linear-gradient(168deg, #f1eaf2, #d3c5d7)', false],
-  ['w5', '燕麦',
-    'radial-gradient(110% 80% at 20% 8%, #fdf9f0 0%, rgba(253,249,240,0) 58%),' +
-    'radial-gradient(100% 82% at 86% 92%, #d6c39f 0%, rgba(214,195,159,0) 58%),' +
-    'linear-gradient(168deg, #f7f1e6, #e6dac4)', false],
+    'radial-gradient(110% 80% at 20% 10%, #f7f7f7 0%, rgba(247,247,247,0) 60%),' +
+    'radial-gradient(100% 80% at 82% 90%, #c0c0c0 0%, rgba(192,192,192,0) 58%),' +
+    'linear-gradient(168deg, #ededed, #d4d4d4)', false],
+  ['w2', '雾灰',
+    'radial-gradient(110% 80% at 78% 8%, #f8f8f8 0%, rgba(248,248,248,0) 58%),' +
+    'radial-gradient(100% 80% at 14% 92%, #bcbcbc 0%, rgba(188,188,188,0) 56%),' +
+    'linear-gradient(168deg, #efefef, #cdcdcd)', false],
+  ['w3', '暖灰',
+    'radial-gradient(110% 80% at 22% 8%, #fbfaf9 0%, rgba(251,250,249,0) 58%),' +
+    'radial-gradient(100% 85% at 84% 92%, #cfcbc7 0%, rgba(207,203,199,0) 60%),' +
+    'linear-gradient(168deg, #f3f1ef, #dedad6)', false],
+  ['w4', '冷灰',
+    'radial-gradient(110% 80% at 76% 10%, #fafafa 0%, rgba(250,250,250,0) 58%),' +
+    'radial-gradient(100% 82% at 16% 90%, #c6c6c8 0%, rgba(198,198,200,0) 58%),' +
+    'linear-gradient(168deg, #f0f0f1, #d5d5d7)', false],
+  ['w5', '米灰',
+    'radial-gradient(110% 80% at 20% 8%, #fbfaf7 0%, rgba(251,250,247,0) 58%),' +
+    'radial-gradient(100% 82% at 86% 92%, #cfc9bd 0%, rgba(207,201,189,0) 58%),' +
+    'linear-gradient(168deg, #f4f2ec, #e0dcd2)', false],
   ['w6', '石墨',
     'radial-gradient(110% 80% at 22% 8%, #7d8288 0%, rgba(125,130,136,0) 58%),' +
     'radial-gradient(100% 82% at 84% 92%, #2f3236 0%, rgba(47,50,54,0) 58%),' +
@@ -100,7 +107,7 @@ const WB_TEXT_MAX = 20000;
    localStorage 一共就 5MB 左右，再往上存就要开始丢东西了。 */
 const WALL_IMG_MAX = 6;
 /* 壁纸改版号。加了一批照片壁纸 → 直接 +1，老存档会被一次性换成新的初始桌面/锁屏。 */
-const WALL_REV = 3;
+const WALL_REV = 4;
 /* 朋友圈最多留几条 */
 const MOMENT_KEEP = 120;
 /* 每个角色最多留几通通话记录。通话正文不占聊天，但也不能无限长 */
@@ -123,7 +130,7 @@ const FONT_NAMES = { system: '系统', rounded: '圆体', serif: '宋体', mono:
 
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
-  wallpaper: 'w6',       // 默认「石墨」中性深灰（壁纸 id，见 WALLS）；以前是 p0 那张绿植照片
+  wallpaper: 'p8',       // 默认「石板」：素材里最中性的一张（亮度 155 / 饱和 4%）
   wallRev: 0,            // 壁纸改版号：比 WALL_REV 小就一次性换上新的初始桌面/锁屏，之后尊重用户自己的选择
   lock: false,
   password: '',
@@ -157,7 +164,7 @@ const DEFAULTS = {
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
     /* 锁屏 */
-    lockWallpaper: '',   // 默认跟随桌面壁纸
+    lockWallpaper: 'p9', // 默认「亚麻」（素材里的浅中性图）
     lockWidgets: true,   // 锁屏上显示「今日安排」
     lockQuick: true,     // 锁屏底部快捷按钮
     /* 外观 */
@@ -505,8 +512,8 @@ function migrate(saved) {
      之后用户自己挑什么就是什么，不会被拨回来。 */
   if ((out.wallRev | 0) < WALL_REV) {
     out.wallRev = WALL_REV;
-    out.wallpaper = 'w6';
-    out.settings.lockWallpaper = '';
+    out.wallpaper = 'p8';
+    out.settings.lockWallpaper = 'p9';
   }
   return out;
 }

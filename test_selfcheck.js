@@ -1461,6 +1461,11 @@ ok('共享卡在甲乙同时在的群里命中', names(hAll, [wcA, wcB]).include
 mk({ title: '丙的专属', keys: '秘密', charIds: [wcC.id] });
 ok('传一组角色时不在组里的个人卡不串台',
   !names(hAll, [wcA, wcB]).includes('丙的专属'), JSON.stringify(names(hAll, [wcA, wcB])));
+/* 「共享卡只在相关角色在场时成立」：主人在场就成立，一个都不在就不成立 */
+ok('共享卡的主人在场（甲乙只来了甲）就成立',
+  names(hAll, [wcA, wcC]).includes('世界背景'), JSON.stringify(names(hAll, [wcA, wcC])));
+ok('共享卡的主人一个都没在场（只有丙）就不成立',
+  !names(hAll, [wcC]).includes('世界背景'), JSON.stringify(names(hAll, [wcC])));
 ok('通用视角（不传角色）只看到通用卡',
   (() => { const got = names(hAll, null); return !got.includes('世界背景') && !got.includes('丙的专属'); })(),
   JSON.stringify(names(hAll, null)));

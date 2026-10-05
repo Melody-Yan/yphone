@@ -2254,6 +2254,33 @@ const APPS = [
             speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
             ]);
+
+          /* 右滑回复：只要手势，不要动效（用户不要那个动画）。
+             用 pointer 捕获 —— 手指移出这一行也收得到，拖不断。 */
+          {
+            let sx = 0, sy = 0, on = false;
+            const TH = 52;
+            r.style.touchAction = 'pan-y';
+            r.addEventListener('pointerdown', e => {
+              if (e.pointerType === 'mouse' && e.button !== 0) return;
+              try { r.setPointerCapture(e.pointerId); } catch (err) {}
+              sx = e.clientX; sy = e.clientY; on = true;
+            });
+            r.addEventListener('pointerup', e => {
+              if (!on) return;
+              on = false;
+              const dx = e.clientX - sx, dy = Math.abs(e.clientY - sy);
+              if (dx < TH || dy > dx) return;      /* 竖着动的多 = 在滚列表 */
+              const m2 = Object.assign({}, src || {
+                me: !!me, name: me ? '我' : face.name,
+                text: (inner && inner.textContent) || (src && src.text) || ''
+              }, { index: curIndex, srcObj: myMsg });
+              if (!m2.text) return;
+              setQuote(m2);
+              if (input && input.focus) input.focus();
+            });
+            r.addEventListener('pointercancel', () => { on = false; });
+          }
           /* 隔满一分钟：中间插一条时间（跨天了就连日期一起给），上一轮的时间留着 */
           if (curTs && lastTs && curTs - lastTs >= 60000) {
             const d = new Date(curTs);

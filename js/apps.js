@@ -2292,7 +2292,8 @@ const APPS = [
           return r;
         }
         function openMsgSheet(m) {
-          sheet([
+          /* 用户要卡片，不要半屏弹层 —— 跟「类型 / 优先级」一个样子 */
+          window.popover([
             { svg: 'comment', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
             { svg: 'copy', label: '复制这条', run: () => copyText(String(m.text)) },
             {
@@ -2682,6 +2683,32 @@ const APPS = [
              不写的话她在上下文里看到的是一条空消息，等于不知道自己送过东西。
              界面上 giftBubble 只读 gname/emoji，不会把这句重复显示出来。 */
           giftParts.forEach(gp => parts.push({ who: '', text: gp.line || '', gift: gp }));
+
+          /* 角色发照片：[[img:画面描述]] —— 图得先画出来才能落盘，所以这里要 await。
+             画失败不吞：标记摘掉、那句话照常发，只弹一句提示（绝不因为生图失败丢回复）。
+             群聊不发，跟礼物一个道理：不知道该记谁发的。 */
+          const imgParts = [];
+          if (!G) {
+            const IMG_MARK = /\[\[img:([^\]\n]{2,200})\]\]/g;
+            for (const p of parts) {
+              let mm;
+              const said = [];
+              IMG_MARK.lastIndex = 0;
+              while ((mm = IMG_MARK.exec(p.text))) said.push(mm[1].trim());
+              if (!said.length) continue;
+              p.text = p.text.replace(IMG_MARK, '').trim();
+              for (const how of said.slice(0, 2)) {
+                try {
+                  if (tip) tip.textContent = '在画一张图…';
+                  const src = await SJ.genImage(how + '。像手机随手拍的照片，自然、不摆拍。');
+                  if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src } });
+                } catch (e) {
+                  toast('图没画出来：' + (e.message || '生图接口没通'));
+                }
+              }
+            }
+          }
+          imgParts.forEach(ip => parts.push(ip));
           /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
              旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
           const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
@@ -2689,7 +2716,7 @@ const APPS = [
           else {
             regen = null;
             parts.forEach(p => SJ.pushMessage(id, false, p.text, Object.assign(
-              p.who ? { who: p.who } : {}, p.gift || {})));
+              p.who ? { who: p.who } : {}, p.gift || {}, p.img || {})));
           }
           tip.remove();
           markRead();       // 她开口了 = 读过我那条了
@@ -5726,12 +5753,17 @@ const APPS = [
             return b;
           })));
         } else {
-          const sel = SJ.el('select', { class: 'sel' }, [
-            SJ.el('option', { value: '' }, '（不定）')
-          ].concat(options.map(o => SJ.el('option', { value: o }, o))));
-          sel.value = value || '';
-          sel.addEventListener('change', () => onPick(sel.value));
-          row.append(sel);
+          /* 选项多的（MBTI 16 个）也用卡片，跟「类型 / 优先级」一个样子 ——
+             系统自带的下拉框跟这套 UI 不搭。 */
+          const btn = SJ.el('button', {
+            class: 'btn ghost wb-pickbtn',
+            onclick: () => window.popover(options.map(o => ({
+              label: o,
+              hint: o === value ? '当前' : '',
+              run: () => onPick(o)
+            })), { head: title })
+          }, (value || '（没选）') + '  \u25be');
+          row.append(btn);
         }
         return row;
       }

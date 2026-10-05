@@ -3068,7 +3068,10 @@ const APPS = [
 
       /* 新建先问归到哪一类 —— 分类决定优先级，比选归属更常变 */
       function newPick() {
-        const head = SJ.el('div', { class: 'sheet-head' }, '这张卡归哪一类？（决定她读到的先后）');
+        const head = SJ.el('div', { class: 'sheet-head' },
+          onlyChar
+            ? '这张卡归哪一类？（建完直接挂给「' + charName(onlyChar) + '」）'
+            : '这张卡归哪一类？（决定她读到的先后）');
         const items = SJ.WB_CATS.map(c => ({
           icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
           label: c,
@@ -3128,7 +3131,12 @@ const APPS = [
 
       function entryView(id, cat) {
         const isNew = !id;
-        const e = wb().find(x => x.id === id) || SJ.makeEntry({ cat: cat || '其他' });
+        /* 从「只看他」那一档里建的卡直接挂给他 —— 角色页点进来本来就是为了给他加设定，
+           不这么做还得再手动选一遍归属，那就是「能挂卡」而不是「直接挂卡」 */
+        const e = wb().find(x => x.id === id) || SJ.makeEntry({
+          cat: cat || '其他',
+          charIds: onlyChar ? [onlyChar] : []
+        });
         root.innerHTML = '';
         root.append(navBar(isNew ? '新设定卡' : '编辑设定卡', {
           back: homeView,

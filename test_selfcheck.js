@@ -1753,6 +1753,32 @@ findBtn(wbv2, '只看「关联甲」 ×').click();
 ok('点掉标签就回到全部角色（通用那组的标题变回「通用」）',
   catLabels(wbv2).some(t => t.replace(/\s/g, '').startsWith('通用')), JSON.stringify(catLabels(wbv2)));
 
+/* ── 从「只看他」那一档建的卡，得直接挂给他 ── */
+while (S.SHELL.stack.length) S.closeTop(true);
+wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;   // 上一段刚把他关了
+const wbOther = wb.makeCharacter({ name: '旁人丙' }); wb.saveCharacter(wbOther);
+const wbNv = openFresh('worldbook', { charId: wbA2.id });
+findBtn(wbNv, '＋').click();
+ok('从角色页进来建卡时，弹层说清楚会挂给谁',
+  sheetLabels().length === 7 && walk(byId.phone).map(n => n.textContent).join('|').includes('直接挂给'),
+  JSON.stringify(sheetLabels()));
+clickSheet('其他');
+findIn(wbNv, '卡的名字（只给你自己看）').value = '从角色页建的卡';
+findIn(wbNv, '关键词，逗号隔开：手机, 来历, 你怎么在这').value = '围巾';
+walk(wbNv).find(n => n._class.has('btn') && n.textContent === '保存').click();
+const wbMade = wb.state.worldbook.find(x => x.title === '从角色页建的卡');
+ok('建完自动挂在他名下（不用再手动选一遍）',
+  !!wbMade && JSON.stringify(wbMade.charIds) === JSON.stringify([wbA2.id]),
+  JSON.stringify(wbMade && wbMade.charIds));
+ok('这张卡他读得到、旁人读不到',
+  !!wbMade
+    && wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbA2.id).some(x => x.id === wbMade.id)
+    && !wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbOther.id).some(x => x.id === wbMade.id),
+  wbMade ? JSON.stringify(wb.activeEntries([{ me: true, text: '我买了条围巾' }], wbOther.id).map(x => x.id)) : '卡片没建出来');
+if (wbMade) wb.deleteEntry(wbMade.id);
+wb.deleteCharacter(wbOther.id);
+while (S.SHELL.stack.length) S.closeTop(true);
+
 /* ── 聊天页 ＋：她现在读到哪几张 ── */
 while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;
@@ -2507,6 +2533,87 @@ console.log('\n[24] 存档读取不许弄丢数据');
     st2.wallet.balance + '/' + st2.wallet.log.length);
   ok('收藏也没丢', st2.mall.fav.length === 1 && st2.mall.fav[0] === 'g1');
   store.delete('xiaoshouji.v1.broken');
+
+  /* 世界书从「单归属 scope + charId」升级到「多归属 charIds」。
+     老存档里这两种形状都可能在，归一必须两边都认，而且一个字段都不能丢。
+     ⚠️ 断言「没有 .broken」是关键：归一一旦引用到文件后面才声明的 const，
+     load() 就会炸成默认值 —— 那等于把用户的世界书全删了。 */
+  store.delete('xiaoshouji.v1.broken');
+  store.set('xiaoshouji.v1', JSON.stringify({
+    characters: [{ id: 'a', name: '甲' }, { id: 'b', name: '乙' }],
+    settings: {},
+    worldbook: [
+      { id: 'L1', title: '老个人卡', keys: '秘密, 怕黑', content: '甲怕黑。', scope: 'char', charId: 'a' },
+      { id: 'L2', title: '老通用卡', keys: ['学校'], content: '三班在三楼。', scope: 'global' },
+      { id: 'L3', title: '新共享卡', keys: '手机', content: '住着一个人。', charIds: ['a', 'b'] },
+      { id: 'L4', title: '没分类的卡', keys: '雨', content: 'x' },
+      { id: 'L5', title: '分类不认识', keys: 'y', content: 'y', cat: '不存在的类' },
+      { id: 'L6', title: '序号是脏的', keys: 'z', content: 'z', order: 'abc' },
+      { id: 'L7', title: '逻辑越界', keys: 'w', content: 'w', logic: 99 },
+      { id: 'L8', title: '正文是数字', keys: 'v', content: 123 },
+      { id: 'L9', title: '停用了', keys: 'u', content: 'u', enabled: false },
+      { id: 'L10', title: '常驻', content: 'u', constant: true },
+      { id: 'L11', title: '重复归属', charIds: ['a', 'a', 'b', ''] },
+      '这一条是垃圾', null, 42, ['数组也不算卡']
+    ]
+  }));
+  boot();
+  const sw = sandbox.SJ.state.worldbook;
+  ok('带老世界书的存档读得回来（load 没炸）', !store.get('xiaoshouji.v1.broken'),
+    store.get('xiaoshouji.v1.broken') ? 'load 炸了，退化成默认值' : '');
+  ok('垃圾条目被挡在门外（字符串/null/数字/数组）', sw.length === 11, sw.length + ' 张');
+  const by = id => sw.find(e => e.id === id);
+  ok('老的 scope:char + charId 升级成 charIds 数组',
+    JSON.stringify(by('L1').charIds) === JSON.stringify(['a']), JSON.stringify(by('L1') && by('L1').charIds));
+  ok('老的 scope:global 变成「通用」（charIds 为空）',
+    Array.isArray(by('L2').charIds) && by('L2').charIds.length === 0, JSON.stringify(by('L2').charIds));
+  ok('本来就写 charIds 的照原样留着',
+    JSON.stringify(by('L3').charIds) === JSON.stringify(['a', 'b']), JSON.stringify(by('L3').charIds));
+  ok('归属去重、空串被扔掉',
+    JSON.stringify(by('L11').charIds) === JSON.stringify(['a', 'b']), JSON.stringify(by('L11').charIds));
+  ok('没写分类的落到「其他」', by('L4').cat === '其他', by('L4').cat);
+  ok('分类写错了也落到「其他」', by('L5').cat === '其他', by('L5').cat);
+  ok('序号不是数字时回 100', by('L6').order === 100, String(by('L6').order));
+  ok('逻辑越界时回 0（任一命中）', by('L7').logic === 0, String(by('L7').logic));
+  ok('正文是数字也要变成字符串（否则提示词里会写出 undefined）',
+    by('L8').content === '123' && typeof by('L8').content === 'string',
+    typeof by('L8').content + ':' + by('L8').content);
+  ok('关键词写成逗号串也会被拆开',
+    JSON.stringify(by('L1').keys) === JSON.stringify(['秘密', '怕黑']), JSON.stringify(by('L1').keys));
+  ok('停用状态原样保留', by('L9').enabled === false);
+  ok('常驻状态原样保留', by('L10').constant === true);
+  ok('老存档没有 wbRead 时角色默认读世界书', sandbox.SJ.state.characters[0].wbRead === true,
+    String(sandbox.SJ.state.characters[0].wbRead));
+  ok('老存档没有 wbBudget 时补上默认额度', sandbox.SJ.state.settings.wbBudget === 3000,
+    String(sandbox.SJ.state.settings.wbBudget));
+  /* 迁移上来的卡必须真的能注入 —— 字段对了但匹配不上等于没迁移 */
+  ok('迁移上来的老个人卡真的只在甲那儿命中',
+    sandbox.SJ.activeEntries([{ me: true, text: '我有个秘密' }], 'a').some(e => e.id === 'L1')
+    && !sandbox.SJ.activeEntries([{ me: true, text: '我有个秘密' }], 'b').some(e => e.id === 'L1'),
+    JSON.stringify(sandbox.SJ.activeEntries([{ me: true, text: '我有个秘密' }], 'a').map(e => e.id)));
+  ok('迁移上来的老通用卡谁都能命中',
+    sandbox.SJ.activeEntries([{ me: true, text: '学校' }], 'b').some(e => e.id === 'L2'));
+  ok('迁移上来的共享卡甲乙都命中',
+    sandbox.SJ.activeEntries([{ me: true, text: '手机' }], 'a').some(e => e.id === 'L3')
+    && sandbox.SJ.activeEntries([{ me: true, text: '手机' }], 'b').some(e => e.id === 'L3'));
+  ok('迁移上来的停用卡不注入',
+    !sandbox.SJ.activeEntries([{ me: true, text: 'u' }], 'a').some(e => e.id === 'L9'));
+  ok('迁移上来的常驻卡不看关键词也注入',
+    sandbox.SJ.activeEntries([{ me: true, text: '随便说点什么' }], 'a').some(e => e.id === 'L10'));
+  store.delete('xiaoshouji.v1.broken');
+
+  /* 预算那几个边界：0 / 太小 / 太大 都得回落到合法值，不能把世界书关掉 */
+  const budOf = v => {
+    store.set('xiaoshouji.v1', JSON.stringify({ settings: { wbBudget: v } }));
+    boot();
+    return sandbox.SJ.state.settings.wbBudget;
+  };
+  ok('wbBudget = 0 → 回默认（0 不该等于「把世界书全关掉」）', budOf(0) === 3000, String(budOf(0)));
+  ok('wbBudget = 50（太小）→ 回默认', budOf(50) === 3000, String(budOf(50)));
+  ok('wbBudget = -9999 → 回默认', budOf(-9999) === 3000, String(budOf(-9999)));
+  ok('wbBudget = "abc" → 回默认', budOf('abc') === 3000, String(budOf('abc')));
+  ok('wbBudget = 5000 → 原样留着', budOf(5000) === 5000, String(budOf(5000)));
+  ok('wbBudget = 999999 → 封顶 20000', budOf(999999) === 20000, String(budOf(999999)));
 
   /* 原档放回去，别影响后面的用例 */
   store.set('xiaoshouji.v1', good);

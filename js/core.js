@@ -174,6 +174,7 @@ const DEFAULTS = {
     /* 锁屏 */
     lockWallpaper: 'p9', // 默认「亚麻」（素材里的浅中性图）
   theme: 'light',       // 'light' | 'dark' | 'auto'（auto = 跟系统）
+  lockStyle: 'classic', // 锁屏样子：'classic' 居中 | 'left' 左对齐 | 'mono' 等宽极简
     lockWidgets: true,   // 锁屏上显示「今日安排」
     lockQuick: true,     // 锁屏底部快捷按钮
     /* 外观 */

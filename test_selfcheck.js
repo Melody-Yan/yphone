@@ -1332,6 +1332,19 @@ rmBtn.click();
 ok('面板里点移除 → 插件没了', wgOn(0).length === 1, wgOn(0).length + ' 个');
 ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringify(wk.state.widgets[0]));
 
+/* ── 锁屏样子：三种，只挂类 ── */
+{
+  const keepL = sandbox.SJ.state.settings.lockStyle;
+  const has = k => (sandbox.SJ.$('#phone')._class || new Set()).has(k);
+  sandbox.SJ.state.settings.lockStyle = 'left'; S.SHELL.applyLook();
+  ok('锁屏=左对齐 → 挂 lk-left', has('lk-left') && !has('lk-mono'));
+  sandbox.SJ.state.settings.lockStyle = 'mono'; S.SHELL.applyLook();
+  ok('锁屏=等宽 → 挂 lk-mono', has('lk-mono') && !has('lk-left'));
+  sandbox.SJ.state.settings.lockStyle = 'classic'; S.SHELL.applyLook();
+  ok('锁屏=经典 → 两个类都不挂（回到默认排版）', !has('lk-left') && !has('lk-mono'));
+  sandbox.SJ.state.settings.lockStyle = keepL; S.SHELL.applyLook();
+}
+
 /* ── 深色主题：开关落在 #phone.dark 上，三种取值 ── */
 {
   const keepT = sandbox.SJ.state.settings.theme;

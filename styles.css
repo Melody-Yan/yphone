@@ -2529,8 +2529,17 @@ input.field[type="range"]::-webkit-slider-thumb {
 .chat-bar {
   background: rgba(255, 255, 255, .94);      /* 同上 */
   border-top: 1px solid var(--line);
-  padding: 10px var(--sp-3) calc(22px + env(safe-area-inset-bottom));
+  /* 矮一档：底部 22 → 16、上下 10 → 8，聊天区多出二十来像素 */
+  padding: 8px var(--sp-3) calc(16px + env(safe-area-inset-bottom));
+  gap: 7px;
 }
+/* ⚠️ 输入框 flex:1 但不许收缩，按钮又都是固定宽 —— 一旦按钮文字变长
+   （「回复 2」这种），整条就被顶出屏幕右边。min-width:0 是关键。 */
+#phone .chat-bar .chat-input { flex: 1 1 0; min-width: 0; }
+#phone .chat-bar .chat-send, #phone .chat-bar .chat-plus, #phone .chat-bar .chat-mic { flex: 0 0 auto; }
+#phone .chat-send { height: 36px; padding: 0 13px; font-size: var(--fs-sm); white-space: nowrap; }
+#phone .chat-input { padding: 9px 14px; }
+#phone .chat-plus, #phone .chat-mic { width: 36px; height: 36px; }
 .chat-input {
   border-radius: var(--r-full);
   background: var(--card);
@@ -2755,6 +2764,14 @@ input.field[type="range"]::-webkit-slider-thumb {
   padding: 0 0 0 12px;
   background: rgba(22, 19, 16, .16);          /* 比全屏弹层轻：它只是浮出来的一小块 */
 }
+/* 贴右上角的变体：消息页那个「＋」在那儿 */
+.pop-mask.pop-top { align-items: flex-start; justify-content: flex-end; padding: 58px 12px 0 0; }
+.pop-mask.pop-top .pop { transform-origin: 88% 0; animation-name: popInTop; }
+@keyframes popInTop {
+  from { opacity: 0; transform: translateY(-10px) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+
 .pop {
   /* 参考图量出来的：宽 171pt（占屏 44%）、左边距 15pt、圆角 14、纯白、柔和投影 */
   width: 44%;
@@ -2963,7 +2980,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 .badge {
   flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px;
   border-radius: var(--r-full);
-  background: #d1483c; color: #fff;
+  /* 去红：用「墨色底 + 底色字」。浅色下是黑底白字，深色下自动翻成亮底深字，
+     两个主题都成立，而且全站回到灰阶 —— 未读数靠对比度和形状说话，不靠颜色。 */
+  background: var(--ink); color: var(--bg);
   font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
@@ -2972,7 +2991,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .row-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .row-side .row-time { margin: 0; }
 /* 页签上的小圆点数字 */
-.wt-badge { background: #d1483c; }
+.wt-badge { background: var(--ink); color: var(--bg); }
 
 /* ── 顶部横幅通知 ──
    从屏幕最上滑下来的一张卡：头像 + 名字 + 一句话，点一下进那个聊天，4 秒自己走。
@@ -3090,6 +3109,43 @@ input.field[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
 }
 #phone .gd-fav.on { color: #fff; background: #c0392b; }
+
+/* ── 锁屏：三种样子 ──
+   经典 = 现在的居中排版（不动）。
+   左对齐：日期提到时间上面（先日期后时间，读起来是「哪一天、几点」），内容走一条 28px 左线。
+   等宽：细体宽字距的大时间 + 一条分隔线，安静、不抢壁纸。 */
+#phone.lk-left #lock { align-items: flex-start; padding-left: 28px; padding-right: 28px; }
+#phone.lk-left #lock-time, #phone.lk-left #lock-date, #phone.lk-left #lock-hint { text-align: left; }
+#phone.lk-left #lock { text-align: left; }
+#phone.lk-left #lock-date { order: -1; margin: 0 0 6px; font-size: 14px; letter-spacing: .4px; opacity: .78; }
+#phone.lk-left #lock-time { font-size: 64px; letter-spacing: -2px; line-height: 1; }
+#phone.lk-left #lock-widgets { justify-content: flex-start; }
+#phone.lk-left .lw-card { width: 100%; max-width: none; text-align: left; }
+#phone.lk-left #lock-quick { justify-content: flex-start; }
+
+#phone.lk-mono #lock-time {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 300; font-size: 72px; letter-spacing: 2px;
+}
+#phone.lk-mono #lock-date {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: 3px; text-transform: uppercase; opacity: .7;
+  padding-top: 10px; border-top: 1px solid currentColor; margin-top: 12px;
+}
+#phone.lk-mono .lw-card {
+  border-radius: 8px; background: none; box-shadow: none; backdrop-filter: none;
+  border: 1px solid var(--line); padding: 9px 12px;
+}
+#phone.lk-mono .lw-head, #phone.lk-mono .lw-row, #phone.lk-mono .lw-empty {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px;
+}
+
+/* 锁屏上的未读：跟今日安排同一张卡的规格，一眼能扫到 */
+.lw-un-top { display: flex; align-items: center; gap: 8px; }
+.lw-un-name { font-size: 12.5px; font-weight: 600; }
+.lw-un-text { margin-top: 6px; font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lock-widgets { gap: 10px; flex-direction: column; align-items: center; }
+#lock-widgets .lw-card + .lw-card { margin-top: 0; }
 
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }

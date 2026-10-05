@@ -480,8 +480,14 @@ function sheet(items, head) {
    聊天页那个「＋」原来走 sheet()：底部弹层、条目一行一条，十三个选项几乎占满全屏。
    这个走「贴着输入条的小卡片」：4 列小格，一屏看完，点空白就收。
    bottom = 卡片下沿离屏幕底多远（默认让开输入条）。 */
-function popover(items, { head, bottom = 92 } = {}) {
-  const mask = SJ.el('div', { class: 'mask pop-mask', style: { paddingBottom: bottom + 'px' } });
+/* ▌at：卡片从哪儿长出来。
+   默认 bottom —— 聊天页那个「＋」在左下角，卡片贴着它往上长。
+   消息页的「＋」在右上角，就得给 at: 'top'，否则卡片跑到底下去（用户报的就是这个）。 */
+function popover(items, { head, bottom = 92, at = 'bottom' } = {}) {
+  const mask = SJ.el('div', {
+    class: 'mask pop-mask' + (at === 'top' ? ' pop-top' : ''),
+    style: at === 'top' ? { paddingTop: '58px' } : { paddingBottom: bottom + 'px' }
+  });
   const panel = SJ.el('div', { class: 'pop' });
   if (head) panel.append(SJ.el('div', { class: 'pop-head' }, head));
   const grid = SJ.el('div', { class: 'pop-grid' });
@@ -1155,7 +1161,7 @@ const APPS = [
             svg: 'check', label: '全部标为已读', hint: un + ' 条',
             run: () => { SJ.clearAllUnread(); paint(); toast('都标成已读了'); }
           });
-          window.popover(items, { head: '微信', bottom: 96 });
+          window.popover(items, { head: '微信', at: 'top' });
         }
         paint();
         box.append(feed);
@@ -5133,6 +5139,19 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
+        /* 锁屏样子：三选一。不是换个位置，是换语气 —— 左对齐把日期提到时间上面、
+           内容走一条左线；等宽把时间做成细体宽字距 + 一条分隔线。 */
+        box.append(SJ.el('div', { class: 'seg' }, [
+          ['classic', '经典'], ['left', '左对齐'], ['mono', '等宽']
+        ].map(([k, label]) => SJ.el('button', {
+          class: (SJ.state.settings.lockStyle || 'classic') === k ? 'on' : '',
+          onclick: () => {
+            SJ.state.settings.lockStyle = k;
+            SJ.save();
+            if (window.SHELL) { window.SHELL.applyLook(); window.SHELL.lock(); }
+            main();
+          }
+        }, label))));
         box.append(toggleRow('显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
           SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
         }));

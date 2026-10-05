@@ -771,6 +771,23 @@ function paintLockWidgets() {
     if (evs.length > 3) card.append(SJ.el('div', { class: 'lw-more' }, '还有 ' + (evs.length - 3) + ' 条'));
   }
   box.append(card);
+
+  /* 未读消息：锁屏上最该先看到的一句话。
+     没人给你发就不占地方 —— 空卡比没有更烦。 */
+  const un = SJ.unreadTotal();
+  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
+  if (un > 0 && rows.length) {
+    const last = rows[0];
+    const preview = String((last.last && last.last.text) || '').replace(/\n/g, ' ').slice(0, 24);
+    const wrap = SJ.el('div', { class: 'lw-card lw-un' }, [
+      SJ.el('div', { class: 'lw-un-top' }, [
+        SJ.el('span', { class: 'badge' }, un > 99 ? '99+' : String(un)),
+        SJ.el('span', { class: 'lw-un-name' }, last.c.name + (rows.length > 1 ? ' 等 ' + rows.length + ' 个会话' : ''))
+      ]),
+      preview ? SJ.el('div', { class: 'lw-un-text' }, preview) : null
+    ].filter(Boolean));
+    box.append(wrap);
+  }
 }
 
 /* 锁屏底部快捷按钮：点了先进解锁（有密码的话），解锁后直接进那个 App */
@@ -914,6 +931,9 @@ function applyLook() {
   phone.classList.toggle('sb-light', s.sbColor === 'light');
   /* 深色主题：'auto' 跟系统。样式表里只有一段 #phone.dark 的令牌覆盖，
      组件零改动 —— 这是第一轮就把令牌层做掉换来的。 */
+  /* 锁屏三种样子：只挂类，排版全在样式表里 */
+  phone.classList.toggle('lk-left', s.lockStyle === 'left');
+  phone.classList.toggle('lk-mono', s.lockStyle === 'mono');
   phone.classList.toggle('dark',
     s.theme === 'dark' || (s.theme === 'auto'
       && !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)));

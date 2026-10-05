@@ -3372,10 +3372,7 @@ const APPS = [
           });
 
           /* 上下文：这两个数决定每次发给模型多少东西，直接影响花费 */
-          /* 书架是一块，下面这些是另一块 —— 拉开距离，别糊在一起 */
-            listBox.append(SJ.el('div', { class: 'wb-sep' }));
-            listBox.append(SJ.el('div', { class: 'group-title' }, '世界书设置'));
-          const setBox = SJ.el('div', { class: 'wb-set' });
+          const setBox = SJ.el('div', { class: 'list' });
           setBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
           setBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
           /* 导入的文件选择器。display:none 也能 .click() 唤起，
@@ -3412,7 +3409,8 @@ const APPS = [
             ]),
             fileInp
           ]));
-          listBox.append(setBox);
+          /* 设置区是**第二块**面板，不是塞在书架那块里的第三层 */
+          root.append(setBox);
         }
       }
 
@@ -4038,13 +4036,25 @@ const APPS = [
             ]),
             SJ.el('div', { class: 'row-time' }, '改 ›')
           ]),
-          SJ.el('div', { class: 'row', onclick: () => { impConst = !impConst; paintSections(); } }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, (impConst ? '没关键词的卡做成常驻：开' : '没关键词的卡做成常驻：关')),
-              constSub
-            ]),
-            SJ.el('div', { class: 'row-time' }, impConst ? '开' : '关')
-          ])
+(() => {
+              /* 真正的开关：点一下自己动，再刷新下面的预览 —— 不整行重画，
+                 否则看着就像「点了没反应」。 */
+              const sw = SJ.el('button', { class: 'sw' + (impConst ? ' on' : ''), type: 'button' });
+              sw.append(SJ.el('i'));
+              const flip = () => {
+                impConst = !impConst;
+                sw.classList.toggle('on', impConst);
+                paintSections();
+              };
+              sw.addEventListener('click', ev => { ev.stopPropagation(); flip(); });
+              return SJ.el('div', { class: 'row', onclick: flip }, [
+                SJ.el('div', { class: 'row-main' }, [
+                  SJ.el('div', { class: 'row-title' }, '没关键词的卡做成常驻'),
+                  constSub
+                ]),
+                sw
+              ]);
+            })(),
         ]));
         root.append(list);
         root.append(SJ.el('div', { class: 'pad' }, [goBtn]));

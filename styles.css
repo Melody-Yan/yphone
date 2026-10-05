@@ -3461,19 +3461,14 @@ input.field[type="range"]::-webkit-slider-thumb {
 .wb-search { padding: 2px 14px 10px; }
 .wb-search .field { width: 100%; }
 /* 书架和下面的设置之间留一道空 */
-.wb-sep { height: 22px; }
+
 /* 编辑页的优先级下拉：别太宽 */
 .wb-pri { max-width: 100%; }
 #phone .sel.wb-pri { padding-top: 11px; padding-bottom: 11px; font-size: var(--fs-base); }
 
 /* 设置区自己一个方块（跟书架那块分开） */
-.wb-set {
-  margin: 4px 14px 10px; padding: 2px 0;
-  background: var(--card); border-radius: var(--r-m);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
-}
-.wb-set .pad { padding: 0; }
-.wb-set .group-title { padding-left: 16px; }
+/* 世界书这块面板从中间切成两块：书架一块、设置一块，块与块之间留一道空 */
+#phone .app-worldbook > .list + .list { margin-top: 16px; }
 
 /* 卡片上的优先级：看着像标签，其实能点 */
 .wb-tag.pick { border: 0; font: inherit; font-size: var(--fs-cap); cursor: pointer; }

@@ -409,24 +409,24 @@ function widgetNode(pageIndex, w) {
   const def = SJ.widgetDef(w.type);
   if (!def) return null;
   const to = WIDGET_APP[w.type];
-  const node = SJ.el('div', { class: 'widget wg-' + w.type, style: { gridColumn: 'span ' + def.span } });
-  node.dataset.ico = def.icon;   // 右下角那个大表情水印，靠 CSS attr() 取
+  /* 大小由数据说，不再只认类型自带的 span（桌面是 4 列网格，跨列跨行都写在这儿） */
+  const size = SJ.widgetSizeOf(w);
+  const node = SJ.el('div', {
+    class: 'widget wg-' + w.type + ' wg-' + size.key,
+    style: { gridColumn: 'span ' + size.w, gridRow: 'span ' + size.h }
+  });
+  node.dataset.ico = def.icon;
   if (to) {
     node.classList.add('tappable');
     node.addEventListener('click', () => openApp(to));
   }
-  // 删除：✕ 常驻但很淡。不做「长按插件删除」——插件在 .page 里，长按会同时
-  // 触发页面长按（加插件），两个计时器都会响，要额外加标志位才压得住。
+  /* ⋯ 常驻但很淡 → 点开这个插件自己的设置（大小 / 位置 / 移除）。
+     不做长按：插件在 .page 里，长按会同时触发「长按桌面加插件」的计时器
+     （原来那句注释说的就是这个坑）。 */
   node.append(SJ.el('button', {
-    class: 'wg-x', title: '移除插件',
-    onclick: e => {
-      e.stopPropagation();
-      window.confirmBox(`移除这个「${def.name}」插件？`, () => {
-        SJ.removeWidget(pageIndex, w.id);
-        renderHome();
-      });
-    }
-  }, '✕'));
+    class: 'wg-more', title: '插件设置',
+    onclick: e => { e.stopPropagation(); openWidgetEdit(pageIndex, w.id); }
+  }, '⋯'));
   widgetBody(w.type).forEach(c => node.append(c));
   return node;
 }
@@ -479,22 +479,66 @@ function openSizeSheet(pageIndex) {
 
 function openWidgetSheet(pageIndex) {
   const items = SJ.WIDGET_TYPES.map(def => ({
-    icon: def.icon,
+    svg: def.icon,
     label: def.name,
-    hint: def.span === 4 ? '整行' : '半行',
+    hint: def.span === 4 ? '默认整行' : '默认半行',
     run: () => { SJ.addWidget(pageIndex, def.type); renderHome(); }
   }));
   items.push({
-    icon: '▦', label: '这一页放几个图标', hint: '现在放得下 24 格',
+    svg: 'grid', label: '这一页放几个图标', hint: '现在放得下 24 格',
     run: () => openSizeSheet(pageIndex)
   });
   if (SJ.widgetsOf(pageIndex).length) {
     items.push({
-      icon: '🧹', label: '清空这一页插件', hint: '',
+      svg: 'trash', label: '清空这一页插件', hint: '',
       run: () => { SJ.clearWidgets(pageIndex); renderHome(); }
     });
   }
   window.sheet(items);
+}
+
+/* ── 单个插件的设置：大小 / 换位置 / 移除 ──
+   不用长按唤出：插件在 .page 里，长按会同时触发「长按桌面加插件」那个计时器
+   （widgetNode 里原来那句注释说的就是这个坑）。所以入口做成插件右上角那个 ⋯。 */
+function openWidgetEdit(pageIndex, id) {
+  const list = SJ.widgetsOf(pageIndex);
+  const w = list.find(x => x.id === id);
+  if (!w) return;
+  const def = SJ.widgetDef(w.type);
+  const size = SJ.widgetSizeOf(w);
+  const items = [];
+
+  items.push({ svg: 'grid', label: '大小', hint: '现在：' + size.name, off: true });
+  SJ.WIDGET_SIZES.forEach(s => items.push({
+    svg: 'image', label: '　' + s.name + '（' + s.w + '×' + s.h + '）',
+    hint: s.key === size.key ? '当前' : '',
+    off: s.key === size.key,
+    run: () => { SJ.setWidgetSize(pageIndex, id, s.key); renderHome(); }
+  }));
+
+  items.push({ svg: 'right', label: '换位置', hint: '', off: true });
+  items.push({
+    svg: 'up', label: '　往上挪', off: list.indexOf(w) === 0,
+    run: () => { SJ.moveWidget(pageIndex, id, -1); renderHome(); }
+  });
+  items.push({
+    svg: 'down', label: '　往下挪', off: list.indexOf(w) === list.length - 1,
+    run: () => { SJ.moveWidget(pageIndex, id, 1); renderHome(); }
+  });
+  if (pageIndex > 0) items.push({
+    svg: 'left', label: '　移到第 ' + pageIndex + ' 页',
+    run: () => { SJ.moveWidgetPage(pageIndex, id, pageIndex - 1); renderHome(); }
+  });
+  if (pageIndex < SJ.WIDGET_PAGES - 1) items.push({
+    svg: 'right', label: '　移到第 ' + (pageIndex + 2) + ' 页',
+    run: () => { SJ.moveWidgetPage(pageIndex, id, pageIndex + 1); renderHome(); }
+  });
+
+  items.push({
+    svg: 'trash', label: '移除「' + def.name + '」',
+    run: () => { SJ.removeWidget(pageIndex, id); renderHome(); }
+  });
+  window.sheet(items, def.name);
 }
 
 function renderHome() {
@@ -934,7 +978,18 @@ function runProactive() {
   proactiveBusy = true;
   SJ.proactiveCheck(r => {
     try { SJ.sfx && SJ.sfx('in'); } catch (e) {}
-    if (window.toast) window.toast('「' + r.char.name + '」给你发了条消息');
+    /* 来了新消息：顶部横幅 + 未读 +1。
+       原来只有一行 toast，没有身份也没有去处；横幅能点进那个聊天。 */
+    SJ.bumpUnread(r.char.id, 1);
+    if (window.banner) {
+      window.banner({
+        face: r.char,
+        text: String((r.reply && r.reply.text) || '给你发了条消息').replace(/\n/g, ' ').slice(0, 60),
+        onClick: () => { if (window.SHELL) window.SHELL.openApp('chat', r.char.id); }
+      });
+    } else if (window.toast) {
+      window.toast('「' + r.char.name + '」给你发了条消息');
+    }
   }).then(() => { proactiveBusy = false; })
     .catch(() => { proactiveBusy = false; });
 }

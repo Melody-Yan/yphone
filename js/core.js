@@ -82,17 +82,24 @@ function isDarkWall(id) { const w = wallById(id); return w ? w.dark : false; }
 
 /* 桌面插件登记表。span = 占几列，桌面是 4 列网格：4 = 整行，2 = 半行（两个并排）。 */
 const WIDGET_TYPES = [
-  { type: 'clock',    name: '时钟',   icon: '🕘', span: 4 },
-  { type: 'calendar', name: '今日日程', icon: '📅', span: 4 },
-  { type: 'month',    name: '月历',   icon: '🗓', span: 4 },
-  { type: 'notes',    name: '备忘录', icon: '📝', span: 4 },
-  { type: 'moments',  name: '朋友圈', icon: '💞', span: 4 },
-  { type: 'chat',     name: '聊天',   icon: '💬', span: 2 },
-  { type: 'music',    name: '音乐',   icon: '🎵', span: 2 },
-  { type: 'battery',  name: '电量',   icon: '🔋', span: 2 },
-  { type: 'gallery',  name: '相册',   icon: '🖼', span: 2 }
+  { type: 'clock',    name: '时钟',     icon: 'clock',    span: 4 },
+  { type: 'calendar', name: '今日日程', icon: 'calendar', span: 4 },
+  { type: 'month',    name: '月历',     icon: 'calendar', span: 4 },
+  { type: 'notes',    name: '备忘录',   icon: 'note',     span: 4 },
+  { type: 'moments',  name: '朋友圈',   icon: 'heart',    span: 4 },
+  { type: 'chat',     name: '聊天',     icon: 'comment',  span: 2 },
+  { type: 'music',    name: '音乐',     icon: 'music',    span: 2 },
+  { type: 'battery',  name: '电量',     icon: 'battery',  span: 2 },
+  { type: 'gallery',  name: '相册',     icon: 'image',    span: 2 }
 ];
 const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
+/* 插件大小三档：桌面是 4 列网格，所以就是「跨几列 × 跨几行」。
+   默认值跟着类型的 span 走（半行插件默认小、整行默认中）。 */
+const WIDGET_SIZES = [
+  { key: 's', name: '小', w: 2, h: 1 },
+  { key: 'm', name: '中', w: 4, h: 1 },
+  { key: 'l', name: '大', w: 4, h: 2 }
+];
 
 /* 字段长度上限。必须放在 migrate() 前面 —— migrate 在模块初始化时就被 load()
    调到，那时后面的 const 还在 TDZ 里。踩过一次：存档里一旦有了 events，
@@ -206,6 +213,7 @@ const DEFAULTS = {
   memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
   events: [],            // 日历：[{id,date,time,title,done}, ...]
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
+  unread: {},            // 未读消息数：{角色id: 条数}。打开那个聊天就清零
   /* 朋友圈：角色自己发的生活动态 */
   moments: [],           // [{id,charId,text,img,ts,likes:[charId],comments:[{charId,text,ts}]}, ...]
   /* 通话记录：{ 角色id: [{id,at,secs,lines:[{me,text,ts}],archived}] }
@@ -253,7 +261,7 @@ const DEFAULTS = {
 const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
-  worldbook: 'array', memories: 'object', events: 'array', widgets: 'array',
+  worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
   mall: 'object', wallet: 'object', addresses: 'array'
 };
@@ -348,8 +356,22 @@ function migrate(saved) {
     const group = Array.isArray(out.widgets) && Array.isArray(out.widgets[p]) ? out.widgets[p] : [];
     return group
       .filter(w => w && typeof w === 'object' && knownWg.indexOf(w.type) >= 0)
-      .map((w, i) => ({ id: String(w.id || (`wg-${p}-${i}`)), type: w.type }));
+      .map((w, i) => {
+        /* 大小不认识就退回默认（老存档没有 size 字段）——这里也只写字面量，别引用后面的 const */
+        const size = (w.size === 's' || w.size === 'm' || w.size === 'l') ? w.size : '';
+        return { id: String(w.id || (`wg-${p}-${i}`)), type: w.type, size: size };
+      });
   });
+  // 未读：只认「数字或数字字符串」，夹到 0..999；0 的直接不留（省得存档里堆一堆 0）
+  {
+    const raw = (out.unread && typeof out.unread === 'object' && !Array.isArray(out.unread)) ? out.unread : {};
+    const clean = {};
+    Object.keys(raw).slice(0, 500).forEach(k => {
+      const n = Math.max(0, Math.min(999, parseInt(raw[k], 10) || 0));
+      if (n > 0) clean[String(k).slice(0, 60)] = n;
+    });
+    out.unread = clean;
+  }
   // 外卖 / 音乐：都是导入存档的信任边界，逐条归一（normalize* 是函数声明，提升过，TDZ 安全）
   const dl = (out.delivery && typeof out.delivery === 'object' && !Array.isArray(out.delivery)) ? out.delivery : {};
   out.delivery = {
@@ -2013,12 +2035,90 @@ function removeWidget(page, id) {
   return true;
 }
 
+/* 这个插件现在多大。老存档没有 size（''）→ 按类型的 span 推默认。 */
+function widgetSizeOf(w) {
+  const def = widgetDef(w && w.type);
+  const fallback = def && def.span === 2 ? 's' : 'm';
+  const key = (w && WIDGET_SIZES.some(s => s.key === w.size)) ? w.size : fallback;
+  return WIDGET_SIZES.find(s => s.key === key);
+}
+
+function setWidgetSize(page, id, key) {
+  if (!WIDGET_SIZES.some(s => s.key === key)) return false;
+  const w = widgetsOf(page).find(x => x.id === id);
+  if (!w) return false;
+  w.size = key;
+  save();
+  return true;
+}
+
+/* 页内换位：dir < 0 上移、> 0 下移。到头了返回 false（调用方据此把按钮置灰）。 */
+function moveWidget(page, id, dir) {
+  const list = widgetsOf(page);
+  const i = list.findIndex(w => w.id === id);
+  const j = i + (dir < 0 ? -1 : 1);
+  if (i < 0 || j < 0 || j >= list.length) return false;
+  const t = list[i]; list[i] = list[j]; list[j] = t;
+  save();
+  return true;
+}
+
+/* 换页：挪到目标页的末尾。页面越界或原地不动都返回 false。 */
+function moveWidgetPage(from, id, to) {
+  const t = Math.max(0, Math.min(WIDGET_PAGES - 1, Number(to)));
+  if (!(t >= 0) || t === Number(from)) return false;
+  const list = widgetsOf(from);
+  const i = list.findIndex(w => w.id === id);
+  if (i < 0) return false;
+  const w = list.splice(i, 1)[0];
+  widgetsOf(t).push(w);
+  save();
+  return true;
+}
+
 function clearWidgets(page) {
   const list = widgetsOf(page);
   const n = list.length;
   list.length = 0;
   save();
   return n;
+}
+
+/* ── 未读 ──
+   之前只有「我发的消息有没有被读」（msg-read），没有「我没读对方几条」。
+   打开聊天 = 清零；对方来消息时由 app.js 的那条路径 +1。 */
+function unreadOf(id) {
+  const n = state.unread && state.unread[String(id)];
+  return Math.max(0, parseInt(n, 10) || 0);
+}
+
+function bumpUnread(id, n) {
+  const k = String(id == null ? '' : id);
+  if (!k) return 0;
+  if (!state.unread || typeof state.unread !== 'object') state.unread = {};
+  const v = Math.max(0, Math.min(999, unreadOf(k) + (parseInt(n, 10) || 1)));
+  if (v > 0) state.unread[k] = v; else delete state.unread[k];
+  save();
+  return v;
+}
+
+function clearUnread(id) {
+  const k = String(id == null ? '' : id);
+  if (!state.unread || !(k in state.unread)) return false;
+  delete state.unread[k];
+  save();
+  return true;
+}
+
+function clearAllUnread() {
+  const had = Object.keys(state.unread || {}).length;
+  state.unread = {};
+  if (had) save();
+  return had;
+}
+
+function unreadTotal() {
+  return Object.keys(state.unread || {}).reduce((s, k) => s + unreadOf(k), 0);
 }
 
 /* 会话里最后一张图片（相册插件用）。没有就返回 null。 */
@@ -3869,7 +3969,9 @@ window.SJ = {
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   /* 桌面插件 */
-  WIDGET_TYPES, WIDGET_PAGES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
+  WIDGET_TYPES, WIDGET_PAGES, WIDGET_SIZES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
+  widgetSizeOf, setWidgetSize, moveWidget, moveWidgetPage,
+  unreadOf, bumpUnread, clearUnread, clearAllUnread, unreadTotal,
   HOME_PER_PAGE, HOME_DOCK, homeSplit, reflowLayout,
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,

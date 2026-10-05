@@ -1012,7 +1012,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .wg-emoji { display: grid; place-items: center; font-size: 28px; background-color: transparent; }
 
 /* 移除按钮：常驻但很淡，别让桌面看着像在编辑模式 */
-.wg-x {
+.wg-more {
   position: absolute; top: 8px; right: 10px;
   width: 22px; height: 22px; border-radius: 50%;
   border: 0; padding: 0; cursor: pointer; font: inherit; line-height: 1;
@@ -1020,10 +1020,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   background: rgba(255, 255, 255, .55); opacity: .38;
   display: grid; place-items: center;
 }
-.wg-x:active { opacity: 1; color: var(--danger); background: #fff; }
+.wg-more:active { opacity: 1; color: var(--danger); background: #fff; }
 
 #phone.dark-wall .widget { background: rgba(38, 36, 34, .42); border-color: rgba(255, 255, 255, .18); color: var(--fg); }
-#phone.dark-wall .wg-x { background: rgba(255, 255, 255, .16); color: #fff; }
+#phone.dark-wall .wg-more { background: rgba(255, 255, 255, .16); color: #fff; }
 #phone.dark-wall .wg-bar { background: rgba(255, 255, 255, .18); }
 
 /* ══════════════════════════════════════════════════════
@@ -1045,7 +1045,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .price { font-size: 14px; font-weight: 500; color: var(--accent); flex: 0 0 auto; }
 .row-sub.done { color: var(--accent); }
 
-/* 行内删除：跟 .wg-x 一个脾气 —— 常驻但淡，点了才显眼 */
+/* 行内删除：跟 .wg-more 一个脾气 —— 常驻但淡，点了才显眼 */
 .row-x {
   flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
   border: 0; padding: 0; cursor: pointer; font: inherit; line-height: 1;
@@ -2818,11 +2818,11 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 /* 内容流（微信会话列表、聊天记录）：不套面板，只铺一层很薄的纱 ——
    套了面板就变成「一大张卡」，列表该是通栏的。 */
-#phone .app-chat > .list,
-#phone .app-chat > .chat-list {
-  background: rgba(255, 255, 255, .38);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+/* 消息列表 / 主页：纯白、通栏。之前那层薄纱让整页发灰，而且面板化的分区
+   把页面切碎了显得「腿短」——现在立体感改由行内的头像、徽标、分隔线来给。
+   聊天页（.chat-list）不动：那里的壁纸是你更早明确要的。 */
+#phone .app-chat > .list {
+  background: #fff;
   border-radius: 0;
   margin: 0;
   box-shadow: none;
@@ -2835,8 +2835,6 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone .app-view { background-color: transparent; }
 /* 壁纸在左侧偏亮、右侧偏暗，左列的卡片几乎糊进背景。
    叠一层「左透明 → 右略白」的薄纱把不均匀抹平，蒙层仍然是 55%（用户要壁纸看得见）。 */
-#phone .app-view > .list,
-#phone .app-view > .pad,
 #phone .app-view > .chat-list {
   background-image: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .20));
 }
@@ -2933,6 +2931,72 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .ig-more { padding: 12px var(--sp-4) 4px; font-size: var(--fs-base); color: var(--ink-2); }
 .ig-more:active { color: var(--ink); }
+
+/* ── 插件三档大小 ──
+   桌面是 4 列网格：小 2×1 / 中 4×1 / 大 4×2。
+   小档只留「标题 + 第一个内容块」，多的内容藏起来而不是溢出 ——
+   2×1 那么点地方塞不下日历格子。 */
+#phone .widget { overflow: hidden; }
+/* 一行图标大约 84px 高、行距 22 —— 大档得自己给高度，
+   否则 grid-auto-rows: min-content 会让 span 2 跟 span 1 差不多高 */
+#phone .wg-s, #phone .wg-m { min-height: 92px; }
+#phone .wg-l { min-height: 190px; }
+#phone .wg-s { padding: 12px 14px; }
+#phone .wg-s > *:nth-child(n+3) { display: none; }
+#phone .wg-s .widget-time { font-size: 38px; letter-spacing: -1px; }
+#phone .wg-s .wg-head { font-size: 11px; }
+#phone .wg-s .wg-week { display: none; }
+#phone .wg-m .widget-time { font-size: 52px; }
+#phone .wg-l .widget-time { font-size: 64px; }
+#phone .wg-l { padding-bottom: 22px; }
+
+/* ── 未读徽标 ──
+   全站唯一的「红」：通知数是个信号，不是装饰。灰阶里它一眼就能被扫到。 */
+.badge {
+  flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: var(--r-full);
+  background: #d1483c; color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
+}
+/* 列表行右侧：时间在上、徽标在下（跟 iOS 一个位置习惯） */
+.row-side { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.row-side .row-time { margin: 0; }
+/* 页签上的小圆点数字 */
+.wt-badge { background: #d1483c; }
+
+/* ── 顶部横幅通知 ──
+   从屏幕最上滑下来的一张卡：头像 + 名字 + 一句话，点一下进那个聊天，4 秒自己走。
+   原来是一行 toast，没有身份也没有去处。 */
+.banner {
+  position: absolute; left: 10px; right: 10px; top: 10px; z-index: 90;
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .93);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow: 0 12px 34px -10px rgba(0, 0, 0, .34), 0 2px 6px rgba(0, 0, 0, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .8);
+  cursor: pointer;
+  animation: bannerIn var(--dur-3) var(--ease-quiet) both;
+}
+.banner.out { animation: bannerOut 200ms var(--ease-out-fast) both; }
+@keyframes bannerIn { from { opacity: 0; transform: translateY(-120%); } to { opacity: 1; transform: none; } }
+@keyframes bannerOut { to { opacity: 0; transform: translateY(-110%); } }
+.banner:active { transform: scale(.985); }
+.banner-body { flex: 1 1 auto; min-width: 0; }
+.banner-name { font-size: var(--fs-base); font-weight: 600; letter-spacing: .1px; }
+.banner-text {
+  margin-top: 2px; font-size: var(--fs-sm); color: var(--ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.banner-time { flex: 0 0 auto; font-size: var(--fs-cap); color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) {
+  .banner { animation: none; }
+  .banner.out { animation: none; opacity: 0; }
+}
 
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }

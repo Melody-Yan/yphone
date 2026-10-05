@@ -1314,26 +1314,115 @@ wgOn(0)[1].click();
 ok('点插件进对应的 App', S.SHELL.stack.length === 1 && walk(S.SHELL.stack[0].node).some(n => n._class.has('cal-head')));
 S.closeTop(true);
 
-/* ✕ 删插件：点歪到卡片上不该顺带把 App 打开 */
+/* ⋯ 打开插件设置：点歪到卡片上不该顺带把 App 打开 */
 resetWg();
 wk.addWidget(0, 'calendar'); S.SHELL.renderHome();
 const calWg = wgOn(0)[1];
-const xBtn = walk(calWg).find(n => n._class.has('wg-x'));
-ok('插件右上角有 ✕', !!xBtn);
-xBtn.click();
-ok('点 ✕ 弹确认框', !!walk(byId.phone).find(n => n._class.has('confirm')));
-ok('点 ✕ 不会顺手把日历 App 打开（stopPropagation 生效）', S.SHELL.stack.length === 0,
+const moreBtn = walk(calWg).find(n => n._class.has('wg-more'));
+ok('插件右上角有 ⋯（设置入口）', !!moreBtn);
+moreBtn.click();
+ok('点 ⋯ 打开的是插件设置面板（不是直接删）',
+  !!walk(byId.phone).find(n => n._class.has('sheet') || n._class.has('si-label')));
+ok('点 ⋯ 不会顺手把日历 App 打开（stopPropagation 生效）', S.SHELL.stack.length === 0,
   '栈深度 ' + S.SHELL.stack.length);
-findBtn(byId.phone, '确定').click();
-ok('确认后插件被移除', wgOn(0).length === 1, wgOn(0).length + ' 个');
+/* 面板里点「移除」才删 */
+const rmBtn = walk(byId.phone).find(n => n.tagName === 'BUTTON' && /移除/.test(n.textContent || ''));
+ok('面板里有「移除」这一项', !!rmBtn);
+rmBtn.click();
+ok('面板里点移除 → 插件没了', wgOn(0).length === 1, wgOn(0).length + ' 个');
 ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringify(wk.state.widgets[0]));
 
-/* 取消就不删 */
-const xBtn2 = walk(wgOn(0)[0]).find(n => n._class.has('wg-x'));
-xBtn2.click();
-findBtn(byId.phone, '取消').click();
-ok('点取消不删', wgOn(0).length === 1 && wk.state.widgets[0].length === 1);
-ok('确认框关掉了', !walk(byId.phone).find(n => n._class.has('confirm')));
+/* ── 未读 ── */
+{
+  const keepU = JSON.stringify(wk.state.unread || {});
+  wk.state.unread = {};
+  ok('初始没有未读', wk.unreadTotal() === 0, String(wk.unreadTotal()));
+  ok('同一个会话连来三条 = 3', wk.bumpUnread('c1', 1) === 1 && wk.bumpUnread('c1') === 2 && wk.bumpUnread('c1') === 3,
+    String(wk.unreadOf('c1')));
+  ok('不同会话分开算', wk.bumpUnread('c2', 1) === 1 && wk.unreadTotal() === 4, String(wk.unreadTotal()));
+  ok('取不存在的会话是 0', wk.unreadOf('nope') === 0);
+  ok('读过了就清零', wk.clearUnread('c1') === true && wk.unreadOf('c1') === 0 && wk.unreadTotal() === 1);
+  ok('清一个没未读的不算清（false）', wk.clearUnread('c1') === false);
+  wk.bumpUnread('c3', 5);
+  ok('全部清零返回清掉了几个会话', wk.clearAllUnread() === 2 && wk.unreadTotal() === 0, String(wk.unreadTotal()));
+  ok('数量有上限（不会显示成 10000）', wk.bumpUnread('c4', 5000) === 999, String(wk.unreadOf('c4')));
+  /* 空 id 不记账 */
+  ok('没 id 的会话不记账', wk.bumpUnread('', 1) === 0 && wk.bumpUnread(null, 1) === 0);
+  wk.state.unread = JSON.parse(keepU);
+  wk.save();
+}
+/* 存档里的未读是信任边界：坏的归一，0 不留 */
+{
+  const keepU2 = store.get('xiaoshouji.v1');
+  store.set('xiaoshouji.v1', JSON.stringify({ unread: { a: '3', b: -2, c: 'x', d: 99999 } }));
+  const mu = wk.load();
+  ok('未读导入归一（合法保留、负数/垃圾丢掉、超大夹住）',
+    mu.unread.a === 3 && mu.unread.b === undefined && mu.unread.c === undefined && mu.unread.d === 999,
+    JSON.stringify(mu.unread));
+  store.set('xiaoshouji.v1', JSON.stringify({ unread: 'not an object' }));
+  ok('未读不是对象也不会炸', JSON.stringify(wk.load().unread) === '{}', JSON.stringify(wk.load().unread));
+  store.set('xiaoshouji.v1', keepU2);
+}
+
+/* ── 插件大小：三档，跨列跨行都写进数据 ── */
+/* 这几块会往桌面上加插件，开头存档、结尾还原 ——
+   不然后面那些「按页取第一个插件」的断言会取到我这里的节点。 */
+const wgKeep = JSON.stringify(wk.state.widgets);
+const wgReset = () => { [0, 1, 2].forEach(p => wk.clearWidgets(p)); };
+wgReset();
+const first = wk.addWidget(0, 'clock');   // 刚才清空了，显式加一个再测
+ok('整行插件默认「中」', wk.widgetSizeOf(first).key === 'm', wk.widgetSizeOf(first).key);
+ok('半行插件默认「小」', (function () {
+  const h = wk.addWidget(0, 'music');
+  return wk.widgetSizeOf(h).key === 's';
+})(), 'music');
+ok('改成小 → 2×1', wk.setWidgetSize(0, first.id, 's') &&
+  wk.widgetSizeOf(first).w === 2 && wk.widgetSizeOf(first).h === 1, JSON.stringify(wk.widgetSizeOf(first)));
+ok('改成大 → 4×2', wk.setWidgetSize(0, first.id, 'l') &&
+  wk.widgetSizeOf(first).w === 4 && wk.widgetSizeOf(first).h === 2, JSON.stringify(wk.widgetSizeOf(first)));
+ok('不认识的档位不改（返回 false）', wk.setWidgetSize(0, first.id, 'xl') === false && wk.widgetSizeOf(first).key === 'l');
+ok('不存在的插件 id 也返回 false', wk.setWidgetSize(0, 'nope', 's') === false);
+S.SHELL.renderHome();
+ok('渲染出来的节点带上了尺寸类（wg-l）', wgOn(0)[0]._class.has('wg-l'));
+
+/* ── 插件位置：页内上移/下移 + 换页 ── */
+wgReset();
+const w1 = wk.addWidget(0, 'clock');
+const w2 = wk.addWidget(0, 'notes');
+const seq = () => wk.state.widgets[0].map(x => x.type).join(',');
+ok('新加的排在最后', seq() === 'clock,notes', seq());
+ok('往上挪：notes 到 clock 前面', wk.moveWidget(0, w2.id, -1) && seq() === 'notes,clock', seq());
+ok('已经在最前面的再往上挪不动（false）', wk.moveWidget(0, w2.id, -1) === false);
+ok('最后一个再往下挪不动（false）', wk.moveWidget(0, w1.id, 1) === false);
+ok('往下挪：notes 回到后面', wk.moveWidget(0, w2.id, 1) && seq() === 'clock,notes', seq());
+const wgN = wk.state.widgets[0].length;
+ok('换页：clock 挪到第 2 页', wk.moveWidgetPage(0, w1.id, 1) &&
+  wk.state.widgets[0].length === wgN - 1 && wk.state.widgets[1].some(x => x.id === w1.id),
+  JSON.stringify(wk.state.widgets.map(g => g.length)));
+ok('换到同一页不算移动（false）', wk.moveWidgetPage(0, w2.id, 0) === false);
+ok('越界页会被夹到合法页（-5 → 第 0 页）', (function () {
+  const a = wk.addWidget(0, 'music');
+  wk.moveWidgetPage(0, a.id, -5);
+  return wk.state.widgets[0].some(x => x.id === a.id);
+})());
+
+/* 老存档没有 size → 迁移后按类型补默认（整行中、半行小） */
+{
+  const keep3 = store.get('xiaoshouji.v1');
+  store.set('xiaoshouji.v1', JSON.stringify({ widgets: [[{ id: 'a', type: 'clock' }, { id: 'b', type: 'chat' }], [], []] }));
+  const mig = wk.load();
+  /* size 存空串是有意的：默认值在 widgetSizeOf 里按类型解析，不往存档里塞冗余字段 */
+  ok('老存档没有 size → 解析出默认（整行 m / 半行 s）',
+    wk.widgetSizeOf(mig.widgets[0][0]).key === 'm' && wk.widgetSizeOf(mig.widgets[0][1]).key === 's',
+    JSON.stringify(mig.widgets[0].map(x => wk.widgetSizeOf(x).key)));
+  store.set('xiaoshouji.v1', JSON.stringify({ widgets: [[{ id: 'a', type: 'clock', size: 'zzz' }], [], []] }));
+  const mig2 = wk.load();
+  ok('存档里写了不认识的大小 → 也退回默认', wk.widgetSizeOf(mig2.widgets[0][0]).key === 'm',
+    wk.widgetSizeOf(mig2.widgets[0][0]).key);
+  store.set('xiaoshouji.v1', keep3);
+  wk.state.widgets = JSON.parse(wgKeep);      /* 还原：别把插件留在桌面上影响后面的断言 */
+  wk.save();
+}
 
 /* 清空这一页 */
 dispatch(pages[0], 'mousedown', {});
@@ -3827,9 +3916,12 @@ console.log('\n[34] 群聊');
 
   /* ── 建群入口 ── */
   let wx = openFresh('chat');
-  /* 图标换成矢量之后没有文字了，按 title 找 */
-  const gbtn = walk(wx).find(n => n.attrs && n.attrs.title === '发起群聊');
-  ok('微信右上角有「发起群聊」', !!gbtn);
+  /* 加号改成了卡片菜单：先点 ＋（title「更多」），再从菜单里点「发起群聊」 */
+  const plusBtn = walk(wx).find(n => n.attrs && n.attrs.title === '更多');
+  ok('微信右上角有 ＋（卡片菜单入口）', !!plusBtn);
+  if (plusBtn) plusBtn.click();
+  const gbtn = walk(byId.phone).find(n => n._class && n._class.has('pop-item') && /\u53d1\u8d77\u7fa4\u804a/.test(n.textContent || ''));
+  ok('＋ 的卡片菜单里有「发起群聊」', !!gbtn);
   if (gbtn) gbtn.click();
   /* 前面的用例在同一个 localStorage 里留了别的角色，所以只断言这三个人在里面 */
   ok('选人页把三个角色都列出来了',
@@ -4182,8 +4274,10 @@ console.log('\n[36] 主动找多人 / 自己发朋友圈');
   sandbox.SHELL.closeAll();
   sandbox.SHELL.openApp('chat');
   await sleep(150);
-  ok('微信右上角重新有「朋友圈」入口', !!top().find(n => n._class.has('nav-mom')));
-  top().find(n => n._class.has('nav-mom')).click();
+  /* 导航上不再放朋友圈按钮（底部页签已经有）—— 走页签这条路 */
+  const momTab = top().find(n => n._class.has('wt') && /\u670b\u53cb\u5708/.test(n.textContent || ''));
+  ok('底部页签能到朋友圈', !!momTab);
+  if (momTab) momTab.click();
   await sleep(80);
   top().find(n => n._class.has('nav-btn') && n.textContent === '写').click();
   await sleep(60);

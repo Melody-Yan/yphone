@@ -35,6 +35,10 @@ const ICON = {
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /> <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />',
   palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />',
   sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /> <path d="M20 3v4" /> <path d="M22 5h-4" /> <path d="M4 17v2" /> <path d="M5 18H3" />',
+  battery: '<rect x="2" y="7" width="16" height="10" rx="2" /> <path d="M22 11v2" />',
+  grid: '<rect width="7" height="7" x="3" y="3" rx="1" /> <rect width="7" height="7" x="14" y="3" rx="1" /> <rect width="7" height="7" x="14" y="14" rx="1" /> <rect width="7" height="7" x="3" y="14" rx="1" />',
+  up: '<path d="m18 15-6-6-6 6" />',
+  down: '<path d="m6 9 6 6 6-6" />',
   image: '<path d="M18 22H4a2 2 0 0 1-2-2V6" /> <path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18" /> <circle cx="12" cy="8" r="2" /> <rect width="16" height="16" x="6" y="2" rx="2" />',
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />',
   comment: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />',
@@ -495,6 +499,35 @@ function popover(items, { head, bottom = 92 } = {}) {
   document.getElementById('phone').append(mask);
   return mask;
 }
+
+/* ── 顶部横幅通知 ──
+   从屏幕最上滑下来：头像 + 名字 + 一句话。点一下进那个聊天，4 秒自己收走。
+   只留一条 —— 连着来三条就刷屏了（新的把旧的顶掉）。 */
+let bannerNode = null;
+function banner({ face, text, onClick, ms }) {
+  if (bannerNode) { try { bannerNode.remove(); } catch (e) {} bannerNode = null; }
+  const f = face || { name: '小手机', avatar: '\u{1F642}' };
+  const node = SJ.el('div', { class: 'banner', onclick: () => { hide(); if (onClick) onClick(); } }, [
+    avatarNode(f),
+    SJ.el('div', { class: 'banner-body' }, [
+      SJ.el('div', { class: 'banner-name' }, f.name || '小手机'),
+      SJ.el('div', { class: 'banner-text' }, text || '')
+    ]),
+    SJ.el('div', { class: 'banner-time' }, '现在')
+  ]);
+  function hide() {
+    if (!node.parentNode) return;
+    node.classList.add('out');
+    const kill = () => { try { node.remove(); } catch (e) {} if (bannerNode === node) bannerNode = null; };
+    if (window.canAnimate && window.canAnimate()) setTimeout(kill, 220); else kill();
+  }
+  const host = document.getElementById('phone') || document.body;
+  host.append(node);
+  bannerNode = node;
+  setTimeout(hide, Math.max(1500, Number(ms) || 4000));
+  return node;
+}
+window.banner = banner;
 
 /* ── 空态组件 ──
    以前每个 App 自己写一行灰字（.empty），冷冰冰的。
@@ -1004,47 +1037,39 @@ const APPS = [
         { id: 'me', icon: 'people', label: '主页', go: () => meView() }
       ];
       function tabBar(active) {
+        const un = SJ.unreadTotal();
         return SJ.el('div', { class: 'wtab' }, TABS.map(t => SJ.el('button', {
           class: 'wt' + (t.id === active ? ' on' : ''),
           onclick: () => t.go()
         }, [
-          SJ.el('span', { class: 'wt-i', html: svg(t.icon, 22) }),
+          SJ.el('span', { class: 'wt-i' }, [
+            SJ.el('span', { html: svg(t.icon, 22) }),
+            /* 消息页签上的未读总数：没读的条数一眼能看见，不用点进去 */
+            (t.id === 'msg' && un) ? SJ.el('i', { class: 'wt-badge' }, un > 99 ? '99+' : String(un)) : null
+          ].filter(Boolean)),
           SJ.el('span', { class: 'wt-l' }, t.label)
         ])));
       }
 
       function listView() {
         root.innerHTML = '';
+        /* 导航上只留一个 ＋：朋友圈底部页签已经有了，重复放一个没意义；
+           发起群聊、加人这些收进 ＋ 的卡片菜单里。 */
         root.append(navBar('微信', {
-          right: SJ.el('div', { class: 'nav-right' }, [
-            SJ.el('button', {
-              class: 'nav-btn nav-mom',
-              title: '朋友圈',
-              html: svg('comment', 17),
-              onclick: () => momentsView()
-            }),
-            SJ.el('button', {
-              class: 'nav-btn',
-              title: '发起群聊',
-              html: svg('people', 17),
-              onclick: () => (SJ.state.characters.length < 2
-                ? toast('至少要有两个角色才能建群')
-                : newGroup())
-            }),
-            SJ.el('button', {
-              class: 'nav-btn',
-              title: '去通讯录加人',
-              html: svg('plus', 18),
-              onclick: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
-            })
-          ])
+          right: SJ.el('button', {
+            class: 'nav-btn', title: '更多', html: svg('plus', 19),
+            onclick: () => plusMenu()
+          })
         }));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
 
-        /* 人一多翻列表就痛。四个人以下不给搜索框，那会儿它只是占地方。 */
-        const search = SJ.el('input', { class: 'wsearch', placeholder: '搜索', oninput: () => paint() });
-        if (rows.length > 4) box.append(SJ.el('div', { class: 'wsearch-wrap' }, [search]));
+        /* 搜索常驻（原来是 4 个以上才给）：找聊天、找角色都靠它 */
+        const search = SJ.el('input', {
+          class: 'wsearch', type: 'search', placeholder: '搜索聊天记录 / 角色',
+          oninput: () => paint()
+        });
+        box.append(SJ.el('div', { class: 'wsearch-wrap' }, [search]));
 
         const feed = SJ.el('div', { class: 'wfeed' });
         const preview = last => {
@@ -1056,28 +1081,81 @@ const APPS = [
             : (last.me ? '我' : '');
           return (who ? who + '：' : '') + String(body).replace(/\n/g, ' ').slice(0, 28);
         };
-        /* 群搜索要能按成员名字搜到群 */
-        const hay = row => row.c.name + ' ' + ((row.last && row.last.text) || '')
+        /* 群搜索要能按成员名字搜到群；聊天记录要能从中间一条搜到（不只最后一条）——
+           会话一多，只搜最后一条等于搜不到东西。 */
+        const historyText = id => {
+          const arr = (SJ.state.chats || {})[id] || [];
+          return arr.slice(-60).map(m => (m.text || '')).join(' ').slice(0, 4000);
+        };
+        const hay = row => row.c.name + ' ' + ((row.last && row.last.text) || '') + ' ' + historyText(row.c.id)
           + (row.g ? ' ' + row.g.members.map(id => (SJ.state.characters.find(x => x.id === id) || {}).name || '').join(' ') : '');
+        /* 一行会话：右侧「时间在上、未读徽标在下」 */
+        function rowOf(c, last) {
+          const un = SJ.unreadOf(c.id);
+          return SJ.el('div', { class: 'row wrow' + (un ? ' has-un' : ''), onclick: () => chatView(c.id) }, [
+            avatarNode(c),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, c.name),
+              SJ.el('div', { class: 'row-sub' }, preview(last))
+            ]),
+            SJ.el('div', { class: 'row-side' }, [
+              last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null,
+              un ? SJ.el('span', { class: 'badge' }, un > 99 ? '99+' : String(un)) : null
+            ].filter(Boolean))
+          ]);
+        }
         function paint() {
           feed.innerHTML = '';
           const q = (search.value || '').trim();
           const list = q ? rows.filter(row => hay(row).indexOf(q) >= 0) : rows;
-          if (!list.length) {
+          if (!list.length && !q) {
             feed.append(SJ.el('div', { class: 'empty' },
-              q ? `没有找到「${q}」。` : '还没有聊天对象。点右上角「＋」去「通讯录」造一个角色。'));
+              '还没有聊天对象。点右上角「＋」加一个人。'));
             return;
           }
-          list.forEach(({ c, last }) => {
-            feed.append(SJ.el('div', { class: 'row wrow', onclick: () => chatView(c.id) }, [
-              avatarNode(c),
-              SJ.el('div', { class: 'row-main' }, [
-                SJ.el('div', { class: 'row-title' }, c.name),
-                SJ.el('div', { class: 'row-sub' }, preview(last))
-              ]),
-              last ? SJ.el('div', { class: 'row-time' }, SJ.fmtAgo(last.ts)) : null
-            ]));
+          list.forEach(({ c, last }) => feed.append(rowOf(c, last)));
+          /* 搜索时把「还没聊过的角色」也带出来 —— 想找人却要先退出去翻通讯录很别扭 */
+          if (q) {
+            const shownIds = list.map(r => r.c.id);
+            const extra = SJ.state.characters.filter(c => shownIds.indexOf(c.id) < 0
+              && ((c.name || '') + ' ' + (c.desc || '') + ' ' + (c.persona || '')).indexOf(q) >= 0);
+            if (extra.length) {
+              feed.append(SJ.el('div', { class: 'group-title' }, '角色'));
+              extra.slice(0, 12).forEach(c => feed.append(rowOf(c, null)));
+            }
+            if (!list.length && !extra.length) {
+              feed.append(SJ.el('div', { class: 'empty' }, `没有找到「${q}」。`));
+            }
+          }
+        }
+        /* ＋ 的卡片菜单：集成几个真用得上的动作 */
+        function plusMenu() {
+          const un = SJ.unreadTotal();
+          const items = [
+            {
+              svg: 'people', label: '发起群聊',
+              run: () => (SJ.state.characters.length < 2
+                ? toast('至少要有两个角色才能建群')
+                : newGroup())
+            },
+            {
+              svg: 'user', label: '加好友', hint: SJ.state.characters.length + ' 个角色',
+              run: () => { if (window.SHELL) window.SHELL.openApp('contacts'); }
+            },
+            {
+              svg: 'search', label: '找聊天记录',
+              run: () => { search.focus(); if (search.select) search.select(); }
+            },
+            {
+              svg: 'wallet', label: '收付款', hint: '¥' + SJ.walletBalance().toFixed(2),
+              run: () => walletView()
+            }
+          ];
+          if (un) items.push({
+            svg: 'check', label: '全部标为已读', hint: un + ' 条',
+            run: () => { SJ.clearAllUnread(); paint(); toast('都标成已读了'); }
           });
+          window.popover(items, { head: '微信', bottom: 96 });
         }
         paint();
         box.append(feed);
@@ -1985,6 +2063,8 @@ const APPS = [
       }
 
       function chatView(id) {
+        /* 进来了就是读了 */
+        SJ.clearUnread(id);
         const c = SJ.chatTarget(id);
         if (!c) return listView();
         /* 群聊：c 是 core 合成的一张「脸」（有 id/name/avatar/avatarImg），

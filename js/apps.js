@@ -3124,7 +3124,7 @@ const APPS = [
             SJ.el('div', { class: 'row', onclick: () => fileInp.click() }, [
               SJ.el('div', { class: 'row-main' }, [
                 SJ.el('div', { class: 'row-title' }, '从文件导入'),
-                SJ.el('div', { class: 'row-sub' }, '.txt / .docx / .json 都能，按内容自己切成卡')
+                SJ.el('div', { class: 'row-sub' }, '.txt / .docx / .json 都行')
               ]),
               SJ.el('div', { class: 'row-time' }, '导入 ›')
             ]),
@@ -3301,14 +3301,14 @@ const APPS = [
           })), SJ.el('div', { class: 'sheet-head' }, '归到哪一类？越靠前的越先被她读到')) }, [
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, '分类（= 优先级）'),
-              SJ.el('div', { class: 'row-sub' }, '破限 > 文风 > 人设 > 世界观 > 剧情 > 状态')
+              SJ.el('div', { class: 'row-sub' }, '破限 / 文风 / 人设 / 世界观')
             ]),
             catText
           ]),
           SJ.el('div', { class: 'row', onclick: () => pickOwner(e, paintButtons) }, [
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, '谁能读到'),
-              SJ.el('div', { class: 'row-sub' }, '通用 = 谁都能读到；选几个角色 = 他们的共同设定')
+              SJ.el('div', { class: 'row-sub' }, '谁能读到；选角色 = 共同设定')
             ]),
             ownerText
           ]),
@@ -3317,7 +3317,7 @@ const APPS = [
           SJ.el('div', { class: 'row' }, [
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, '顺序'),
-              SJ.el('div', { class: 'row-sub' }, '数字越小越先被她读到。列表里的 ↑↓ 改的就是它')
+              SJ.el('div', { class: 'row-sub' }, '越小越先读到；↑↓ 改顺序')
             ]),
             order
           ]),
@@ -5226,7 +5226,7 @@ const APPS = [
         box.append(SJ.el('div', { class: 'row', onclick: () => { if (window.SHELL) window.SHELL.openApp('look'); } }, [
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '外观与壁纸'),
-            SJ.el('div', { class: 'row-sub' }, '桌面壁纸 / 锁屏壁纸 / 上传自己的图 / 我的头像')
+            SJ.el('div', { class: 'row-sub' }, '壁纸 / 头像 / 上传自己的图')
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));

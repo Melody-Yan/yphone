@@ -16,8 +16,8 @@
   color-scheme: only light;
 
   /* ── 表面 ── */
-  --bg: #f2efe9;             /* App 内容底：暖白纸。比白卡片深一档，卡片才「浮」得出来 */
-  --bg-2: #e9e5de;           /* 次级底：凹陷/输入/未选中 */
+  --bg: #ede9e1;             /* App 内容底：暖白纸。比白卡片深两档，卡片才「浮」得出来 */
+  --bg-2: #e5e0d7;           /* 次级底：凹陷/输入/未选中 */
   --card: #fff;
   --card-2: #faf8f4;         /* 卡片下缘那一点渐变，给面一点厚度 */
   --line: rgba(44, 40, 36, .085);
@@ -25,8 +25,11 @@
 
   /* ── 文字（对比度：13.4 / 5.1 / 3.2 压在 --bg 上）── */
   --ink: #2c2824;
-  --ink-2: #6e655b;          /* 时间、副标题、提示：4.5:1 达标的下限附近 */
+  --ink-2: #665d53;          /* 时间、副标题、提示：最差情况（压 --bg-2）也有 4.9:1 */
   --ink-3: #7a7268;          /* 弱文字/图标/占位符：压白底 4.74:1 */
+  /* 永远不变的墨色：压在 App 的纸底上，不跟壁纸翻。
+     深色壁纸作用域里 --ink 是白的，需要「翻回来」的地方必须用这个，不能用 --ink。 */
+  --ink-paper: #2c2824;
 
   /* ── 强调：一支鼠尾草绿，分「装饰填充」和「承载文字」两种用法 ── */
   --accent: #7d9c94;         /* 图标、进度条、圆点（上面没有文字） */
@@ -52,9 +55,9 @@
   --glass-line: rgba(255, 255, 255, .62);
 
   /* ── 层级：先色差、后阴影；--edge 是卡片上沿那道高光，立体感一半靠它 ── */
-  --el-1: 0 1px 2px rgba(44, 40, 36, .06), 0 4px 10px -4px rgba(44, 40, 36, .13);
-  --el-2: 0 2px 4px rgba(44, 40, 36, .07), 0 14px 28px -10px rgba(44, 40, 36, .22);
-  --el-3: 0 4px 10px rgba(44, 40, 36, .10), 0 26px 60px -20px rgba(44, 40, 36, .40);
+  --el-1: 0 1px 2px rgba(44, 40, 36, .11), 0 4px 10px -6px rgba(44, 40, 36, .24);
+  --el-2: 0 1px 2px rgba(44, 40, 36, .10), 0 8px 16px -7px rgba(44, 40, 36, .28);
+  --el-3: 0 4px 10px rgba(44, 40, 36, .14), 0 26px 60px -20px rgba(44, 40, 36, .46);
   --edge: inset 0 1px 0 rgba(255, 255, 255, .92);
   --edge-dim: inset 0 1px 0 rgba(255, 255, 255, .55);
 
@@ -172,7 +175,7 @@ html, body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 26px;
   font-size: 14.5px; font-weight: 600; letter-spacing: .2px;
-  color: #4b463f;
+  color: var(--ink);
   position: relative; z-index: 30;
   pointer-events: none;
 }
@@ -257,7 +260,7 @@ html, body {
   -webkit-backdrop-filter: blur(22px) saturate(1.2);
   border: 1px solid rgba(255, 255, 255, .7);
   border-radius: 26px;
-  color: #4b463f;
+  color: var(--ink);
   box-shadow: var(--shadow-s);
 }
 .widget-time { font-size: 46px; font-weight: 300; letter-spacing: -1.5px; line-height: 1.05; font-variant-numeric: tabular-nums; }
@@ -282,16 +285,16 @@ html, body {
   display: grid; place-items: center;
   color: #3f3b36;                                   /* 图标笔画：暖炭灰，压在粉彩色块上 */
   box-shadow:
-    0 7px 16px -4px rgba(96, 88, 78, .30),          /* 外投影：色块离桌面站起来 */
-    0 2px 5px rgba(96, 88, 78, .12),
+    0 7px 16px -4px rgba(44, 40, 36, .30),          /* 外投影：色块离桌面站起来 */
+    0 2px 5px rgba(44, 40, 36, .12),
     inset 0 1px 0 rgba(255, 255, 255, .62),         /* 顶部内高光：模拟受光边 */
-    inset 0 -1px 0 rgba(96, 88, 78, .10);           /* 底部内阴影：托住整个块 */
+    inset 0 -1px 0 rgba(44, 40, 36, .10);           /* 底部内阴影：托住整个块 */
 }
 /* 玻璃光：上半部亮、下半部略暗，色块立刻从「平涂」变成「有厚度」 */
 .icon-art::after {
   content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(180deg,
-    rgba(255, 255, 255, .34), rgba(255, 255, 255, .06) 46%, rgba(96, 88, 78, .07));
+    rgba(255, 255, 255, .34), rgba(255, 255, 255, .06) 46%, rgba(44, 40, 36, .07));
 }
 /* 图标本体提到图层上面，否则会被 ::after 的玻璃光罩住。
    描边加权 + 一层柔和的暗投影：图形才是「浮在色块上」而不是贴纸贴上去的。
@@ -309,7 +312,7 @@ html, body {
 }
 .icon.small .icon-art { width: 56px; height: 56px; border-radius: 19px; }
 .icon-name {
-  font-size: 11.5px; letter-spacing: .2px; color: #4b463f; font-weight: 500;
+  font-size: 11.5px; letter-spacing: .2px; color: var(--ink); font-weight: 500;
   text-shadow: 0 1px 3px rgba(255, 255, 255, .8);
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -319,11 +322,11 @@ html, body {
 #dots { display: flex; justify-content: center; gap: 7px; padding: 8px 0; }
 #dots i {
   width: 6px; height: 6px; border-radius: 50%;
-  background: rgba(75, 70, 63, .3);
+  background: rgba(44, 40, 36, .3);
   box-shadow: 0 1px 3px rgba(255, 255, 255, .75);   /* 浅壁纸上不这样压一压就看不见 */
   transition: background .2s, width .2s;
 }
-#dots i.on { background: rgba(75, 70, 63, .68); width: 16px; }
+#dots i.on { background: rgba(44, 40, 36, .68); width: 16px; }
 
 #dock {
   margin: 0 12px 26px;
@@ -341,7 +344,7 @@ html, body {
 #homebar {
   position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
   width: 134px; height: 5px; border-radius: 3px;
-  background: rgba(75, 70, 63, .45);
+  background: rgba(44, 40, 36, .45);
   z-index: 40; pointer-events: none;
 }
 
@@ -460,7 +463,7 @@ html, body {
   box-shadow: 0 4px 12px rgba(125, 156, 148, .3);
 }
 .btn:active { opacity: .85; transform: translateY(1px); }
-.btn.ghost { background: rgba(75, 70, 63, .07); color: var(--fg); box-shadow: none; }
+.btn.ghost { background: rgba(44, 40, 36, .07); color: var(--fg); box-shadow: none; }
 .btn.danger { background: rgba(196, 117, 107, .14); color: var(--danger); box-shadow: none; }
 
 .field {
@@ -468,9 +471,9 @@ html, body {
   padding: 12px 15px; font: inherit; font-size: 15px;
   background: #fff; color: var(--fg);
   outline: none; user-select: text;
-  box-shadow: inset 0 1px 2px rgba(96, 88, 78, .04);
+  box-shadow: inset 0 1px 2px rgba(44, 40, 36, .04);
 }
-.field::placeholder { color: #b6aea4; }
+.field::placeholder { color: var(--ink-3); }
 .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field.area { min-height: 200px; resize: none; line-height: 1.7; }
 .field.area.sm { min-height: 88px; }
@@ -528,7 +531,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 分段控件 */
 .seg {
   margin: 14px 20px 0; padding: 3px;
-  display: flex; background: rgba(75, 70, 63, .07); border-radius: 12px;
+  display: flex; background: rgba(44, 40, 36, .07); border-radius: 12px;
 }
 .seg button {
   flex: 1; border: 0; background: none; color: var(--fg-dim);
@@ -611,7 +614,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   display: flex; flex-direction: column; align-items: center;
   padding-top: 110px;
   transition: opacity .28s, transform .28s;
-  color: #4b463f;
+  color: var(--ink);
 }
 /* 锁屏也压一层纱：顶上一条保状态栏，底下一段给键盘和提示留对比度。
    中间（时钟那一段）故意留得薄，让照片透出来 —— 时钟靠 80px 字号和光晕自己撑住。 */
@@ -651,7 +654,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   border: 1px solid rgba(255, 255, 255, .7);
   background: rgba(255, 255, 255, .5); backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  color: #4b463f; font: inherit; font-size: 27px; cursor: pointer;
+  color: var(--ink); font: inherit; font-size: 27px; cursor: pointer;
   box-shadow: var(--shadow-s);
 }
 .pk:active { background: rgba(255, 255, 255, .85); }
@@ -665,7 +668,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ══ 弹窗 ══ */
 .mask {
   position: absolute; inset: 0; z-index: 80;
-  background: rgba(75, 70, 63, .32);
+  background: rgba(44, 40, 36, .32);
   backdrop-filter: blur(3px);
   display: grid; place-items: center; padding: 34px;
   animation: fade .16s;
@@ -725,7 +728,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 细滚动条，别破坏浅色气质 */
 .list::-webkit-scrollbar, .chat-list::-webkit-scrollbar, .walls::-webkit-scrollbar { width: 6px; height: 6px; }
 .list::-webkit-scrollbar-thumb, .chat-list::-webkit-scrollbar-thumb, .walls::-webkit-scrollbar-thumb {
-  background: rgba(75, 70, 63, .16); border-radius: 3px;
+  background: rgba(44, 40, 36, .16); border-radius: 3px;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -744,7 +747,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   animation: urgePulse 1.6s ease-in-out infinite;
 }
 @keyframes urgePulse { 50% { box-shadow: 0 3px 16px rgba(125, 156, 148, .55); } }
-.chat-send.off { background: rgba(75, 70, 63, .13); color: rgba(75, 70, 63, .4); box-shadow: none; }
+.chat-send.off { background: rgba(44, 40, 36, .13); color: rgba(44, 40, 36, .4); box-shadow: none; }
 
 /* 图片 / 贴纸气泡：白框，别让图片顶着那个墨绿 */
 .bubble.media { padding: 5px; background: #fff; border: 1px solid var(--line); }
@@ -784,7 +787,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   border: 0; background: none; font: inherit; font-size: 15px; color: var(--fg);
   padding: 14px 22px; cursor: pointer; text-align: left;
 }
-.sheet-item:active { background: rgba(75, 70, 63, .05); }
+.sheet-item:active { background: rgba(44, 40, 36, .05); }
 .sheet-item.off { opacity: .38; }
 .si-icon { flex: none; width: 26px; text-align: center; font-size: 19px; color: var(--accent-ink); }
 .si-hint { margin-left: auto; font-size: 13px; color: var(--fg-dim); }
@@ -959,14 +962,14 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 
 .wg-bar {
   margin-top: 10px; height: 7px; border-radius: 4px; overflow: hidden;
-  background: rgba(75, 70, 63, .10);
+  background: rgba(44, 40, 36, .10);
 }
 .wg-batt-fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s; }
 
 .wg-photo {
   margin-top: 8px; height: 54px; border-radius: 14px;
   background-size: cover; background-position: center;
-  background-color: rgba(75, 70, 63, .07);
+  background-color: rgba(44, 40, 36, .07);
 }
 .wg-emoji { display: grid; place-items: center; font-size: 28px; background-color: transparent; }
 
@@ -1009,7 +1012,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
   border: 0; padding: 0; cursor: pointer; font: inherit; line-height: 1;
   font-size: 12px; color: var(--fg-dim);
-  background: rgba(75, 70, 63, .07); opacity: .5;
+  background: rgba(44, 40, 36, .07); opacity: .5;
   display: grid; place-items: center;
 }
 .row-x:active { opacity: 1; color: var(--danger); background: rgba(196, 117, 107, .16); }
@@ -1031,7 +1034,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   background: var(--accent-soft); color: var(--accent-ink);
 }
 .wb-tag.who { background: rgba(150, 130, 200, .16); color: #7d6aa8; }
-.wb-tag.off { background: rgba(75, 70, 63, .1); color: var(--fg-dim); }
+.wb-tag.off { background: rgba(44, 40, 36, .1); color: var(--fg-dim); }
 .wb-warn { color: #c05f52; }
 .wb-warn:empty { display: none; }
 /* 选中的筛选标签 / 多选项，之前只有 :active，没有「已选中」的样子 */
@@ -1062,7 +1065,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   position: absolute; top: -6px; right: -6px; z-index: 2;
   width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0;
   cursor: pointer; font: inherit; line-height: 1; font-size: 11px;
-  color: #fff; background: rgba(75, 70, 63, .62);
+  color: #fff; background: rgba(44, 40, 36, .62);
   display: grid; place-items: center;
 }
 .wall-x:active { background: var(--danger); }
@@ -1124,7 +1127,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .shop-search-ico { display: flex; opacity: .45; flex: 0 0 auto; }
 .shop-search { flex: 1; min-width: 0; border: 0; outline: none; background: none;
   font: inherit; font-size: 14px; color: var(--fg); }
-.shop-search::placeholder { color: #b6aea4; }
+.shop-search::placeholder { color: var(--ink-3); }
 /* 金刚区：参考图首页那一排圆形品类入口。横滑，一行放得下就不滚。
    flex: 0 0 auto —— 同 .chips，别让下面列表把它压扁（压扁了就点不到了）。 */
 .cat-rail { display: flex; gap: 10px; padding: 2px 16px 12px; overflow-x: auto; flex: 0 0 auto; }
@@ -1270,7 +1273,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .od-step:first-child::before { display: none; }
 .od-dot {
   flex: 0 0 auto; width: 11px; height: 11px; border-radius: 50%;
-  background: rgba(75, 70, 63, .16);
+  background: rgba(44, 40, 36, .16);
 }
 .od-step.on .od-dot { background: var(--accent); }
 .od-step.now .od-dot { box-shadow: 0 0 0 4px var(--accent-soft); }
@@ -1306,7 +1309,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   border-radius: 16px; padding: 13px 14px; box-shadow: var(--shadow-s);
 }
 .wal-sum-n { font-size: 17px; font-weight: 600; }
-.wal-sum-n.in { color: #4f8a70; }
+.wal-sum-n.in { color: var(--ok); }
 .wal-sum-n.out { color: var(--fg); }
 .wal-sum-l { font-size: 11.5px; color: var(--fg-dim); margin-top: 3px; }
 
@@ -1320,14 +1323,14 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .wal-ico {
   flex: 0 0 auto; width: 33px; height: 33px; border-radius: 12px;
   display: grid; place-items: center; color: var(--fg-dim);
-  background: rgba(75,70,63,.06);
+  background: rgba(44, 40, 36,.06);
 }
-.wal-ico.in { color: #4f8a70; background: rgba(79,138,112,.13); }
+.wal-ico.in { color: var(--ok); background: rgba(79,138,112,.13); }
 .wal-main { flex: 1; min-width: 0; }
 .wal-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wal-sub { font-size: 11px; color: var(--fg-dim); margin-top: 2px; }
 .wal-amt { flex: 0 0 auto; font-size: 14.5px; font-weight: 600; }
-.wal-amt.in { color: #4f8a70; }
+.wal-amt.in { color: var(--ok); }
 
 /* ══════════════════════════════════════════════════════
    桃桃商城
@@ -1352,7 +1355,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
   border-radius: 14px; transition: background .16s ease, transform .12s ease;
 }
-.cat-cell:active { background: rgba(75,70,63,.05); transform: scale(.95); }
+.cat-cell:active { background: rgba(44, 40, 36,.05); transform: scale(.95); }
 .cat-cell-i {
   width: 44px; height: 44px; border-radius: 16px; font-size: 22px; line-height: 1;
   display: grid; place-items: center;
@@ -1458,7 +1461,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* 分类页：左栏一级、右栏二级 + 商品 */
 .cate-wrap { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .cate-side {
-  flex: 0 0 86px; overflow-y: auto; background: rgba(75,70,63,.035);
+  flex: 0 0 86px; overflow-y: auto; background: rgba(44, 40, 36,.035);
   border-right: 1px solid var(--line);
 }
 .cate-side::-webkit-scrollbar { display: none; }
@@ -1617,7 +1620,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
    ══════════════════════════════════════════════════════ */
 
 /* ── 导航栏：标题更有存在感，按钮不再是一堆等距小方块 ── */
-.nav { border-bottom: 1px solid rgba(75, 70, 63, .07); }
+.nav { border-bottom: 1px solid rgba(44, 40, 36, .07); }
 .nav-title { font-size: 16.5px; letter-spacing: .5px; }
 .nav-btn { border-radius: 12px; padding: 8px 9px; }
 /* 右侧图标按钮之间留一点气，不然几个图标糊成一团 */
@@ -1635,9 +1638,9 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 
 /* ── 卡片：给一点真实的光影方向，而不是一圈糊的阴影 ── */
 .shop-card, .order-card {
-  box-shadow: 0 1px 2px rgba(96, 88, 78, .05), 0 6px 16px -8px rgba(96, 88, 78, .18);
+  box-shadow: 0 1px 2px rgba(44, 40, 36, .05), 0 6px 16px -8px rgba(44, 40, 36, .18);
 }
-.me-card { box-shadow: 0 1px 2px rgba(96, 88, 78, .05), 0 6px 16px -8px rgba(96, 88, 78, .16); }
+.me-card { box-shadow: 0 1px 2px rgba(44, 40, 36, .05), 0 6px 16px -8px rgba(44, 40, 36, .16); }
 
 /* ── 底部页签：选中的那一项脚下给一条短横线，比单纯变色清楚 ── */
 .wt { position: relative; }
@@ -1729,9 +1732,9 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .list > .row:last-child, .wfeed > .row:last-child { border-bottom: 0; }
 
 /* ── 导航栏：返回键做成一颗软胶囊，标题松一点 ── */
-.nav { box-shadow: 0 1px 0 var(--line), 0 8px 18px -16px rgba(96,88,78,.7); }
+.nav { box-shadow: 0 1px 0 var(--line), 0 8px 18px -16px rgba(44, 40, 36,.7); }
 .nav-title { letter-spacing: .9px; }
-.nav-btn.back { border-radius: 999px; padding: 7px 13px 7px 9px; background: rgba(75,70,63,.055); }
+.nav-btn.back { border-radius: 999px; padding: 7px 13px 7px 9px; background: rgba(44, 40, 36,.055); }
 .nav-btn.back:active { transform: scale(.93); background: var(--accent-soft); }
 
 /* ── 空态：先给一块柔光圆底，别只甩一行灰字 ── */
@@ -1743,7 +1746,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 }
 
 /* ── 底部页签：选中的那个垫一层软胶囊 ── */
-.wtab { box-shadow: 0 -8px 20px -16px rgba(96,88,78,.7); }
+.wtab { box-shadow: 0 -8px 20px -16px rgba(44, 40, 36,.7); }
 .wt-i {
   padding: 3px 13px; border-radius: 999px;
   transition: background .22s ease, opacity .22s ease, transform .22s cubic-bezier(.22,1,.36,1);
@@ -1755,10 +1758,10 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .wsearch {
   width: 100%; border: 0; border-radius: 999px;
   padding: 9px 16px; font: inherit; font-size: 14.5px;
-  background: rgba(75,70,63,.06); color: var(--fg); outline: none;
+  background: rgba(44, 40, 36,.06); color: var(--fg); outline: none;
   transition: background .18s ease, box-shadow .18s ease;
 }
-.wsearch::placeholder { color: #b6aea4; }
+.wsearch::placeholder { color: var(--ink-3); }
 .wsearch:focus { background: #fff; box-shadow: 0 0 0 3px var(--accent-soft); }
 .wrow { padding: 13px 18px; gap: 13px; }
 .wrow .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 23px; }
@@ -1870,8 +1873,8 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 /* ── App 打开时，状态栏和小白条压在 .app-view 那张暖白纸上 ──
    深色壁纸下它们是白的，放在桌面/锁屏上没问题，一进 App 就是白字压白纸。
    和上面「--fg 只在三层里翻」是同一个根因的两张脸。 */
-#phone.app-open #statusbar { color: #4b463f; text-shadow: none; }
-#phone.app-open #homebar { background: rgba(75, 70, 63, .45); }
+#phone.app-open #statusbar { color: var(--ink-paper); text-shadow: none; }
+#phone.app-open #homebar { background: rgba(44, 40, 36, .45); }
 
 /* 插件里用 --accent-ink 的那几处（比如「谁」）在深色壁纸下是深绿压深玻璃。
    --accent-ink 本来就没跟着 dark-wall 翻（也不该翻，App 里还要用），在这儿单独放行。 */
@@ -2352,9 +2355,10 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* ── 卡片：先色差、后阴影；--edge 是上沿那道高光，立体感一半靠它 ── */
 .me-card, .gd-card, .hot-card, .cat-cell, .shop-card, .order-card,
 .wal-row, .wal-sum-i, .mc-row, .mo, .cart-bar {
-  /* 面：上亮下暗一丁点 —— 纯平涂读作色块，带一点渐变才读作「一张纸」 */
-  background: linear-gradient(180deg, var(--card), var(--card-2));
-  border: 0;                      /* 不要再描边：色差 + 影子已经分层，描边只会显脏 */
+  /* 面：纯白。上一轮试过「上亮下暗」的渐变 —— 像素量出来它把卡底压得比背景还深，
+     边界从「浮起」变成「塌下去」，所以撤掉；立体感交给 --el-2 的接触阴影和 --edge 的上沿高光。 */
+  background: var(--card);
+  border: 0;                      /* 不再描边：色差 + 影子分层，描边只会显脏 */
   border-radius: var(--r-m);
   box-shadow: var(--el-2), var(--edge);
 }
@@ -2396,6 +2400,8 @@ input.field[type="range"]::-webkit-slider-thumb {
 
 /* ── 底部页签：选中的胶囊落到位置上，脚下一条短横线跟着弹出来 ── */
 .wtab {
+  /* 小白条（#homebar）压在屏幕最下 8px，没有安全区的设备上标签正好被它盖住 */
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
   background: var(--glass-strong);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -2635,6 +2641,14 @@ input.field[type="range"]::-webkit-slider-thumb {
   mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
 }
 
+/* 长说明被省略号吃掉（实测设置页「先过一道锁屏…」被截成一句半）。
+   有右侧数值的行保持单行预览，没有的那种给两行 —— 用 :has() 挑，认不出的浏览器
+   就当这条不存在，仍然是一行省略号，不会更差。 */
+#phone .row:not(:has(.row-time)) .row-sub {
+  white-space: normal; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }
@@ -2654,6 +2668,21 @@ input.field[type="range"]::-webkit-slider-thumb {
   .widget-time { font-size: 34px; }
   #pages { gap: 14px 8px; }
 }
+
+/* ── 别再用 opacity 调淡文字：它是在给对比度打折 ──
+   实测（vischeck + 像素复核）：--ink-2 打 72% 之后白底只剩 2.9:1，
+   和「一处没修」没区别。层级要用颜色表达，不要动不透明度。 */
+#phone .msg-time,
+#phone .chat-time-sep,
+#phone .call-summary-sub,
+#phone .wal-bal-l,
+#phone .wal-bal-hint,
+#phone .gift-sub { opacity: 1; color: var(--ink-2); }
+#phone .shop-meta.dim { opacity: 1; color: var(--ink-3); }
+/* 划掉的那种「已完成」保留淡化机制，但别淡到看不见 */
+#phone .cal-today .row-title.done,
+#phone .lw-row.done,
+#phone .wg-row.done { opacity: .62; }
 
 /* ══════════════════════════════════════════════════════
    命中区与字号下限

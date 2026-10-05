@@ -3039,7 +3039,9 @@ console.log('\n[29] 深色壁纸不能把 App 里的字也翻白');
     !(darkOnPhone && /--fg/.test(darkOnPhone[0])), darkOnPhone && darkOnPhone[0].slice(0, 60));
   ok('--fg 翻在 #statusbar / #home / #lock 三层里',
     /#phone\.dark-wall #statusbar,\s*#phone\.dark-wall #home,\s*#phone\.dark-wall #lock\s*\{[^}]*--fg/.test(css));
-  ok('App 打开时状态栏换回浅色字', /#phone\.app-open #statusbar\s*\{[^}]*color:\s*#4b463f/.test(css));
+  /* 深色壁纸下 --ink 是白的，所以这里必须是那个「不翻转」的墨色令牌 */
+  ok('App 打开时状态栏换回深色字（且用的是不翻转的墨色）',
+    /#phone\.app-open #statusbar\s*\{[^}]*color:\s*var\(--ink-paper\)/.test(css));
   ok('外壳在开/关 App 时会挂上 app-open 类',
     /classList\.add\('app-open'\)/.test(shell) && /classList\.remove\('app-open'\)/.test(shell));
 }

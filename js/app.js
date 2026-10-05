@@ -772,6 +772,45 @@ function paintLockWidgets() {
   }
   box.append(card);
 
+  /* ── 正在听的歌 ── 没在放就不显示 */
+  const mu = SJ.state.music || {};
+  const tr = mu.playing
+    ? (mu.title || mu.name || (Array.isArray(mu.list) && mu.list[mu.index || 0]
+        ? (mu.list[mu.index || 0].name || mu.list[mu.index || 0].title) : ''))
+    : '';
+  if (tr) {
+    box.append(SJ.el('div', { class: 'lw-card lw-mu' }, [
+      SJ.el('div', { class: 'lw-mu-row' }, [
+        /* svg() 在 apps.js 的 IIFE 里，这里要用它挂出来的 window.ICONSVG */
+        SJ.el('span', { class: 'lw-mu-ico', html: window.ICONSVG ? window.ICONSVG('music', 15) : '' }),
+        SJ.el('span', { class: 'lw-mu-title' }, String(tr).slice(0, 22))
+      ]),
+      mu.artist ? SJ.el('div', { class: 'lw-mu-artist' }, String(mu.artist).slice(0, 22)) : null
+    ].filter(Boolean)));
+  }
+
+  /* ── 最近一条备忘 ── 有才显示，只给标题 */
+  const nt = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+  if (nt && (nt.title || nt.body)) {
+    box.append(SJ.el('div', { class: 'lw-card lw-nt' }, [
+      SJ.el('div', { class: 'lw-nt-head' }, '最近的备忘'),
+      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 26))
+    ]));
+  }
+
+  /* ── 电量 ── 复用真机电池（读不到就不显示） */
+  const bl = (typeof batteryLevel === 'function') ? batteryLevel() : null;
+  if (bl !== null && bl !== undefined) {
+    const pct = Math.round(bl * 100);
+    box.append(SJ.el('div', { class: 'lw-card lw-batt' }, [
+      SJ.el('div', { class: 'lw-batt-top' }, [
+        SJ.el('span', {}, '电量'),
+        SJ.el('span', { class: 'lw-batt-n' }, pct + '%' + (batteryCharging() ? ' · 充电中' : ''))
+      ]),
+      SJ.el('div', { class: 'lw-batt-bar' }, [SJ.el('i', { style: { width: Math.max(3, pct) + '%' } })])
+    ]));
+  }
+
   /* 未读消息：锁屏上最该先看到的一句话。
      没人给你发就不占地方 —— 空卡比没有更烦。 */
   const un = SJ.unreadTotal();
@@ -945,6 +984,36 @@ function applyLook() {
   phone.style.setProperty('--font', SJ.FONT_STACKS[s.font] || SJ.FONT_STACKS.system);
 }
 
+/* ── 真·系统通知 ──
+   页面在后台（切走标签、锁屏）时，用 Notification API 推一条真的系统通知，
+   点它回到那个聊天。页面开着的时候不推 —— 那时候有顶部横幅，推两条是打扰。
+   ⚠️ 页面被关掉之后还能收到，需要 Push + 一台服务器常驻，那是另一个量级的工程；
+   这里做到的是「手机在后台也有通知」，这是不需要服务端的那一半。 */
+async function notifyAsk() {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  try { return await Notification.requestPermission(); } catch (e) { return 'error'; }
+}
+
+function sysNotify(title, body, onClick) {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    /* 页面在前台就不推：那时候有顶部横幅，重复提醒反而烦 */
+    if (typeof document !== 'undefined' && !document.hidden) return false;
+    const n = new Notification(String(title || '小手机'), {
+      body: String(body || '').slice(0, 200), tag: 'yphone', renotify: true
+    });
+    n.onclick = () => {
+      try { window.focus(); } catch (e) {}
+      try { n.close(); } catch (e) {}
+      if (onClick) onClick();
+    };
+    setTimeout(() => { try { n.close(); } catch (e) {} }, 8000);
+    return true;
+  } catch (e) { return false; }
+}
+
 /* 收发消息的提示音。用 WebAudio 现场合成两个短音 —— 不用下载音频文件，
    离线和首次打开都不会有空窗。没有 AudioContext（老浏览器 / 沙箱）就安静地不响。 */
 let actx = null;
@@ -1006,6 +1075,12 @@ function runProactive() {
     /* 来了新消息：顶部横幅 + 未读 +1。
        原来只有一行 toast，没有身份也没有去处；横幅能点进那个聊天。 */
     SJ.bumpUnread(r.char.id, 1);
+    /* 后台就给一条真通知；前台有顶部横幅，不用重复提醒 */
+    if (SJ.state.settings.sysNotify === true) {
+      sysNotify(r.char.name,
+        String((r.reply && r.reply.text) || '给你发了条消息').replace(/\n/g, ' ').slice(0, 80),
+        () => { if (window.SHELL) window.SHELL.openApp('chat', r.char.id); });
+    }
     if (window.banner) {
       window.banner({
         face: r.char,
@@ -1054,7 +1129,7 @@ function boot() {
   SJ.onSaveError(msg => { if (msg && window.toast) window.toast(msg); });
 
   // 暴露给调试和自检
-  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper, applyLook,
+  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper, applyLook, notifyAsk, sysNotify,
                    setDebug, mountDebug, setDebugHost, debugPaint };
   // 设置页开启锁屏后，立刻锁上给用户看一眼
   window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };

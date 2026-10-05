@@ -5152,6 +5152,24 @@ const APPS = [
             main();
           }
         }, label))));
+        /* 系统通知：权限必须由用户手势触发，所以只能做成开关 */
+        box.append(toggleRow('系统通知',
+          (typeof Notification === 'undefined')
+            ? '这个浏览器不给网页发通知'
+            : (Notification.permission === 'granted'
+              ? '手机切到后台也能收到消息提醒（点通知回到那个聊天）'
+              : '打开后会问你要一次权限；切到后台也能收到消息提醒'),
+          typeof Notification !== 'undefined' && Notification.permission === 'granted',
+          async () => {
+            const was = SJ.state.settings.sysNotify === true;
+            if (was) { SJ.state.settings.sysNotify = false; SJ.save(); return main(); }
+            const r = await window.SHELL.notifyAsk();
+            if (r === 'granted') { SJ.state.settings.sysNotify = true; SJ.save(); toast('好了，切到后台也会有提醒'); }
+            else if (r === 'denied') toast('浏览器里被拒了，去网站设置里放开');
+            else if (r === 'unsupported') toast('这个浏览器不支持网页通知');
+            else toast('没拿到权限');
+            main();
+          }));
         box.append(toggleRow('显示今日安排', '把日历里今天的日程直接摆在锁屏上', SJ.state.settings.lockWidgets !== false, () => {
           SJ.state.settings.lockWidgets = !SJ.state.settings.lockWidgets; SJ.save(); main();
         }));

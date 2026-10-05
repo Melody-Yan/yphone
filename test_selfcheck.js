@@ -1332,6 +1332,14 @@ rmBtn.click();
 ok('面板里点移除 → 插件没了', wgOn(0).length === 1, wgOn(0).length + ' 个');
 ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringify(wk.state.widgets[0]));
 
+/* ── 系统通知：两个出口在，且没授权时安静地不动（不抛错） ── */
+{
+  ok('SHELL 上有 notifyAsk / sysNotify 两个出口',
+    typeof S.SHELL.notifyAsk === 'function' && typeof S.SHELL.sysNotify === 'function');
+  const r = S.SHELL.sysNotify('标题', '正文', () => {});
+  ok('没有通知权限时 sysNotify 安静返回 false（不抛错）', r === false, String(r));
+}
+
 /* ── 锁屏样子：三种，只挂类 ── */
 {
   const keepL = sandbox.SJ.state.settings.lockStyle;

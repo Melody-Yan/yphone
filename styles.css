@@ -2835,8 +2835,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone .list,
 #phone .pad {
   background: var(--frost);
-  backdrop-filter: var(--frost-blur);
-  -webkit-backdrop-filter: var(--frost-blur);
+  /* ⚠️ 刻意不写 backdrop-filter。面板背后那层壁纸已经被 #stack::before 模糊过一次，
+     再叠一层看不出区别，代价却是滚动时整块模糊每帧重算 ——
+     「上滑空白、滑回去又白一下」就是这么来的。 */
   border-radius: var(--r-l);
   margin: var(--sp-2) var(--sp-3) var(--sp-3);
   box-shadow: var(--el-2), inset 0 1px 0 var(--frost-line);
@@ -2846,6 +2847,13 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 消息列表 / 主页：纯白、通栏。之前那层薄纱让整页发灰，而且面板化的分区
    把页面切碎了显得「腿短」——现在立体感改由行内的头像、徽标、分隔线来给。
    聊天页（.chat-list）不动：那里的壁纸是你更早明确要的。 */
+/* 一个 App 里出现多个 .list（例如「存储」页有四个）时，别让每块各自滚：
+   .list 是 flex:1 + overflow:auto，四块并列 = 四个等高小滚动区，
+   文字在卡片里滚、卡片不动。改成页面整体滚、卡片按内容撑开。 */
+#phone .app-view:has(> .list + .list) { overflow-y: auto; }
+#phone .app-view:has(> .list + .list) > .list { flex: 0 0 auto; overflow: visible; margin-bottom: 0; }
+#phone .app-view:has(> .list + .list) > .list:last-child { margin-bottom: var(--sp-3); }
+
 #phone .app-chat > .list {
   background: var(--card);
   border-radius: 0;
@@ -3146,6 +3154,18 @@ input.field[type="range"]::-webkit-slider-thumb {
 .lw-un-text { margin-top: 6px; font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #lock-widgets { gap: 10px; flex-direction: column; align-items: center; }
 #lock-widgets .lw-card + .lw-card { margin-top: 0; }
+
+/* 锁屏上的音乐 / 备忘 / 电量：跟今日安排同一套规格，内容不同而已 */
+.lw-mu-row { display: flex; align-items: center; gap: 8px; }
+.lw-mu-ico { display: inline-flex; color: var(--ink-2); }
+.lw-mu-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-mu-artist { margin-top: 3px; margin-left: 23px; font-size: 11.5px; color: var(--ink-2); }
+.lw-nt-head { font-size: 11px; color: var(--ink-3); letter-spacing: .3px; }
+.lw-nt-title { margin-top: 4px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-batt-top { display: flex; justify-content: space-between; font-size: 12px; }
+.lw-batt-n { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.lw-batt-bar { margin-top: 7px; height: 4px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.lw-batt-bar i { display: block; height: 100%; background: var(--ink); border-radius: 3px; }
 
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }

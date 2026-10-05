@@ -719,7 +719,9 @@ const waitFor = async (fn, ms = 4000) => {
 /* 功能面板挂在 #phone 上（不是 App 视图里），得从 phone 找 */
 const sheetLabels = () => walk(byId.phone).filter(x => x._class.has('si-label')).map(x => x.textContent);
 const clickSheet = label => {
-  const it = walk(byId.phone).find(x => x._class.has('sheet-item')
+  /* 「＋」现在是贴在输入条上的小卡片（.pop-item），不再是底部弹层（.sheet-item）——
+     两个都认，这样面板形态再改一次，这里的用例不用跟着动。 */
+  const it = walk(byId.phone).find(x => (x._class.has('sheet-item') || x._class.has('pop-item'))
     && walk(x).some(y => y._class.has('si-label') && y.textContent === label));
   if (it) it.click();
   return !!it;
@@ -755,7 +757,7 @@ plus3.click();
 const labels = sheetLabels();
 ok('「＋」打开的是功能面板', labels.length >= 4, JSON.stringify(labels));
 ok('面板里有重新生成 / 发表情 / 转账 / 撤回上一条',
-  ['重新生成', '发表情 / 图片', '转账', '撤回上一条'].every(t => labels.includes(t)), JSON.stringify(labels));
+  ['重新生成', '表情 / 图片', '转账', '撤回上一条'].every(t => labels.includes(t)), JSON.stringify(labels));
 clickSheet('重新生成');
 ok('一条都没聊过时「重新生成」只给提示，不瞎发请求',
   toasts().includes('先发一条'), toasts() || '（没有提示）');
@@ -802,7 +804,7 @@ ok('给模型看到的是一句人话，不是一串 JSON', tr.text === '[转账
 ok('屏幕上渲染成转账卡片', walk(cv3).some(x => x._class.has('transfer')));
 
 plus3.click();
-clickSheet('发表情 / 图片');
+clickSheet('表情 / 图片');
 ok('表情面板里有内置贴纸可选', walk(byId.phone).filter(x => x._class.has('sticker')).length >= 10);
 walk(byId.phone).find(x => x._class.has('sticker')).click();
 const pic = sandbox.SJ.messages(xm3.id).slice(-1)[0];
@@ -1193,6 +1195,25 @@ ok('选「等宽」后 --font 真的换了', (() => {
   lookRow6('字体').click();
   clickSheet('等宽');
   const v = ph.style.getPropertyValue('--font') || '';
+  /* 头像大小 / 形状：设置页点了以后要真的写到 #phone 的变量上，否则样式表读不到 */
+  ok('头像大小三档都能写到 --av-k',
+    (() => {
+      const set = v2 => { sandbox.SJ.state.settings.avSize = v2; sandbox.SHELL_LOOK(); };
+      set('s'); const a = ph.style.getPropertyValue('--av-k');
+      set('m'); const b = ph.style.getPropertyValue('--av-k');
+      set('l'); const c = ph.style.getPropertyValue('--av-k');
+      return parseFloat(a) < parseFloat(b) && parseFloat(b) < parseFloat(c);
+    })(),
+    [ph.style.getPropertyValue('--av-k')].join(''));
+  ok('头像形状写的是百分比（圆形 50% / 圆角方 34% / 方角 18%）',
+    (() => {
+      const set = v2 => { sandbox.SJ.state.settings.avShape = v2; sandbox.SHELL_LOOK(); };
+      set('round'); const a = ph.style.getPropertyValue('--av-r');
+      set('squircle'); const b = ph.style.getPropertyValue('--av-r');
+      set('square'); const c = ph.style.getPropertyValue('--av-r');
+      return a === '50%' && b === '34%' && c === '18%';
+    })(),
+    [ph.style.getPropertyValue('--av-r')].join(''));
   const on = sandbox.SJ.state.settings.font === 'mono' && v.includes('ui-monospace');
   lookRow6('字体').click(); clickSheet('系统');
   return on;
@@ -1972,16 +1993,16 @@ if (wbMade) wb.deleteEntry(wbMade.id);
 wb.deleteCharacter(wbOther.id);
 while (S.SHELL.stack.length) S.closeTop(true);
 
-/* ── 聊天页 ＋：她现在读到哪几张 ── */
+/* ── 聊天页 ＋：读到的世界书 ── */
 while (S.SHELL.stack.length) S.closeTop(true);
 wb.state.characters.find(x => x.id === wbA2.id).wbRead = true;
 wb.clearChat(wbA2.id);
 wb.pushMessage(wbA2.id, true, '甲这个字出现了');
 const wbChv = openFresh('chat', wbA2.id);
-findBtn(wbChv, '＋').click();
-ok('聊天页 ＋ 里有「她现在读到哪几张」',
-  sheetLabels().includes('她现在读到哪几张'), JSON.stringify(sheetLabels()));
-clickSheet('她现在读到哪几张');
+walk(wbChv).find(n => n._class.has('chat-plus')).click();
+ok('聊天页 ＋ 里有「读到的世界书」',
+  sheetLabels().includes('读到的世界书'), JSON.stringify(sheetLabels()));
+clickSheet('读到的世界书');
 const wbSheet = walk(byId.phone).map(n => n.textContent).join('|');
 ok('面板里按顺序列出了命中的卡',
   wbSheet.includes('关联专属') && wbSheet.includes('关联通用'), wbSheet.slice(0, 200));
@@ -3664,9 +3685,9 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   sandbox.SHELL.closeAll();
   openFresh('chat', s6.id);
   top().find(n => n._class.has('chat-plus')).click();
-  ok('「＋」里有「发表情 / 图片」', await waitFor(() => sheetLabels().includes('发表情 / 图片')),
+  ok('「＋」里有「表情 / 图片」', await waitFor(() => sheetLabels().includes('表情 / 图片')),
     JSON.stringify(sheetLabels()));
-  clickSheet('发表情 / 图片');
+  clickSheet('表情 / 图片');
   const cells = walk(byId.phone).filter(x => x._class.has('sticker'));
   ok('表情面板里有内置 emoji',
     cells.filter(x => !x._class.has('has-img') && !x._class.has('add')).length >= 10, String(cells.length));
@@ -3687,7 +3708,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
 
   /* 长按删掉 */
   top().find(n => n._class.has('chat-plus')).click();
-  clickSheet('发表情 / 图片');
+  clickSheet('表情 / 图片');
   const delCell = walk(byId.phone).find(x => x._class.has('sticker') && x._class.has('has-img'));
   ok('那一格挂上了长按监听', !!delCell && (delCell._listeners.mousedown || []).length > 0);
   dispatch(delCell, 'mousedown', {});

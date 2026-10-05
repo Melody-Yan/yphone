@@ -61,6 +61,9 @@
   --edge: inset 0 1px 0 rgba(255, 255, 255, .92);
   --edge-dim: inset 0 1px 0 rgba(255, 255, 255, .55);
 
+  /* App 页压住壁纸的那层蒙层：越白越保可读，越透越有氛围。0.88 是量出来的下限 */
+  --veil: rgba(243, 238, 230, .70);
+
   /* 纸纹：极淡一层，平涂区立刻不像 demo（4% 不到，不影响任何对比度） */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
 
@@ -89,15 +92,15 @@
   --lh-title: 1.25;
 
   /* ── 动效：时长 4 档、缓动 4 条，不再手写 ── */
-  --dur-1: 120ms;            /* 按压、微反馈 */
-  --dur-2: 200ms;            /* 状态切换 */
-  --dur-3: 300ms;            /* 页面、弹层 */
-  --dur-4: 440ms;            /* 大块换场 */
+  --dur-1: 130ms;            /* 按压、微反馈 */
+  --dur-2: 220ms;            /* 状态切换 */
+  --dur-3: 380ms;            /* 弹层、卡片弹出：以前 300ms，急得「chua 一下」 */
+  --dur-4: 480ms;            /* 整页推入推出：走完弹性尾巴（弹层仍走 --dur-3） */
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --ease-in: cubic-bezier(.4, 0, 1, 1);
   --ease-soft: cubic-bezier(.4, 0, .2, 1);
   --spring: var(--ease-out); /* 不支持 linear() 的浏览器退回普通缓出 */
-  --stagger: 40ms;
+  --stagger: 55ms;           /* 列表错位：40ms 太赶，一屏还没看清就落完了 */
 
   /* ── 旧名字的别名（老规则继续用，值全部跟着上面升级）── */
   --paper: var(--bg);
@@ -521,12 +524,24 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 }
 /* 行尾箭头：矢量图标比「›」这个字符可靠（不同字体下粗细/位置都不一样） */
 .row-arrow { flex: 0 0 auto; display: flex; opacity: .32; color: var(--fg); }
-/* 行首图标：统一一个浅色圆角方块，比裸 emoji 整齐得多 */
+/* 行首图标：彩色圆角方块 + 白色线性图标，逐行换色相做功能分区。
+   六个色都量过：白色笔画压在上面 ≥3:1（这是图标可辨识的底线），
+   同时也把「装饰色」和「语义色」分开了 —— 这些色只属于图标底块，不当状态色用。 */
 .row-ico {
-  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 11px;
+  flex: 0 0 auto; width: 36px; height: 36px; border-radius: var(--r-s);
   display: grid; place-items: center;
-  background: var(--accent-soft); color: var(--accent-ink);
+  background: linear-gradient(160deg, #5F8C79, #4E7566);
+  color: #fff;
+  box-shadow: var(--el-1), inset 0 1px 0 rgba(255, 255, 255, .22);
 }
+/* 六个色相轮着来：陶土 / 琥珀 / 鼠尾草 / 雾蓝 / 藕紫 / 青碧 */
+.list > .row:nth-child(6n+1) .row-ico, .pad > .row:nth-child(6n+1) .row-ico { background: linear-gradient(160deg, #C0675F, #A8564F); }
+.list > .row:nth-child(6n+2) .row-ico, .pad > .row:nth-child(6n+2) .row-ico { background: linear-gradient(160deg, #B5853C, #9C6F2E); }
+.list > .row:nth-child(6n+3) .row-ico, .pad > .row:nth-child(6n+3) .row-ico { background: linear-gradient(160deg, #5F8C79, #4E7566); }
+.list > .row:nth-child(6n+4) .row-ico, .pad > .row:nth-child(6n+4) .row-ico { background: linear-gradient(160deg, #5C79A6, #4B648C); }
+.list > .row:nth-child(6n+5) .row-ico, .pad > .row:nth-child(6n+5) .row-ico { background: linear-gradient(160deg, #8A6FA6, #735A8C); }
+.list > .row:nth-child(6n)   .row-ico, .pad > .row:nth-child(6n)   .row-ico { background: linear-gradient(160deg, #4F8A8C, #3F7274); }
+.row-ico svg { stroke-width: 2; }
 
 /* 分段控件 */
 .seg {
@@ -1021,7 +1036,8 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 
 /* ── 世界书 ── */
 /* 分类序号：一眼看出谁先被她读到（1 = 最先） */
-.wb-cat { display: flex; align-items: center; gap: 7px; }
+/* 标题 + 序号 + 徽章挤在一行；字号下限把徽章顶宽一点就会顶出屏幕 —— 允许换行 */
+.wb-cat { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .wb-no {
   flex: 0 0 auto; width: 17px; height: 17px; border-radius: 5px;
   background: var(--accent-soft); color: var(--accent-ink);
@@ -2053,6 +2069,36 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .dbg-list::-webkit-scrollbar { width: 5px; }
 .dbg-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .22); border-radius: 3px; }
 
+/* ── 接口监视面板：改成浅色玻璃 ──
+   它原来是深色半透明（好认、像个排查工具），但在新配色里是一块突兀的黑。
+   现在跟全站同一套：玻璃底 + 纸纹 + 同一批文字色，报错行用 --danger 标。 */
+.dbg-panel {
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  color: var(--ink-2);
+  border-top: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 var(--glass-line);
+  font-size: 11.5px; line-height: 1.5;
+}
+.dbg-head:active { background: var(--accent-soft); }
+.dbg-title { color: var(--ink); }
+.dbg-caret { color: var(--ink-3); font-size: 11px; }
+.dbg-sum { color: var(--ink-2); }
+.dbg-body { border-top: 1px solid var(--line); }
+.dbg-empty { color: var(--ink-3); }
+.dbg-row { border-bottom: 1px solid var(--line); }
+.dbg-row.err { background: var(--danger-soft); }
+.dbg-tag { color: var(--accent-ink); font-weight: 500; }
+.dbg-time, .dbg-ms { color: var(--ink-3); }
+.dbg-2 { color: var(--ink-2); }
+.dbg-row.err .dbg-2 { color: var(--danger); }
+.dbg-bar { border-top: 1px solid var(--line); }
+.dbg-btn { color: var(--accent-ink); }
+.dbg-btn:active { background: var(--accent-soft); }
+.dbg-btn + .dbg-btn { border-left: 1px solid var(--line); }
+.dbg-list::-webkit-scrollbar-thumb { background: var(--line-2); }
+
 /* ── 位置 ── */
 .bubble.loc { padding: 0; overflow: hidden; width: 200px; cursor: pointer; }
 .loc-map {
@@ -2344,20 +2390,35 @@ input.field[type="range"]::-webkit-slider-thumb {
    但 #phone.no-anim 和 prefers-reduced-motion 的 !important 仍然赢。
    ══════════════════════════════════════════════════════ */
 
-/* ── 纸纹 + 顶部一层极淡的受光：平涂区不再是「一块死白」 ── */
-#phone, .app-view, .sheet, #lock { background-image: var(--grain); background-repeat: repeat; }
+/* ── App 页的背景 = 同一张壁纸（模糊） + 88% 暖白蒙层 ──
+   以前 App 里是一张死米黄纸，跟锁屏、桌面完全割裂。
+   模糊层放在 #stack 上：整机只有一层，不会每开一个 App 多一层全屏 blur。 */
+/* 深色壁纸：蒙层自动加实 —— 它是唯一会把通栏正文压糊的情况 */
+#phone.dark-wall { --veil: rgba(243, 238, 230, .84); }
+
+#phone.app-open #stack::before {
+  content: ''; position: absolute; inset: -30px; z-index: 0;
+  background: var(--wall, none);
+  filter: blur(26px) saturate(1.7) brightness(1.04);
+}
+/* App 自己只压一层蒙层 + 纸纹：蒙层够实才保得住正文对比度，
+   又留出十几个百分点让壁纸透出来当氛围。 */
 .app-view {
   background-color: var(--bg);
-  background-image: var(--grain), linear-gradient(180deg, rgba(255, 255, 255, .5), rgba(255, 255, 255, 0) 190px);
-  background-repeat: repeat, no-repeat;
+  background-image:
+    var(--grain),
+    linear-gradient(180deg, rgba(255, 255, 255, .44), rgba(255, 255, 255, 0) 200px),
+    linear-gradient(var(--veil), var(--veil));
+  background-repeat: repeat, no-repeat, no-repeat;
 }
 
 /* ── 卡片：先色差、后阴影；--edge 是上沿那道高光，立体感一半靠它 ── */
 .me-card, .gd-card, .hot-card, .cat-cell, .shop-card, .order-card,
 .wal-row, .wal-sum-i, .mc-row, .mo, .cart-bar {
-  /* 面：纯白。上一轮试过「上亮下暗」的渐变 —— 像素量出来它把卡底压得比背景还深，
-     边界从「浮起」变成「塌下去」，所以撤掉；立体感交给 --el-2 的接触阴影和 --edge 的上沿高光。 */
-  background: var(--card);
+  /* 面：半透明白。壁纸在 #stack 那层已经虚化过，卡片直接透出去就是磨砂效果，
+     不必每张卡再加一层 backdrop-filter（滚动列表里那样很贵）。
+     卡面比底色多叠一层白，所以仍然「浮」得起来（实测暗壁纸下差 27 级）。 */
+  background: rgba(255, 255, 255, .80);
   border: 0;                      /* 不再描边：色差 + 影子分层，描边只会显脏 */
   border-radius: var(--r-m);
   box-shadow: var(--el-2), var(--edge);
@@ -2366,7 +2427,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .avatar, .wall, .ck, .pk, .seg button.on, .chip, .row-ico, .cat-i, .mo-prev, .buy-cart {
   box-shadow: var(--el-1), var(--edge-dim);
 }
-.ck, .pk, .avatar, .wall, .mo-prev { border-radius: var(--r-m); }
+.ck, .pk, .wall, .mo-prev { border-radius: var(--r-m); }
 
 /* ── 列表：更松的呼吸、更轻的分隔线，行内层级靠字重和颜色拉开 ── */
 .list { padding: var(--sp-3) 0 calc(44px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
@@ -2375,7 +2436,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .row-title { font-size: var(--fs-md); font-weight: 500; letter-spacing: .1px; }
 .row-sub { font-size: var(--fs-base); color: var(--ink-2); margin-top: 3px; }
 .row-time { font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.group-title { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); letter-spacing: .4px; padding: 20px var(--sp-5) 6px; }
+.group-title { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); letter-spacing: .4px; padding: 20px var(--sp-5) 6px; }
 .hint { font-size: var(--fs-base); color: var(--ink-2); line-height: 1.65; }
 .pad { gap: 14px; }
 
@@ -2557,8 +2618,9 @@ input.field[type="range"]::-webkit-slider-thumb {
    动效
    ══════════════════════════════════════════════════════ */
 
-/* App 推入用弹性曲线：尾巴那一点点回弹就是「不是网页」的感觉 */
-.app-view { transition: transform var(--dur-3) var(--spring), opacity var(--dur-3) var(--ease-soft); }
+/* App 推入用弹性曲线 + --dur-4：尾巴那一点点回弹就是「不是网页」的感觉。
+   弹层/卡片走 --dur-3（380ms）：整页换场比弹一块面板慢一档才不显得赶。 */
+.app-view { transition: transform var(--dur-4) var(--spring), opacity var(--dur-4) var(--ease-soft); }
 .app-view:not(.in) { opacity: .7; }
 #home { transition: transform var(--dur-3) var(--spring), filter var(--dur-3) var(--ease-soft), opacity var(--dur-3) var(--ease-soft); }
 
@@ -2648,6 +2710,82 @@ input.field[type="range"]::-webkit-slider-thumb {
   white-space: normal; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
+
+/* ── 图标按钮：里面现在是 SVG，不是 emoji 文本 ──
+   emoji 在安卓/iOS 上长得不一样、还是彩色的，混在一条输入条里很掉价。 */
+.chat-mic { display: grid; place-items: center; color: var(--ink-2); padding: 0; }
+.chat-plus { color: var(--ink-2); }
+.chat-plus svg, .chat-mic svg { display: block; }
+.nav-ico { display: inline-flex; align-items: center; }
+.si-svg { display: inline-flex; align-items: center; justify-content: center; }
+.vc-ico svg, .call-summary-ico svg { display: block; }
+
+/* ── 小范围弹出的功能卡片（聊天页「＋」）── */
+.pop-mask {
+  /* .mask 是 grid + place-items:center + 34px 内边距（居中弹窗用的）——
+     小卡片要贴左下角，这里整个换成 flex；底部留白由 JS 写的内联 padding-bottom 决定 */
+  display: flex;
+  align-items: flex-end; justify-content: flex-start;
+  padding: 0 0 0 12px;
+  background: rgba(22, 19, 16, .16);          /* 比全屏弹层轻：它只是浮出来的一小块 */
+}
+.pop {
+  width: min(330px, calc(100% - 24px));
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--r-l);
+  box-shadow: var(--el-3), var(--edge);
+  padding: 10px 8px 8px;
+  transform-origin: 14% 100%;                  /* 从「＋」那一角长出来 */
+  animation: popIn var(--dur-3) var(--spring) both;
+}
+@keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.93); } }
+@keyframes popOut { to { opacity: 0; transform: translateY(10px) scale(.96); } }
+.pop-mask.out .pop { animation: popOut var(--dur-2) var(--ease-in) forwards; }
+.pop-mask.out { animation: fadeOut var(--dur-2) var(--ease-in) forwards; }
+.pop-head { font-size: var(--fs-sm); color: var(--ink-3); padding: 2px 8px 8px; }
+.pop-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+.pop-item {
+  border: 0; background: none; cursor: pointer; font: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 9px 2px 8px; border-radius: var(--r-s);
+  color: var(--ink); font-size: 11.5px; line-height: 1.2; text-align: center;
+  transition: background var(--dur-1) var(--ease-soft), transform var(--dur-1) var(--ease-out);
+}
+.pop-item:active { background: var(--accent-soft); transform: scale(.94); }
+.pop-item.off { opacity: .4; }
+.pop-ico {
+  width: 38px; height: 38px; border-radius: var(--r-s);
+  display: grid; place-items: center; color: #fff;
+  background: linear-gradient(160deg, #5F8C79, #4E7566);
+  box-shadow: var(--el-1), inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+.pop-ico svg { display: block; }
+.pop-item.tone0 .pop-ico { background: linear-gradient(160deg, #C0675F, #A8564F); }
+.pop-item.tone1 .pop-ico { background: linear-gradient(160deg, #B5853C, #9C6F2E); }
+.pop-item.tone2 .pop-ico { background: linear-gradient(160deg, #5F8C79, #4E7566); }
+.pop-item.tone3 .pop-ico { background: linear-gradient(160deg, #5C79A6, #4B648C); }
+.pop-item.tone4 .pop-ico { background: linear-gradient(160deg, #8A6FA6, #735A8C); }
+.pop-item.tone5 .pop-ico { background: linear-gradient(160deg, #4F8A8C, #3F7274); }
+.pop-lab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* ── 头像：大小受 --av-k、形状受 --av-r（设置页写进 #phone 的两个变量）──
+   形状用百分比：同一个百分比在任何尺寸下都是同一个形状，所以三档大小共用一套形状值。 */
+#phone .avatar {
+  width: calc(44px * var(--av-k, 1)); height: calc(44px * var(--av-k, 1));
+  font-size: calc(23px * var(--av-k, 1));
+  border-radius: var(--av-r, 34%);
+}
+/* 编辑页那张大预览只跟形状走，不跟大小走 —— 它是「看清楚」用的 */
+#phone .av-box .avatar { width: 96px; height: 96px; font-size: 46px; border-radius: var(--av-r, 34%); }
+#phone .chat-list .msg .avatar { width: calc(34px * var(--av-k, 1)); height: calc(34px * var(--av-k, 1)); font-size: calc(18px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .mo-head .avatar { width: calc(38px * var(--av-k, 1)); height: calc(38px * var(--av-k, 1)); font-size: calc(20px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .me-card .avatar { width: calc(54px * var(--av-k, 1)); height: calc(54px * var(--av-k, 1)); font-size: calc(26px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .wrow .avatar { width: calc(46px * var(--av-k, 1)); height: calc(46px * var(--av-k, 1)); font-size: calc(23px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .bubble.card .avatar { width: calc(34px * var(--av-k, 1)); height: calc(34px * var(--av-k, 1)); font-size: calc(17px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .cl-who .avatar { width: calc(36px * var(--av-k, 1)); height: calc(36px * var(--av-k, 1)); font-size: calc(18px * var(--av-k, 1)); border-radius: var(--av-r, 34%); }
+#phone .call-who .avatar { width: 92px; height: 92px; font-size: 44px; border-radius: var(--av-r, 34%); }
 
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }

@@ -63,6 +63,18 @@ const ICON = {
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" />',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <line x1="12" x2="12" y1="19" y2="22" />',
   phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />',
+  /* 挂断：把听筒转 135° —— 各家的「挂断」都是这个形状，比自己画一条斜杠清楚 */
+  phoneDown: '<g transform="rotate(135 12 12)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></g>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36" /> <path d="M21 3v6h-6" />',
+  undo: '<path d="M9 14 4 9l5-5" /> <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />',
+  smile: '<circle cx="12" cy="12" r="10" /> <path d="M8 14s1.5 2 4 2 4-2 4-2" /> <path d="M9 9h.01" /> <path d="M15 9h.01" />',
+  yuan: '<path d="m6 3 6 8 6-8" /> <path d="M12 11v10" /> <path d="M8 14h8" /> <path d="M8 18h8" />',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2" /> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />',
+  shuffle: '<path d="m18 14 4 4-4 4" /> <path d="m18 2 4 4-4 4" /> <path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22" /> <path d="M2 6h1.972a4 4 0 0 1 3.6 2.2" /> <path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45" />',
+  globe: '<circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" />',
+  type: '<polyline points="4 7 4 4 20 4 20 7" /> <line x1="9" x2="15" y1="20" y2="20" /> <line x1="12" x2="12" y1="4" y2="20" />',
+  timer: '<path d="M10 2h4" /> <path d="M12 14v-4" /> <circle cx="12" cy="14" r="8" />',
 };
 
 /* 默认 1.9：1.7 在 22~24px 的页签/导航图标上偏细，一整排看着就单薄。
@@ -417,7 +429,9 @@ function sheet(items, head) {
        （自检里会攒出一堆残留面板，正是这么被抓出来的）。 */
     onclick: () => { if (it.off) return; dismiss(mask); it.run(); }
   }, [
-    SJ.el('span', { class: 'si-icon' }, it.icon),
+    /* icon 是 emoji/文字，svg 是线性图标名 —— 两个都留着，新代码用 svg */
+    SJ.el('span', { class: 'si-icon' }, it.svg ? null : it.icon),
+    it.svg ? SJ.el('span', { class: 'si-icon si-svg', html: svg(it.svg, 20) }) : null,
     SJ.el('span', { class: 'si-label' }, it.label),
     it.hint ? SJ.el('span', { class: 'si-hint' }, it.hint) : null
   ].filter(Boolean))));
@@ -454,6 +468,30 @@ function sheet(items, head) {
     grab.addEventListener('pointerup', grabEnd);
     grab.addEventListener('pointercancel', grabEnd);
   }
+  document.getElementById('phone').append(mask);
+  return mask;
+}
+
+/* ── 小范围弹出的功能卡片 ──
+   聊天页那个「＋」原来走 sheet()：底部弹层、条目一行一条，十三个选项几乎占满全屏。
+   这个走「贴着输入条的小卡片」：4 列小格，一屏看完，点空白就收。
+   bottom = 卡片下沿离屏幕底多远（默认让开输入条）。 */
+function popover(items, { head, bottom = 92 } = {}) {
+  const mask = SJ.el('div', { class: 'mask pop-mask', style: { paddingBottom: bottom + 'px' } });
+  const panel = SJ.el('div', { class: 'pop' });
+  if (head) panel.append(SJ.el('div', { class: 'pop-head' }, head));
+  const grid = SJ.el('div', { class: 'pop-grid' });
+  items.forEach((it, i) => grid.append(SJ.el('button', {
+    class: 'pop-item tone' + (i % 6) + (it.off ? ' off' : ''),
+    onclick: () => { if (it.off) return; dismiss(mask); it.run(); }
+  }, [
+    SJ.el('span', { class: 'pop-ico', html: it.svg ? svg(it.svg, 20) : (it.icon || '') }),
+    /* 类名沿用 .si-label：自检里 sheetLabels() 是按它收标签的，这样两边都能读 */
+    SJ.el('span', { class: 'si-label pop-lab' }, it.label)
+  ])));
+  panel.append(grid);
+  mask.append(panel);
+  mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
   document.getElementById('phone').append(mask);
   return mask;
 }
@@ -1251,15 +1289,15 @@ const APPS = [
       function momentNew() {
         const cs = SJ.state.characters;
         const items = [{
-          icon: '🙋', label: '我自己发一条', hint: '写点你自己的，不用等它',
+          svg: 'user', label: '我自己发一条', hint: '写点你自己的，不用等它',
           run: () => momentMine()
         }, {
-          icon: '✨', label: '让最近聊过的人发一条', hint: '按你们最近的对话写',
+          svg: 'sparkle', label: '让最近聊过的人发一条', hint: '按你们最近的对话写',
           run: () => postOne(pickSomeone())
         }];
         if (cs.length) {
           items.push({
-            icon: '👥', label: '指定一个人发…', hint: `通讯录里 ${cs.length} 个`,
+            svg: 'people', label: '指定一个人发…', hint: `通讯录里 ${cs.length} 个`,
             run: () => window.sheet(cs.map(c => ({
               icon: c.avatarImg ? '🖼' : (c.avatar || '🙂'),
               label: c.name,
@@ -1269,7 +1307,7 @@ const APPS = [
           });
         }
         items.push({
-          icon: '🗑', label: '清空朋友圈', hint: '全删掉，不留',
+          svg: 'trash', label: '清空朋友圈', hint: '全删掉，不留',
           run: () => confirmBox('把朋友圈全部清空？', () => {
             SJ.state.moments.forEach(m => SJ.deleteMoment(m.id));
             momentsView();
@@ -1521,9 +1559,9 @@ const APPS = [
           rowGo('音色', cur ? cur.name : '跟随系统', () => {
             const list = SJ.voiceList();
             if (!list.length) { toast('系统里没有可选音色（有些浏览器首次要等几秒）'); return; }
-            sheet([{ icon: '🔊', label: '跟随系统', hint: '让浏览器自己挑', run: () => { S.voiceName = ''; SJ.save(); voicePage(id); } }]
+            sheet([{ svg: 'volume', label: '跟随系统', hint: '让浏览器自己挑', run: () => { S.voiceName = ''; SJ.save(); voicePage(id); } }]
               .concat(list.map(v => ({
-                icon: '🔊', label: v.name, hint: v.lang,
+                svg: 'volume', label: v.name, hint: v.lang,
                 run: () => { S.voiceName = v.name; SJ.save(); SJ.speak('你好呀，我是' + c.name); voicePage(id); }
               }))));
           }),
@@ -1874,7 +1912,8 @@ const APPS = [
           // 左上角齿轮：昵称 / 关系 / 记忆卡片 / 总结，都归它管
           left: SJ.el('button', { class: 'nav-btn', title: '聊天设置', html: svg('gear', 17), onclick: () => chatSettings(id) }),
           right: SJ.el('div', { class: 'nav-right' }, [
-            G ? null : SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) }, '📞'),
+            G ? null : SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) },
+            SJ.el('span', { class: 'nav-ico', html: svg('phone', 19) })),
           ])
         }));
         const list = SJ.el('div', { class: 'chat-list' });
@@ -1885,9 +1924,9 @@ const APPS = [
           list.classList.add('has-bg');
           list.style.backgroundImage = 'url("' + SJ.imgSrc(bgv) + '")';
         }
-        const plus = SJ.el('button', { class: 'chat-plus' }, '＋');
+        const plus = SJ.el('button', { class: 'chat-plus', title: '更多', html: svg('plus', 21) });
         const input = SJ.el('input', { class: 'chat-input', placeholder: '说点什么…' });
-        const mic = SJ.el('button', { class: 'chat-mic', title: '发语音' }, '🎤');
+        const mic = SJ.el('button', { class: 'chat-mic', title: '发语音', html: svg('mic', 21) });
         const send = SJ.el('button', { class: 'chat-send' }, '发送');
         /* 引用条：长按某条消息 → 「引用回复」，它就出现在输入框上面 */
         const quoteBar = SJ.el('div', { class: 'quote-bar hide' });
@@ -2021,10 +2060,10 @@ const APPS = [
         }
         function openMsgSheet(m) {
           sheet([
-            { icon: '💬', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
-            { icon: '📋', label: '复制这条', run: () => copyText(String(m.text)) },
+            { svg: 'comment', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
+            { svg: 'copy', label: '复制这条', run: () => copyText(String(m.text)) },
             {
-              icon: '🗑', label: '删除这条', hint: '之后不会再进上下文和记忆',
+              svg: 'trash', label: '删除这条', hint: '之后不会再进上下文和记忆',
               run: () => confirmBox('删掉这条消息？\n它不会再被发给她，也不会被记进记忆。', () => {
                 /* 先按长按时记下的下标定位。
                    ⚠️ 刚打出来的那条没经过 redraw，它的 index 是旧的 —— 这时候退化成
@@ -2090,7 +2129,7 @@ const APPS = [
           const bars = SJ.el('div', { class: 'vc-wave' },
             Array.from({ length: 11 }, () => SJ.el('i', {})));
           const b = SJ.el('div', { class: 'bubble ' + (me ? 'me' : 'ta') + ' voice' }, [
-            SJ.el('div', { class: 'vc-ico' }, '🎤'),
+            SJ.el('div', { class: 'vc-ico', html: svg('mic', 30) }),
             bars,
             SJ.el('div', { class: 'vc-sec' }, secs + '″')
           ]);
@@ -2175,7 +2214,7 @@ const APPS = [
         /* 通话摘要：聊天里只留这一条，点开才是整场对白 */
         function callBubble(m) {
           const b = SJ.el('div', { class: 'bubble ' + (m.me ? 'me' : 'ta') + ' call-summary' }, [
-            SJ.el('div', { class: 'call-summary-ico' }, '📞'),
+            SJ.el('div', { class: 'call-summary-ico', html: svg('phone', 26) }),
             SJ.el('div', {}, [
               SJ.el('div', {}, mmssOf(m.secs)),
               SJ.el('div', { class: 'call-summary-sub' }, '通话结束 · 点开看记录')
@@ -2557,8 +2596,8 @@ const APPS = [
           };
           draw();
           mask = sheet([
-            { icon: '🗂', label: '从相册选一张', hint: '当图片发出去', run: pickFile },
-            { icon: '➕', label: '收一张进表情库', hint: '压到 240px，长按可删', run: collect }
+            { svg: 'folder', label: '从相册选一张', hint: '当图片发出去', run: pickFile },
+            { svg: 'plus', label: '收一张进表情库', hint: '压到 240px，长按可删', run: collect }
           ], SJ.el('div', { class: 'sticker-box' }, [
             SJ.el('div', { class: 'sheet-head' }, '表情'),
             grid
@@ -2613,7 +2652,7 @@ const APPS = [
            浏览器 TTS 念的就是这段文字，所以「用打字模仿说话」这件事天然成立。 */
         function sendVoice() {
           const t = input.value.trim();
-          if (!t) { toast('先在输入框写下要说什么，再点 🎤'); input.focus(); return; }
+          if (!t) { toast('先在输入框写下要说什么，再点麦克风'); input.focus(); return; }
           if (!SJ.hasSpeech()) toast('这台设备的浏览器不支持朗读，语音条还能看，但不会出声');
           sendMedia({ kind: 'voice', text: t, dur: SJ.voiceDur(t), speak: true });
           input.value = '';
@@ -2653,7 +2692,7 @@ const APPS = [
         ];
         function askLocation() {
           const items = PLACES.map(([name, addr]) => ({
-            icon: '📍', label: name, hint: addr,
+            svg: 'pin', label: name, hint: addr,
             run: () => sendMedia({ kind: 'location', name, addr, text: `[位置] ${name}` })
           }));
           const custom = SJ.el('div', { class: 'pad' }, [
@@ -2714,21 +2753,21 @@ const APPS = [
           sheet([], SJ.el('div', { class: 'pad' }, rows));
         }
 
-        plus.addEventListener('click', () => sheet([
-          { icon: '↻', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
-          { icon: '📖', label: '她现在读到哪几张', hint: '世界书到底生效没有', run: showWbRead },
-          { icon: '🖼', label: '发表情 / 图片', hint: '表情库 / 相册', run: pickImage },
-          { icon: '🎬', label: '发视频', hint: '20MB 以内', run: pickVideo },
-          { icon: '🎤', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
-          { icon: '🧧', label: '发红包', run: askPacket },
-          { icon: '¥', label: '转账', run: askTransfer },
-          { icon: '🍜', label: '给 TA 点外卖', hint: '去外卖里自己挑，结算时算 TA 的', run: giftFood },
-          { icon: '🎁', label: '给 TA 买礼物', hint: '去桃桃商城自己挑', run: giftThing },
-          { icon: '📍', label: '发位置', run: askLocation },
-          { icon: '👤', label: '发名片', run: pickCard },
-          { icon: '（）', label: '发个动作 / 旁白', hint: '用括号包起来', run: sendAside },
-          { icon: '↩', label: '撤回上一条', run: undoMine }
-        ]));
+        plus.addEventListener('click', () => popover([
+          { svg: 'refresh', label: '重新生成', hint: '换个回法，旧版留着能翻回去', run: roll },
+          { svg: 'book', label: '读到的世界书', hint: '世界书到底生效没有', run: showWbRead },
+          { svg: 'image', label: '表情 / 图片', hint: '表情库 / 相册', run: pickImage },
+          { svg: 'video', label: '发视频', hint: '20MB 以内', run: pickVideo },
+          { svg: 'mic', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
+          { svg: 'ticket', label: '发红包', run: askPacket },
+          { svg: 'yuan', label: '转账', run: askTransfer },
+          { svg: 'bowl', label: '给 TA 点外卖', hint: '去外卖里自己挑，结算时算 TA 的', run: giftFood },
+          { svg: 'gift', label: '给 TA 买礼物', hint: '去桃桃商城自己挑', run: giftThing },
+          { svg: 'pin', label: '发位置', run: askLocation },
+          { svg: 'user', label: '发名片', run: pickCard },
+          { svg: 'sparkle', label: '动作 / 旁白', hint: '用括号包起来', run: sendAside },
+          { svg: 'undo', label: '撤回上一条', run: undoMine }
+        ], { bottom: 96 }));
 
         send.addEventListener('click', () => {
           const text = input.value.trim();
@@ -3327,7 +3366,7 @@ const APPS = [
             SJ.el('div', { class: 'hint' }, '配合下面的逻辑用。想做「提到凶手、但她还不知道真相」这种反向知识，就填次关键词并把逻辑选成「全都没命中」。')
           ]),
           SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_LOGIC.map((l, i) => ({
-            icon: '🔀', label: l, hint: SJ.WB_LOGIC_SUB[i],
+            svg: 'shuffle', label: l, hint: SJ.WB_LOGIC_SUB[i],
             run: () => { e.logic = i; paintButtons(); }
           })), SJ.el('div', { class: 'sheet-head' }, '次关键词要怎么算「通过」？')) }, [
             SJ.el('div', { class: 'row-main' }, [
@@ -3357,13 +3396,13 @@ const APPS = [
           + String(d.getDate()).padStart(2, '0');
         sheet([
           {
-            icon: '📄', label: '存成 .json 文件', hint: 'yphone-世界书-' + stamp + '.json',
+            svg: 'note', label: '存成 .json 文件', hint: 'yphone-世界书-' + stamp + '.json',
             run: () => toast(SJ.saveText('yphone-世界书-' + stamp + '.json', json)
               ? '导好了 · ' + cards.length + ' 张卡'
               : '这台设备不让下载，用下面那条「复制」')
           },
           {
-            icon: '📋', label: '复制 JSON', hint: '粘到哪儿都行，回头再导进来',
+            svg: 'copy', label: '复制 JSON', hint: '粘到哪儿都行，回头再导进来',
             run: () => {
               try {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3409,8 +3448,8 @@ const APPS = [
 
         root.append(SJ.el('div', { class: 'pad' }, [
           input,
-          SJ.el('div', { class: 'row', onclick: () => sheet([{ icon: '🌍', label: '通用视角', hint: '只看通用卡', run: () => { asChar = ''; paint(); } }].concat((SJ.state.characters || []).map(c => ({
-            icon: '🙂', label: c.name,
+          SJ.el('div', { class: 'row', onclick: () => sheet([{ svg: 'globe', label: '通用视角', hint: '只看通用卡', run: () => { asChar = ''; paint(); } }].concat((SJ.state.characters || []).map(c => ({
+            svg: 'smile', label: c.name,
             hint: c.wbRead === false ? '他关着世界书，读不到任何卡' : '以他的视角看',
             run: () => { asChar = c.id; paint(); }
           }))), SJ.el('div', { class: 'sheet-head' }, '以谁的视角看？')) }, [
@@ -4944,13 +4983,33 @@ const APPS = [
           ]),
           SJ.el('div', { class: 'row-time' }, '›')
         ]));
+        const AV_SIZES = { s: '小', m: '正常', l: '大' };
+        const AV_SHAPES = { squircle: '圆角方', round: '圆形', square: '方角' };
+        const pickRow = (title, sub, head, opts, cur, set) => SJ.el('div', {
+          class: 'row',
+          onclick: () => window.sheet(Object.keys(opts).map(k => ({
+            svg: 'user', label: opts[k], hint: cur() === k ? '当前' : '', run: () => { set(k); look(); }
+          })), head)
+        }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, title),
+            SJ.el('div', { class: 'row-sub' }, sub())
+          ]),
+          SJ.el('div', { class: 'row-time' }, '›')
+        ]);
+        box.append(pickRow('头像大小', () => '现在：' + AV_SIZES[SJ.state.settings.avSize || 'm'],
+          '头像多大', AV_SIZES, () => SJ.state.settings.avSize || 'm',
+          v => { SJ.state.settings.avSize = v; }));
+        box.append(pickRow('头像形状', () => '现在：' + AV_SHAPES[SJ.state.settings.avShape || 'squircle'],
+          '头像什么形状', AV_SHAPES, () => SJ.state.settings.avShape || 'squircle',
+          v => { SJ.state.settings.avShape = v; }));
         /* CC BY-SA 4.0 要求署名。图标是 OpenMoji（github.com/hfg-gmuend/openmoji），
            不是自己画的 —— 这行别删，删了就等于把署名义务一起删了。 */
         box.append(SJ.el('div', { class: 'hint' },
           '桌面图标来自 OpenMoji（CC BY-SA 4.0）— openmoji.org'));
         box.append(SJ.el('div', { class: 'row', onclick: () => {
           window.sheet([[0.8, '小'], [1, '正常'], [1.15, '大'], [1.3, '特大']].map(([v, n]) => ({
-            icon: '🕘',
+            svg: 'clock',
             label: n,
             hint: SJ.state.settings.lockScale === v ? '当前' : '',
             run: () => { SJ.state.settings.lockScale = v; look(); }
@@ -4966,7 +5025,7 @@ const APPS = [
 
         box.append(SJ.el('div', { class: 'row', onclick: () => {
           window.sheet(Object.keys(SJ.FONT_NAMES).map(k => ({
-            icon: '🅰',
+            svg: 'type',
             label: SJ.FONT_NAMES[k],
             hint: SJ.state.settings.font === k ? '当前' : '',
             run: () => { SJ.state.settings.font = k; look(); }
@@ -4986,7 +5045,7 @@ const APPS = [
         box.append(SJ.el('div', { class: 'row', onclick: () => {
           const SB = [['auto', '跟随壁纸'], ['dark', '深色字'], ['light', '浅色字']];
           window.sheet(SB.map(([v, n]) => ({
-            icon: '🔤',
+            svg: 'type',
             label: n,
             hint: SJ.state.settings.sbColor === v ? '当前' : '',
             run: () => { SJ.state.settings.sbColor = v; look(); }
@@ -5200,13 +5259,13 @@ const APPS = [
         }];
         if (on) {
           if (Number(c.idleMin)) items.push({
-            icon: '↩️',
+            svg: 'undo',
             label: '跟着全局：' + SJ.fmtIdle(Number(SJ.state.settings.idleMin) || 180),
             hint: '不再单独设',
             run: () => { c.idleMin = 0; SJ.saveCharacter(c); proactiveWho(); }
           });
           IDLES.forEach(([v, lab]) => items.push({
-            icon: '⏳',
+            svg: 'timer',
             label: lab + '没说话就来找你',
             hint: Number(c.idleMin) === v ? '现在用的' : '',
             run: () => { c.idleMin = v; SJ.saveCharacter(c); proactiveWho(); }
@@ -5425,7 +5484,7 @@ const APPS = [
         box.append(SJ.el('div', {
           class: 'row',
           onclick: () => sheet(IDLES.map(([v, lab]) => ({
-            icon: '⏳', label: lab, hint: v === SJ.state.settings.idleMin ? '现在用的' : '',
+            svg: 'timer', label: lab, hint: v === SJ.state.settings.idleMin ? '现在用的' : '',
             run: () => { SJ.state.settings.idleMin = v; SJ.save(); main(); }
           })))
         }, [
@@ -5536,6 +5595,10 @@ window.ICONSVG = svg;
 window.APPICON = appIcon;   // 桌面格子用：彩色文件图标
 window.navBar = navBar;
 window.confirmBox = confirmBox;
-window.sheet = sheet;   // app.js 的桌面插件面板要用
+window.sheet = sheet;     // app.js 的桌面插件面板要用
+window.popover = popover; // 聊天页「＋」那个小卡片
 window.toast = toast;   // app.js 报「存档写不进去了」要用
+/* app.js 的 closeTop 也要问同一个问题（这个垫片里没有 getAnimations 就得同步摘节点）——
+   它是 IIFE 里的局部函数，得显式挂出去，否则 app.js 调用会直接抛。 */
+window.canAnimate = canAnimate;
 })();

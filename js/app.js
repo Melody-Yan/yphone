@@ -146,13 +146,28 @@ function closeTop(immediate = false) {
   if (!rec) return;
   try { rec.onUnmount && rec.onUnmount(); } catch (e) { console.warn(e); }
 
-  const done = () => {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
     rec.node.remove();
     if (stack.length === 0) { homeEl.classList.remove('pushed'); phone.classList.remove('app-open'); }
   };
-  if (immediate) { done(); return; }
+  /* 退场时长只有 CSS 里的 --dur-4 说了算：以前这里写死 280ms，
+     和样式表里的 .3s 是两处独立的数字，改一边就错位（改成 380ms 之后，
+     280ms 会在动画还剩三分之一的时候把节点摘掉，看起来就是「啪」地消失）。
+     现在听 transitionend，再留一个兜底超时：动画被打断、或者开着「关掉动画」时也摘得掉。 */
+  let quiet = false;
+  try {
+    const p = document.getElementById('phone');
+    quiet = p.classList.contains('no-anim');
+  } catch (e) {}
+  if (immediate || quiet || !window.canAnimate || !window.canAnimate()) { finish(); return; }
   rec.node.classList.remove('in');
-  setTimeout(done, 280);
+  rec.node.addEventListener('transitionend', e => {
+    if (e.target === rec.node && (e.propertyName === 'transform' || e.propertyName === 'opacity')) finish();
+  });
+  setTimeout(finish, 900);
 }
 
 function closeAll() { while (stack.length) closeTop(true); }
@@ -852,6 +867,10 @@ function applyLook() {
   phone.classList.toggle('sb-dark', s.sbColor === 'dark');
   phone.classList.toggle('sb-light', s.sbColor === 'light');
   phone.style.setProperty('--lock-scale', String(s.lockScale || 1));
+  /* 头像大小 / 形状：只写两个变量，全站 .avatar 一起变（样式表末尾那段） */
+  phone.style.setProperty('--av-k', s.avSize === 's' ? '.88' : s.avSize === 'l' ? '1.18' : '1');
+  phone.style.setProperty('--av-r',
+    s.avShape === 'round' ? '50%' : s.avShape === 'square' ? '18%' : '34%');
   phone.style.setProperty('--font', SJ.FONT_STACKS[s.font] || SJ.FONT_STACKS.system);
 }
 
@@ -887,6 +906,11 @@ function applyWallpaper() {
   const lockBg = s.lockWallpaper || SJ.state.wallpaper;   // 锁屏可以单独一张，留空就跟随桌面
   homeEl.style.background = SJ.wallCSS(SJ.state.wallpaper);
   lockEl.style.background = SJ.wallCSS(lockBg);
+  /* App 页也透同一张（styles.css 的 .app-view 里垫了一层蒙层压住它）——
+     以前 App 里是一张死米黄纸，跟锁屏/桌面完全割裂。
+     用简写值 + var(--wall)：样式表那边是 `background: …, var(--wall, none)`，
+     没设壁纸时 --wall 是 none，不会把 background 整条弄失效。 */
+  phone.style.setProperty('--wall', SJ.wallCSS(SJ.state.wallpaper));
   // 深色壁纸翻白字；浅色（默认）走 styles.css 的基础色。锁屏单独判，两边可以不一样
   phone.classList.toggle('dark-wall', SJ.isDarkWall(SJ.state.wallpaper));
   phone.classList.toggle('lock-dark', SJ.isDarkWall(lockBg));

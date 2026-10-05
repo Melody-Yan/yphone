@@ -11,6 +11,74 @@ const stackEl = SJ.$('#stack');
 const homeEl = SJ.$('#home');
 const lockEl = SJ.$('#lock');
 
+/* ══════════════════════════════════════════════════════
+   调试控制栏：每次请求的 token / 耗时 / 报错。
+   挂在手机壳上而不是某个 App 里 —— 切 App 不该把它弄丢，排查问题时它得一直在。
+   日志本身只放内存（core 那边管），刷新即清空。
+   ══════════════════════════════════════════════════════ */
+let debugEl = null;
+let debugListEl = null;
+let debugSumEl = null;
+
+function debugPaint() {
+  if (!debugListEl) return;
+  const t = SJ.apiTotalsGet();
+  debugSumEl.textContent = `${t.calls} 次 · 入 ${t.in} / 出 ${t.out} token` + (t.err ? ` · ${t.err} 次报错` : '');
+  const logs = SJ.apiLogs();
+  debugListEl.innerHTML = '';
+  if (!logs.length) {
+    debugListEl.append(SJ.el('div', { class: 'dbg-empty' }, '还没有请求'));
+    return;
+  }
+  /* 新的在上面 —— 排查时想看的是刚刚那一次 */
+  logs.slice().reverse().forEach(e => {
+    const time = new Date(e.ts);
+    const hh = String(time.getHours()).padStart(2, '0') + ':' +
+               String(time.getMinutes()).padStart(2, '0') + ':' +
+               String(time.getSeconds()).padStart(2, '0');
+    const u = e.usage || {};
+    const tok = u.total_tokens != null
+      ? `共 ${u.total_tokens}（入 ${u.prompt_tokens ?? u.input_tokens ?? 0} / 出 ${u.completion_tokens ?? u.output_tokens ?? 0}）`
+      : (e.usage ? '无 token 字段' : '—');
+    debugListEl.append(SJ.el('div', { class: 'dbg-row' + (e.error ? ' err' : '') }, [
+      SJ.el('div', { class: 'dbg-1' }, [
+        SJ.el('span', { class: 'dbg-tag' }, e.tag || '请求'),
+        SJ.el('span', { class: 'dbg-time' }, hh),
+        SJ.el('span', { class: 'dbg-ms' }, (e.ms || 0) + 'ms')
+      ]),
+      SJ.el('div', { class: 'dbg-2' }, e.error ? '✗ ' + e.error : (e.model || '') + ' · ' + tok)
+    ]));
+  });
+}
+
+function mountDebug(on) {
+  if (debugEl) { debugEl.remove(); debugEl = null; debugListEl = null; debugSumEl = null; }
+  window.__dshApiLog = null;
+  if (!on) return;
+  const head = SJ.el('div', { class: 'dbg-head' }, [
+    SJ.el('span', { class: 'dbg-title' }, '接口监视'),
+    debugSumEl = SJ.el('span', { class: 'dbg-sum' }, '')
+  ]);
+  debugListEl = SJ.el('div', { class: 'dbg-list' });
+  const bar = SJ.el('div', { class: 'dbg-bar' }, [
+    SJ.el('button', { class: 'dbg-btn', onclick: () => { SJ.apiLogClear(); debugPaint(); } }, '清空'),
+    SJ.el('button', { class: 'dbg-btn', onclick: () => setDebug(false) }, '关闭')
+  ]);
+  debugEl = SJ.el('div', { class: 'dbg-panel' }, [head, debugListEl, bar]);
+  phone.append(debugEl);
+  /* core 那边每记一条就往这儿推一次，不用轮询 */
+  window.__dshApiLog = () => debugPaint();
+  debugPaint();
+}
+
+function setDebug(on) {
+  SJ.state.settings.debug = !!on;
+  SJ.save();
+  mountDebug(!!on);
+  if (window.toast) window.toast(on ? '接口监视已打开' : '接口监视已关闭');
+}
+
+
 /* ══ 视图栈 ══════════════════════════════════════════════
    关键设计：App 页面常驻 DOM 做 transform 滑动，不用 display:none。
    否则滑动返回时会白屏、丢滚动位置、丢输入。
@@ -845,9 +913,13 @@ function boot() {
   SJ.onSaveError(msg => { if (msg && window.toast) window.toast(msg); });
 
   // 暴露给调试和自检
-  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper };
+  window.SHELL = { openApp, closeTop, closeAll, renderHome, goPage, unlock, stack, applyWallpaper,
+                   setDebug, mountDebug, debugPaint };
   // 设置页开启锁屏后，立刻锁上给用户看一眼
   window.SHELL.lock = () => { locked = true; pendingApp = null; renderLock(true); };
+
+  /* 调试控制栏：上次开着的话，进来就还在（排查问题时不该每次重新打开） */
+  mountDebug(SJ.state.settings.debug === true);
 
   /* 图片真实字节在 IndexedDB 里，读它是异步的。先拿占位图把桌面撑起来，
      开机那把读完再重画一次 —— 比让用户盯着白屏等一秒好。 */

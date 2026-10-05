@@ -311,16 +311,15 @@ function appendGiftTo(card, o) {
   card.append(SJ.el('div', { class: 'od-gift' }, '🎁 送给 ' + (c ? c.name : '一位已经删掉的人')));
 }
 
-/* 礼物单付完之后，往那个角色的聊天里补一张礼物卡。
-   这条消息是「我送出去的」，所以 me:true。
-   订单没有 fromChat（用户在 App 里直接下单、不是从聊天进来的）就不发卡 —— 
-   凭空往聊天里塞一条用户没打算发的消息更奇怪。 */
-function giftCardAfterOrder(o, chatId) {
-  if (!o || !o.gift || !o.to || !chatId) return;
-  SJ.pushMessage(chatId, true, '', {
-    kind: 'gift', gkind: o.kind || '礼物', gname: o.items[0].name,
-    emoji: o.emoji || '🎁', orderId: o.id
-  });
+/* 礼物单付完之后：往收礼人的聊天里补一张卡片，再让她回一句。
+   ⚠️ 不管这单是从聊天进来的、还是直接在外卖/商城下的，都要补 ——
+   用户在外卖里给谁点了一份，那个人本来就该知道。以前只有「从聊天进来」才补，
+   所以在 App 里直接下的单，角色那边一片安静。 */
+function giftAfterOrder(o) {
+  if (!o || !o.gift || !o.to) return Promise.resolve(null);
+  SJ.giftPushCard(o, true);
+  const c = SJ.state.characters.find(x => x.id === o.to);
+  return SJ.giftReact(c);
 }
 
 
@@ -1836,6 +1835,9 @@ const APPS = [
            每条先挂上自己的时间，等看清楚了下一轮有没有真的来 —— 没来就撤掉，
            这样「一轮的最后一条下面才有时间」在实时追加时也成立。 */
         let curTs = 0, lastTs = 0, lastTimeEl = null;
+        /* 正在画的那条在 state.chats 里的下标。长按删除要用它定位 ——
+           消息本身没有 id 字段，加一套 id 得改存档格式和归一，不值得。 */
+        let curIndex = -1;
         function row(inner, me, src) {
           const speaker = (!me && G && curWho) ? SJ.memberOf(G, curWho) : null;
           const face = speaker || c;
@@ -1870,10 +1872,26 @@ const APPS = [
           }
           list.scrollTop = list.scrollHeight;
           lastRow = r;
-          const m = src || { me: !!me, name: me ? '我' : face.name, text: (inner && inner.textContent) || '' };
-          if (m.text) {
+          /* 复制一份再挂 index：src 传的是存档里的消息对象时，不能往里写临时字段
+             （会被 save() 一起存下去） */
+          const m = Object.assign({}, src || {
+            me: !!me, name: me ? '我' : face.name, text: (inner && inner.textContent) || ''
+          }, { index: curIndex });
+          /* 长按出菜单（引用 / 复制 / 删除）。
+             ⚠️ 这里不能再用「当时有没有文字」来决定挂不挂监听：
+             打字气泡是先拿一个空盒子画出来、文字后面才填进去的（askAndShow 里
+             b.textContent = …），按旧写法刚收到的那条永远长按不出菜单，
+             非得退出重进（走一次 redraw）才行。改成挂上去，按的时候现读文字。 */
+          {
             let hold = null;
-            const go = () => { clearTimeout(hold); hold = setTimeout(() => openMsgSheet(m), 480); };
+            const go = () => {
+              clearTimeout(hold);
+              hold = setTimeout(() => {
+                const txt = (inner && inner.textContent) || m.text;
+                if (!txt) return;                      // 图片/语音那种本来就没正文，不给菜单
+                openMsgSheet(Object.assign({}, m, { text: txt }));
+              }, 480);
+            };
             const stop = () => clearTimeout(hold);
             r.addEventListener('mousedown', go);
             r.addEventListener('touchstart', go);
@@ -1887,7 +1905,27 @@ const APPS = [
         function openMsgSheet(m) {
           sheet([
             { icon: '💬', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
-            { icon: '📋', label: '复制这条', run: () => copyText(String(m.text)) }
+            { icon: '📋', label: '复制这条', run: () => copyText(String(m.text)) },
+            {
+              icon: '🗑', label: '删除这条', hint: '之后不会再进上下文和记忆',
+              run: () => confirmBox('删掉这条消息？\n它不会再被发给她，也不会被记进记忆。', () => {
+                /* 先按长按时记下的下标定位。
+                   ⚠️ 刚打出来的那条没经过 redraw，它的 index 是旧的 —— 这时候退化成
+                   「按内容 + 方向找最后一条」。找不到才算它真的没了。 */
+                const list2 = SJ.messages(id);
+                let at = Number(m.index);
+                if (!(at >= 0 && at < list2.length) || String(list2[at].text) !== String(m.text)) {
+                  at = -1;
+                  for (let k = list2.length - 1; k >= 0; k--) {
+                    if (String(list2[k].text) === String(m.text) && !!list2[k].me === !!m.me) { at = k; break; }
+                  }
+                }
+                if (at < 0) return toast('这条已经不在了');
+                SJ.deleteMessage(id, at);
+                redraw();
+                toast('删掉了');
+              })
+            }
           ]);
         }
         function bubble(text, me, q) {
@@ -2094,6 +2132,7 @@ const APPS = [
           let lastMine = -1;
           for (let i = h.length - 1; i >= 0; i--) if (h[i].me) { lastMine = i; break; }
           h.forEach((m, i) => {
+            curIndex = i;
             renderMsg(m);
             /* 有好几版的回复，末尾挂个 ‹ 1/2 › —— 翻版本不用重问一次 */
             if (!m.me && !m.kind && Array.isArray(m.alts) && m.alts.length > 1 && lastRow) {
@@ -2226,15 +2265,20 @@ const APPS = [
               const o = SJ.giftMake(m[1], id, '');
               giftParts.push({
                 kind: 'gift', gkind: m[1], gname: o.items[0].name,
-                emoji: o.emoji, orderId: o.id
+                emoji: o.emoji, orderId: o.id,
+                /* 她送我的：白描成「她给你点了…」。方向反了模型会以为是自己收的 */
+                line: (o.kind === '外卖' ? '给你点了一份' : '给你买了一个') + o.items[0].name
               });
             }
             if (/\[\[gift:(?:外卖|礼物)\]\]/.test(p.text)) {
               p.text = p.text.replace(/\[\[gift:(?:外卖|礼物)\]\]/g, '').trim();
             }
           });
-          /* 卡片另起一条落盘：和文字气泡分开，顺序也自然（说完话，东西跟上） */
-          giftParts.forEach(gp => parts.push({ who: '', text: '', gift: gp }));
+          /* 卡片另起一条落盘：和文字气泡分开，顺序也自然（说完话，东西跟上）。
+             这张卡也带一句白描（giftText）—— 它是给模型看的正文，
+             不写的话她在上下文里看到的是一条空消息，等于不知道自己送过东西。
+             界面上 giftBubble 只读 gname/emoji，不会把这句重复显示出来。 */
+          giftParts.forEach(gp => parts.push({ who: '', text: gp.line || '', gift: gp }));
           /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
              旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
           const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
@@ -2252,23 +2296,32 @@ const APPS = [
             redraw();
             list.scrollTop = list.scrollHeight;
           } else {
-          for (const p of parts) {
+          /* 渲染单元：和重画时的 renderMsg 走同一个 splitReply。
+             ⚠️ 以前这里直接拿整段 text 去画，于是模型写的 %% 会原样显示在气泡里
+             （stripMarks 不认 %%），非得刷新一次、走 renderMsg 才断成几条 ——
+             用户看到的就是「每次都要刷新才能换行，不然一直带着 %」。
+             存储仍然是一整段：重新生成的「‹ 1/2 ›」翻页器是挂在一条消息上的。 */
+          const shown = [];
+          parts.forEach(p => {
+            if (p.gift) { shown.push(p); return; }
+            SJ.splitReply(p.text).forEach(t => shown.push({ who: p.who, text: t }));
+          });
+          for (const p of shown) {
             curWho = p.who || '';
             const t = p.text;
-            /* 礼物摘掉标记后可能就没文字了（整个标记独占一段）—— 别画空气泡 */
-            if (!t && !p.gift) continue;
-            const v = SJ.voiceOf(t);
-            if (v || SJ.redpacketOf(t)) {
-              /* 语音和红包不是打出来的 —— 等一个停顿直接出现 */
-              await wait(typingDelay(v || t));
-              chunkNode(t, false, true);
-              continue;
-            }
             if (p.gift) {
               /* 礼物不是打出来的：顿一下卡片才出现，像骑手刚接单 */
               await wait(typingDelay('嗯'));
               giftBubble(p.gift);
               list.scrollTop = list.scrollHeight;
+              continue;
+            }
+            if (!t) continue;
+            const v = SJ.voiceOf(t);
+            if (v || SJ.redpacketOf(t)) {
+              /* 语音和红包不是打出来的 —— 等一个停顿直接出现 */
+              await wait(typingDelay(v || t));
+              chunkNode(t, false, true);
               continue;
             }
             const b = bubble('', false);
@@ -2516,7 +2569,7 @@ const APPS = [
            挑完在结算页付钱，落一单真的订单，聊天里自动补一张礼物卡。 */
         function giftVia(kind) {
           SJ.giftToSet(c.id);
-          window.SHELL.openApp(kind === '外卖' ? 'delivery' : 'mall', { giftTo: c.id, fromChat: id });
+          window.SHELL.openApp(kind === '外卖' ? 'delivery' : 'mall', { giftTo: c.id });
           toast('挑好了去结算，这单算给 ' + c.name + ' 的');
         }
         const giftFood = () => giftVia('外卖');
@@ -2978,8 +3031,6 @@ const APPS = [
     render(root, close, arg) {
       let busy = false;
       const dl = () => SJ.state.delivery;
-      /* 从聊天「给 TA 点外卖」进来的话，付完款要往那个聊天里回一张礼物卡 */
-      const fromChat = (arg && arg.fromChat) || '';
       /* 收礼人在聊天那边已经预置好了（SJ.giftToSet），这里兜一下底：
          万一结算页顶上的「送给谁」被改过又退回来，仍以参数为准。 */
       if (arg && arg.giftTo) SJ.giftToSet(arg.giftTo);
@@ -3374,7 +3425,7 @@ const APPS = [
         payPad('请输入支付密码', '¥' + total, () => {
           const o = SJ.placeOrder();
           if (!o) return;
-          giftCardAfterOrder(o, fromChat);
+          giftAfterOrder(o);
           toast(o.gift ? '送出去了，骑手正在赶去 TA 那儿' : '下单成功，骑手正在赶来');
           ordersView(o.id);
         });
@@ -3438,8 +3489,6 @@ const APPS = [
     color: 'linear-gradient(150deg,#f7c9d4,#e08aa4)',
     render(root, close, arg) {
       let busy = false;
-      /* 从聊天「给 TA 买礼物」进来的话，付完款要往那个聊天里回一张礼物卡 */
-      const fromChat = (arg && arg.fromChat) || '';
       if (arg && arg.giftTo) SJ.giftToSet(arg.giftTo);
       /* 当前筛选：分类 id + 二级子类 + 关键词。三个都空就是「全部」。 */
       let cat = '';
@@ -3755,7 +3804,7 @@ const APPS = [
                 payPad('请输入支付密码', '¥' + need, () => {
                   const o = SJ.mallPlaceOrder();
                   if (!o) return toast('没选到商品');
-                  giftCardAfterOrder(o, fromChat);
+                  giftAfterOrder(o);
                   toast(o.gift ? '买好了，正往 TA 那儿寄' : '下单成功，桃桃正在打包');
                   ordersView(o.id);
                 });
@@ -4534,6 +4583,47 @@ const APPS = [
 
         /* AI 接口 */
         box.append(SJ.el('div', { class: 'group-title' }, '接口（选填，不填也能玩）'));
+
+        /* 多套方案：点一下就切过去。存的是快照，切换 = 把快照抄回当前这三个字段。 */
+        const profiles = SJ.profileList();
+        if (profiles.length) {
+          const pl = SJ.el('div', { class: 'list' });
+          profiles.forEach(p => {
+            const on = p.base === SJ.state.settings.apiBase && p.key === SJ.state.settings.apiKey
+              && p.model === SJ.state.settings.apiModel;
+            pl.append(SJ.el('div', { class: 'row' }, [
+              SJ.el('div', {
+                class: 'row-main',
+                onclick: () => {
+                  SJ.profileUse(p.id);
+                  main();
+                  toast('已切到「' + p.name + '」');
+                }
+              }, [
+                SJ.el('div', { class: 'row-title' }, (on ? '✓ ' : '') + p.name),
+                SJ.el('div', { class: 'row-sub' }, (p.model || '没选模型') + ' · ' + (p.base || '没填地址'))
+              ]),
+              SJ.el('div', {
+                class: 'row-time',
+                onclick: () => confirmBox('删掉方案「' + p.name + '」？\n（不会动当前正在用的接口）', () => {
+                  SJ.profileRemove(p.id); main();
+                })
+              }, '删')
+            ]));
+          });
+          box.append(pl);
+        }
+        box.append(SJ.el('div', { class: 'pad' }, [
+          SJ.el('button', {
+            class: 'btn ghost',
+            onclick: () => {
+              askText('给这套接口起个名字', '比如：主力 / 便宜的中转 / 备用',
+                '存下来之后可以一键切换，不用每次重填地址和 Key。',
+                v => { SJ.profileSave(v); main(); toast('存下了'); });
+            }
+          }, profiles.length ? '＋ 把当前这套存成方案' : '＋ 保存当前接口为一套方案')
+        ]));
+
         const modelSel = SJ.el('select', {
           class: 'field',
           onchange: () => { SJ.state.settings.apiModel = modelSel.value; SJ.save(); }
@@ -4586,6 +4676,17 @@ const APPS = [
           testBtn,
           modelTip
         ]));
+
+        /* 调试控制栏：每次请求的 token / 耗时 / 报错。开着的时候右上角会多一条监视面板 */
+        box.append(SJ.el('div', { class: 'group-title' }, '调试'));
+        box.append(toggleRow('接口监视',
+          '显示每次请求的 token、耗时和报错日志（只记在内存里，刷新就清空）',
+          SJ.state.settings.debug === true,
+          () => {
+            const on = SJ.state.settings.debug !== true;
+            if (window.SHELL && window.SHELL.setDebug) window.SHELL.setDebug(on);
+            main();
+          }));
 
         /* 生图接口：单独一套。留空就整段跟随上面那套（很多中转站共用域名和 key），
            单填的意义是聊天用一个模型、出图换一个更会画的。 */

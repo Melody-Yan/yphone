@@ -136,6 +136,11 @@ const DEFAULTS = {
     apiKey: '',
     apiModel: '',
     modelList: [],       // 从 /models 拉回来的候选，省得手填模型名
+    /* 多套接口方案：{id,name,base,key,model}。切换 = 把这一套抄回上面三个字段，
+       所以所有请求处一行都不用改。 */
+    profiles: [],
+    /* 调试控制栏：显示每次请求的 token / 耗时 / 报错。默认关。 */
+    debug: false,
     /* 生图：留空就跟随上面那套聊天接口 */
     imgBase: '',
     imgKey: '',
@@ -287,6 +292,19 @@ function migrate(saved) {
     }
   }
   if (!Array.isArray(out.settings.modelList)) out.settings.modelList = [];
+  /* 接口方案来自存档 = 信任边界，逐条归一；坏条目直接丢掉而不是留个 undefined 进去。
+     ⚠️ 这里写死字符串字面量，不要引用后面才 const 的变量（TDZ 会把整个存档读白）。 */
+  out.settings.profiles = (Array.isArray(out.settings.profiles) ? out.settings.profiles : [])
+    .filter(p => p && typeof p === 'object')
+    .slice(0, 20)
+    .map((p, i) => ({
+      id: String(p.id || ('pf-' + i)),
+      name: String(p.name || '').slice(0, 24) || ('方案 ' + (i + 1)),
+      base: String(p.base || '').slice(0, 300),
+      key: String(p.key || '').slice(0, 300),
+      model: String(p.model || '').slice(0, 120)
+    }));
+  out.settings.debug = out.settings.debug === true;
   if (!out.wallpaper) out.wallpaper = DEFAULTS.wallpaper;   // 壁纸被写成空/非字符串时兜回默认，别留一张白屏
 
   // 老版本只有一条全局 chatHistory：搬进一个默认角色，别让存量对话凭空消失。
@@ -946,6 +964,24 @@ function truncateChat(id, n) {
   return state.chats[id];
 }
 function clearChat(id) { delete state.chats[id]; save(); }
+
+/* 删掉一条消息。删了就真的没了 —— 上下文和记忆蒸馏读的都是 state.chats，
+   所以这一条不会再去喂模型，也不会被总结进去。
+   ⚠️ 已经总结成记忆卡片的还会留着：记忆是浓缩过的一句话，回不到具体哪一条消息，
+   硬删只会把不相关的事一起删掉。要清记忆得去「记忆」里手动删。
+   ⚠️ memUpTo 是「总结到第几条」的下标，在它前面删一条就必须减一，
+   否则边界会错位、漏掉或多算一条。 */
+function deleteMessage(id, index) {
+  const list = messages(id);
+  const i = Math.round(Number(index));
+  if (!(i >= 0 && i < list.length)) return null;
+  const gone = list[i];
+  list.splice(i, 1);
+  const c = state.characters.find(x => x.id === id);
+  if (c && i < (Number(c.memUpTo) || 0)) c.memUpTo = Math.max(0, (Number(c.memUpTo) || 0) - 1);
+  save();
+  return gone;
+}
 
 /* ── 通话记录 ────────────────────────────────────────
    通话里说的话一律不进 chats：挂断以后聊天页不该被一整场对白淹掉。
@@ -1675,6 +1711,53 @@ function giftToSet(id) {
   save();
   return state.delivery.to;
 }
+
+/* ── 礼物卡落进聊天 ──
+   ⚠️ 卡片消息必须带一句人话（text），不能是空串：
+   模型看到的正文就是 text，空串等于告诉她「（空消息）」—— 她当然「看不到」你送的东西。
+   界面上 giftBubble 只读 gname/emoji，不读 text，所以这句白描不会重复显示出来。 */
+function giftText(o) {
+  const what = (o && o.items && o.items[0] && o.items[0].name) || '东西';
+  return (o && o.kind === '外卖' ? '给你点了一份' : '给你买了一个') + what;
+}
+/* 把礼物落成聊天里的一张卡片。
+   往哪个聊天落：我送出去的看 to（收礼人），她送我的看 from（送礼人）——
+   giftMake 两个方向只会填其中一个，所以这里两个都认。
+   返回那条消息；两边都没有（不该发生）返回 null。 */
+function giftPushCard(o, me) {
+  if (!o) return null;
+  const chatId = String(o.to || o.from || '');
+  if (!chatId) return null;
+  if (!state.characters.some(x => x.id === chatId)) return null;
+  /* 默认是「我送的」；角色送我的传 false */
+  const mine = me !== false;
+  const h = pushMessage(chatId, mine, giftText(o), {
+    kind: 'gift', gkind: o.kind || '礼物',
+    gname: (o.items && o.items[0] && o.items[0].name) || '',
+    emoji: o.emoji || (o.kind === '外卖' ? '🍜' : '🎁'),
+    orderId: o.id
+  });
+  return h[h.length - 1];
+}
+/* 送完东西之后，让她就这件事说一句。
+   复用正常的聊天管线（askCharacter 读的就是刚补上卡片的那段历史），
+   所以她看到的是「你给她点了外卖」而不是一个空气泡。
+   没配接口 / 调用失败都静默返回 null —— 送礼本身已经成功了，不该因为回话失败而报错。 */
+async function giftReact(char) {
+  if (!char || !apiRoot() || !state.settings.apiKey || !state.settings.apiModel) return null;
+  try {
+    const raw = await askCharacter(char, messages(char.id));
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    let out = null;
+    splitReply(text).forEach(t => { const h = pushMessage(char.id, false, t); out = h[h.length - 1]; });
+    return out;
+  } catch (e) {
+    apiLog({ tag: '送礼回话', error: String((e && e.message) || e) });
+    return null;
+  }
+}
+
 function setShops(list) {
   state.delivery.shops = normalizeShops(list);
   state.delivery.cart = [];   // 换了一批店，购物车里的菜就没出处了
@@ -2290,6 +2373,109 @@ async function proactiveCheck(onOne) {
    ══════════════════════════════════════════════════════ */
 const apiRoot = () => String(state.settings.apiBase || '').trim().replace(/\/+$/, '');
 
+/* ── 多套接口方案 ──
+   存的是快照，切换时把快照抄回 apiBase/apiKey/apiModel 这三个「当前生效」的字段 ——
+   所有发请求的地方读的都是那三个，所以这条路一行都不用改。 */
+function profileList() { return state.settings.profiles || []; }
+function profileSave(name) {
+  const s = state.settings;
+  const p = {
+    id: uid(),
+    name: String(name || '').trim().slice(0, 24) || ('方案 ' + (profileList().length + 1)),
+    base: String(s.apiBase || '').trim(),
+    key: String(s.apiKey || ''),
+    model: String(s.apiModel || '')
+  };
+  /* 同一个名字就覆盖 —— 改完地址想存回原来那条，不该多出一条重名的 */
+  const i = profileList().findIndex(x => x.name === p.name);
+  if (i >= 0) { p.id = profileList()[i].id; profileList()[i] = p; }
+  else state.settings.profiles.push(p);
+  state.settings.profiles = state.settings.profiles.slice(-20);
+  save();
+  return p;
+}
+function profileUse(id) {
+  const p = profileList().find(x => x.id === id);
+  if (!p) return null;
+  const s = state.settings;
+  s.apiBase = p.base; s.apiKey = p.key; s.apiModel = p.model;
+  /* 模型换了，旧的候选列表对不上新的接口，清掉免得选到不存在的模型 */
+  s.modelList = [];
+  save();
+  return p;
+}
+function profileRemove(id) {
+  state.settings.profiles = profileList().filter(x => x.id !== id);
+  save();
+  return state.settings.profiles;
+}
+
+/* ── 调试日志 ──
+   故意只放内存、不落盘：这是排查用的东西，塞进存档既没用又会让存档越来越大
+   （而且里面会带上接口地址）。刷新即清空，够用。 */
+const API_LOG_MAX = 60;
+const apiLogList = [];
+let apiTotals = { calls: 0, in: 0, out: 0, err: 0 };
+function apiLog(entry) {
+  const e = Object.assign({ ts: Date.now() }, entry);
+  apiLogList.push(e);
+  if (apiLogList.length > API_LOG_MAX) apiLogList.shift();
+  apiTotals.calls++;
+  if (e.usage) {
+    apiTotals.in += Number(e.usage.prompt_tokens || e.usage.input_tokens || 0) || 0;
+    apiTotals.out += Number(e.usage.completion_tokens || e.usage.output_tokens || 0) || 0;
+  }
+  if (e.error) apiTotals.err++;
+  if (window.__dshApiLog) window.__dshApiLog(e);   // 控制栏挂在 DOM 上时实时追加
+  return e;
+}
+function apiLogs() { return apiLogList; }
+function apiTotalsGet() { return apiTotals; }
+function apiLogClear() {
+  apiLogList.length = 0;
+  apiTotals = { calls: 0, in: 0, out: 0, err: 0 };
+}
+
+/* ══════════════════════════════════════════════════════
+   所有「聊天补全」请求的唯一出口。
+   以前 askCharacter / askOnce / testApi 各写一遍 fetch，想加个 token 记账要改三处。
+   现在统一在这儿记账（token / 耗时 / 报错）+ 统一报错文案。
+   tag 只用于调试控制栏上区分是哪种请求。
+   ══════════════════════════════════════════════════════ */
+async function chatPost(messages, tag) {
+  const s = state.settings;
+  const t0 = Date.now();
+  let res;
+  try {
+    res = await fetch(apiRoot() + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
+      body: JSON.stringify({ model: s.apiModel, messages })
+    });
+  } catch (e) {
+    const msg = '连不上：' + e.message + '（地址写错 / 没联网 / 对方不允许跨域）';
+    apiLog({ tag, ms: Date.now() - t0, model: s.apiModel, error: msg });
+    throw new Error(msg);
+  }
+  if (!res.ok) {
+    const msg = await apiFail(res);
+    apiLog({ tag, ms: Date.now() - t0, model: s.apiModel, error: msg });
+    throw new Error(msg);
+  }
+  let data;
+  try { data = await res.json(); }
+  catch (e) {
+    const msg = '返回的不是 JSON（多半是地址指到了网页而不是接口根路径）';
+    apiLog({ tag, ms: Date.now() - t0, model: s.apiModel, error: msg });
+    throw new Error(msg);
+  }
+  apiLog({
+    tag, ms: Date.now() - t0, model: data.model || s.apiModel,
+    usage: data.usage || null, n: messages.length
+  });
+  return data;
+}
+
 /* 把接口返回的错误正文抠出来。只报「HTTP 503」等于什么都没说 ——
    中转/聚合接口的 503 正文里通常写着「无可用渠道」「当前分组负载已饱和」，
    那才是排查线索。解析不出来就退回状态码。 */
@@ -2338,21 +2524,14 @@ async function testApi() {
   if (!s.apiKey) return { ok: false, error: '先填 API Key' };
   if (!s.apiModel) return { ok: false, error: '还没选模型：点上面的「拉取模型列表」选一个' };
   const t0 = Date.now();
-  let res;
+  let data;
   try {
-    res = await fetch(apiRoot() + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
-      body: JSON.stringify({ model: s.apiModel, messages: [{ role: 'user', content: '回复「连接正常」四个字' }] })
-    });
+    data = await chatPost([{ role: 'user', content: '回复「连接正常」四个字' }], '测试连接');
   } catch (e) {
-    return { ok: false, error: '连不上：' + e.message + '（地址写错 / 没联网 / 对方不允许跨域）' };
+    return { ok: false, error: e.message || String(e) };
   }
-  const ms = Date.now() - t0;
-  if (!res.ok) return { ok: false, error: await apiFail(res) };
-  let reply = '';
-  try { reply = (((await res.json()).choices || [])[0] || {}).message?.content || ''; } catch (e) {}
-  return { ok: true, model: s.apiModel, ms, reply: String(reply).trim().slice(0, 40) };
+  const reply = (((data.choices || [])[0] || {}).message || {}).content || '';
+  return { ok: true, model: s.apiModel, ms: Date.now() - t0, reply: String(reply).trim().slice(0, 40) };
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2368,19 +2547,10 @@ async function askOnce(system, user) {
   const s = state.settings;
   if (!apiRoot() || !s.apiKey) throw new Error('还没填接口地址和 Key：去「设置」里补上');
   if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
-  const res = await fetch(apiRoot() + '/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
-    body: JSON.stringify({
-      model: s.apiModel,
-      messages: [
-        { role: 'system', content: String(system || '') },
-        { role: 'user', content: String(user || '') }
-      ]
-    })
-  });
-  if (!res.ok) throw new Error(await apiFail(res));
-  const data = await res.json();
+  const data = await chatPost([
+    { role: 'system', content: String(system || '') },
+    { role: 'user', content: String(user || '') }
+  ], 'askOnce');
   return ((data.choices || [])[0] || {}).message?.content || '';
 }
 
@@ -2904,19 +3074,13 @@ async function askCharacter(char, history) {
      世界书扫描仍然吃全部历史 —— 不然刚滚出窗口的关键词就触发不了了。 */
   const keep = Math.max(2, Number(s.historyKeep) || 40);
   const recent = all.slice(-keep);
-  const res = await fetch(apiRoot() + '/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
-    body: JSON.stringify({
-      model: s.apiModel,
-      messages: [
-        { role: 'system', content: buildSystem(char, all) },
-        ...recent.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
-      ]
-    })
-  });
-  if (!res.ok) throw new Error(await apiFail(res));
-  const data = await res.json();
+  /* kind:'gift' 的消息 text 存的是给模型看的白描（「给你点了一份红烧牛肉面」），
+     界面上画的是礼物卡 —— 这里照发 text，她才知道你送过东西。
+     ponytail: 只带文字，不带卡片本身的结构；模型看不到订单号也不需要看。 */
+  const data = await chatPost([
+    { role: 'system', content: buildSystem(char, all) },
+    ...recent.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
+  ], '聊天');
   return ((data.choices || [])[0] || {}).message?.content || '（模型没有返回内容）';
 }
 
@@ -3042,7 +3206,7 @@ window.SJ = {
   virtualNow, advanceTime, onTime,
   makeCharacter, saveCharacter, deleteCharacter,
   setBlocked, isBlocked,
-  messages, pushMessage, lastMessage, clearChat, chatList, truncateChat,
+  messages, pushMessage, lastMessage, clearChat, chatList, truncateChat, deleteMessage,
   callsOf, pushCall, deleteCall, clearCalls, callLog,
   chatBgOf, setChatBg,
   stickersOf, addSticker, removeSticker, STICKER_MAX,
@@ -3068,9 +3232,12 @@ window.SJ = {
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,
   /* 送礼：角色送用户 / 用户送角色，都落在真实订单上 */
-  giftMake, giftOf, pickGiftFood, pickGiftThing,
+  giftMake, giftOf, pickGiftFood, pickGiftThing, giftText, giftPushCard, giftReact,
   /* 这一单选给谁（外卖和商城共用） */
   giftToId, giftToChar, giftToSet,
+  /* 多套接口方案 + 调试日志 */
+  profileList, profileSave, profileUse, profileRemove,
+  apiLog, apiLogs, apiTotalsGet, apiLogClear, chatPost,
   /* 收货地址：外卖和商城共用一本 */
   ADDR_MAX, normalizeAddresses, addressList, addressNow, addressSave, addressRemove,
   addressPick, addressSetDefault, addressSnapshot,

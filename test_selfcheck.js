@@ -4250,6 +4250,436 @@ console.log('\n[39] 支付密码、进货覆盖全部类目、自动深色');
 
   fetchImpl = null;
 }
+
+/* ══════════════════════════════════════════════════════════
+   [42] 这五件事：礼物被看得见 / 多套接口方案 / 调试控制栏 /
+        删消息 / 打字时的换行
+   ══════════════════════════════════════════════════════════ */
+{
+  let App = sandbox.SJ;
+  const seed = () => ({
+    characters: [{ id: 'k1', name: '阿桃', persona: '爱做饭', avatar: '🍑' }],
+    chats: { k1: [{ me: true, text: '在吗', ts: 1 }] },
+    settings: { apiBase: 'https://api.example.com/v1', apiKey: 'sk-test', apiModel: 'test-model' },
+    wallet: { balance: 5000, log: [] },
+    delivery: { shops: [{ id: 's1', name: '小面馆', dishes: [
+      { id: 'd1', name: '红烧牛肉面', price: 32, emoji: '🍜' }] }], cart: [], orders: [], addr: '' },
+    mall: { goods: [], cart: [], orders: [], fav: [] },
+    addresses: []
+  });
+  const reset = () => { store.set('xiaoshouji.v1', JSON.stringify(seed())); boot(); App = sandbox.SJ; };
+
+  /* ── 1. 送出去的东西，她要看得见 ── */
+  reset();
+  const ord = App.placeOrder ? null : null;   // 占位，下面走真实下单
+  App.addToCart('s1', { id: 'd1', name: '红烧牛肉面', price: 32 });
+  App.giftToSet('k1');
+  const go1 = App.placeOrder();
+  ok('测试前提：礼物单下成了', !!go1 && go1.gift === true && go1.to === 'k1',
+    JSON.stringify(go1 && { gift: go1.gift, to: go1.to }));
+
+  const card = App.giftPushCard(go1, true);
+  ok('礼物落进了收礼人的聊天里', !!card, String(card));
+  ok('卡片带一句人话（不是空串）', !!card && String(card.text).trim().length > 0,
+    JSON.stringify(card && card.text));
+  ok('这句人话说的是送了什么', !!card && card.text.includes('红烧牛肉面'), card && card.text);
+  ok('卡片仍然是礼物样式', card && card.kind === 'gift' && card.gname === '红烧牛肉面');
+
+  /* 关键：这句话必须真的出现在发给模型的上下文里 —— 空串等于她「看不到」 */
+  let sent = null;
+  fetchImpl = (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '谢谢！' } }] }));
+  };
+  await App.giftReact(App.state.characters[0]);
+  ok('送礼之后真的发出了请求', !!sent);
+  const giftTurn = sent && sent.messages.find(m => m.role === 'user' && /红烧牛肉面/.test(m.content || ''));
+  ok('她收到的那一轮里带着「你给她点了什么」', !!giftTurn, JSON.stringify(sent && sent.messages.slice(-3)));
+  ok('上下文里没有空消息（空串 = 她看不到）',
+    !!sent && sent.messages.every(m => String(m.content || '').trim().length > 0),
+    JSON.stringify(sent && sent.messages.map(m => String(m.content).slice(0, 12))));
+  const reply = App.messages('k1').slice(-1)[0];
+  ok('她也回了一句（并且落进了聊天）', reply && reply.me === false && reply.text === '谢谢！',
+    JSON.stringify(reply));
+
+  /* 角色送我的礼物，白描不能反过来（她的消息要说「给你」） */
+  const aiOrder = App.giftMake('外卖', 'k1', '');
+  const aiCard = App.giftPushCard(aiOrder, false);
+  ok('角色送的礼物也带白描，方向是「给你」', !!aiCard && aiCard.text.startsWith('给你'),
+    aiCard && aiCard.text);
+  ok('角色送的那条是「对方发的」', aiCard && aiCard.me === false);
+
+  /* 没配接口时不能因为回话失败而报错（送礼本身已经成功了） */
+  reset();
+  App.addToCart('s1', { id: 'd1', name: '红烧牛肉面', price: 32 });
+  App.giftToSet('k1');
+  const go2 = App.placeOrder();
+  App.giftPushCard(go2, true);
+  App.state.settings.apiKey = '';
+  fetchImpl = () => { throw new Error('不该被调用'); };
+  const noReply = await App.giftReact(App.state.characters[0]);
+  ok('没配接口时静静返回 null，不炸', noReply === null, String(noReply));
+  fetchImpl = null;
+
+  /* ── 2. 多套接口方案 ── */
+  reset();
+  App.state.settings.apiBase = 'https://a.example.com/v1';
+  App.state.settings.apiKey = 'sk-aaa';
+  App.state.settings.apiModel = 'model-a';
+  const P1 = App.profileSave('主力');
+  App.state.settings.apiBase = 'https://b.example.com/v1';
+  App.state.settings.apiKey = 'sk-bbb';
+  App.state.settings.apiModel = 'model-b';
+  const P2 = App.profileSave('便宜的中转');
+  ok('存下了两套方案', App.profileList().length === 2, String(App.profileList().length));
+  ok('方案记住了地址 / Key / 模型',
+    P1.base === 'https://a.example.com/v1' && P1.key === 'sk-aaa' && P1.model === 'model-a',
+    JSON.stringify(P1));
+
+  App.profileUse(P1.id);
+  ok('切回第一套后，当前接口就是第一套',
+    App.state.settings.apiBase === 'https://a.example.com/v1'
+    && App.state.settings.apiKey === 'sk-aaa'
+    && App.state.settings.apiModel === 'model-a',
+    JSON.stringify([App.state.settings.apiBase, App.state.settings.apiModel]));
+  App.profileUse(P2.id);
+  ok('再切到第二套', App.state.settings.apiModel === 'model-b', App.state.settings.apiModel);
+
+  /* 切换要落盘：刷新之后还在 */
+  App.profileUse(P1.id);
+  boot(); App = sandbox.SJ;
+  ok('方案切换之后刷新还在（落盘了）', App.state.settings.apiModel === 'model-a',
+    App.state.settings.apiModel);
+  ok('方案列表也落盘了', App.profileList().length === 2, String(App.profileList().length));
+
+  /* 同名再存一次 = 覆盖成「当前这套」，不该多出一条重名的。
+     ⚠️ 这条会改写那个方案的内容，所以放在「切回 P1」的断言之后 ——
+     先覆盖再断言 P1 还是 model-a，测的就是自己挖的坑。 */
+  App.state.settings.apiBase = 'https://c.example.com/v1';
+  App.state.settings.apiKey = 'sk-ccc';
+  App.state.settings.apiModel = 'model-c';
+  const n0 = App.profileList().length;
+  App.profileSave('主力');
+  ok('同名方案是覆盖而不是新增', App.profileList().length === n0, n0 + ' → ' + App.profileList().length);
+  const p1After = App.profileList().find(p => p.name === '主力');
+  ok('覆盖之后存的是「当前这套」', p1After.model === 'model-c' && p1After.key === 'sk-ccc',
+    JSON.stringify(p1After));
+
+  App.profileUse(P1.id);
+  App.profileRemove(P1.id);
+  ok('删方案之后列表少一条，且不动当前接口',
+    App.profileList().length === 1 && App.state.settings.apiModel === 'model-c',
+    App.profileList().length + ' / ' + App.state.settings.apiModel);
+
+  /* 坏存档：profiles 写成一坨垃圾，不能把手机读白 */
+  const junk = JSON.parse(store.get('xiaoshouji.v1'));
+  junk.settings = junk.settings || {};
+  junk.settings.profiles = [null, '不是对象', { name: '', base: 42 }];
+  junk.settings.debug = 'yes';
+  store.set('xiaoshouji.v1', JSON.stringify(junk));
+  boot(); App = sandbox.SJ;
+  ok('坏存档里的 profiles 被归一，不会是个字符串', Array.isArray(App.profileList()),
+    JSON.stringify(App.profileList()));
+  ok('坏条目被丢掉，剩下一条而且字段都是字符串',
+    App.profileList().length === 1 && App.profileList().every(p =>
+      typeof p.id === 'string' && typeof p.name === 'string'
+      && typeof p.base === 'string' && typeof p.key === 'string' && typeof p.model === 'string'),
+    JSON.stringify(App.profileList()));
+  ok('没名字的方案自动补一个名字', App.profileList()[0].name.length > 0, App.profileList()[0].name);
+  ok('debug 被归一成布尔（字符串 "yes" 不算开）', App.state.settings.debug === false,
+    JSON.stringify(App.state.settings.debug));
+
+  /* ── 3. 调试控制栏：token 记账 + 报错日志 ── */
+  reset();
+  App.apiLogClear();
+  const T0 = App.apiTotalsGet();
+  ok('一开始没有请求', T0.calls === 0 && T0.in === 0 && T0.out === 0 && T0.err === 0,
+    JSON.stringify(T0));
+
+  fetchImpl = () => Promise.resolve(mockRes(true, {
+    model: 'test-model',
+    usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 },
+    choices: [{ message: { content: '嗯' } }]
+  }));
+  await App.askOnce('sys', 'usr');
+  const T1 = App.apiTotalsGet();
+  ok('一次请求记成 1 次', T1.calls === 1, JSON.stringify(T1));
+  ok('token 按用量累加（入 120 / 出 30）', T1.in === 120 && T1.out === 30, JSON.stringify(T1));
+  const L1 = App.apiLogs();
+  ok('日志里存了一条，带 tag / 耗时 / usage',
+    L1.length === 1 && !!L1[0].tag && typeof L1[0].ms === 'number' && L1[0].usage
+      && L1[0].usage.total_tokens === 150,
+    JSON.stringify(L1[0]));
+
+  /* 接口报错要记进日志，而且要带状态码和后端原话 */
+  fetchImpl = () => Promise.resolve(mockRes(false, { error: { message: '无可用渠道' } }, 503));
+  let threw = '';
+  try { await App.askOnce('sys', 'usr'); } catch (e) { threw = e.message; }
+  ok('出错时照样抛，调用方还能照常处理', threw.includes('503'), threw);
+  const T2 = App.apiTotalsGet();
+  ok('报错也记了一次请求，并计入报错数', T2.calls === 2 && T2.err === 1, JSON.stringify(T2));
+  const L2 = App.apiLogs();
+  ok('日志里那条带着报错正文', !!L2[1] && /无可用渠道/.test(L2[1].error || ''), JSON.stringify(L2[1]));
+
+  /* 连不上（网络炸了）也要记 */
+  fetchImpl = () => { throw new TypeError('Failed to fetch'); };
+  try { await App.askOnce('sys', 'usr'); } catch (e) { /* 预期会抛 */ }
+  ok('连不上也记进日志并计入报错',
+    App.apiTotalsGet().calls === 3 && App.apiTotalsGet().err === 2,
+    JSON.stringify(App.apiTotalsGet()));
+
+  /* 日志有上限，不能无限涨（内存里的东西也不能漏） */
+  App.apiLogClear();
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '嗯' } }] }));
+  for (let i = 0; i < 70; i++) await App.askOnce('s', 'u');
+  ok('日志有条数上限，不会无限涨', App.apiLogs().length <= 60, String(App.apiLogs().length));
+  ok('上限之内仍然记了 70 次请求', App.apiTotalsGet().calls === 70, JSON.stringify(App.apiTotalsGet()));
+  App.apiLogClear();
+  ok('清空把日志和累计一起归零',
+    App.apiLogs().length === 0 && App.apiTotalsGet().calls === 0, JSON.stringify(App.apiTotalsGet()));
+
+  /* 开关：默认关，打开后落盘，刷新还在 */
+  reset();
+  ok('调试栏默认是关的', App.state.settings.debug === false, String(App.state.settings.debug));
+  App.state.settings.debug = true;
+  App.save();
+  boot(); App = sandbox.SJ;
+  ok('打开之后刷新还在（落盘了）', App.state.settings.debug === true, String(App.state.settings.debug));
+
+  /* 面板真的要画出来，而且要能把 error 标出来。
+     ⚠️ 用 sandbox.SHELL，不能用 window.SHELL —— window 只在沙箱里面存在，
+     自检文件自己这一层没有 window。 */
+  App.apiLog({ tag: '聊天', ms: 12, usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 } });
+  App.apiLog({ tag: '聊天', ms: 30, error: 'HTTP 503 · 无可用渠道' });
+  if (sandbox.SHELL && sandbox.SHELL.mountDebug) {
+    sandbox.SHELL.mountDebug(true);
+    const panel = walk(byId.phone).find(n => n._class.has('dbg-panel'));
+    ok('调试栏面板画出来了', !!panel, '没找到 .dbg-panel');
+    ok('面板上显示累计 token', !!panel && /token/.test(panel.textContent), panel && panel.textContent.slice(0, 80));
+    const rows = walk(byId.phone).filter(n => n._class.has('dbg-row'));
+    ok('两条日志都列出来了', rows.length === 2, String(rows.length));
+    const errRow = walk(byId.phone).find(n => n._class.has('dbg-row') && n._class.has('err'));
+    ok('报错那条被标成 err', !!errRow, JSON.stringify(rows.map(r => [...r._class].join('.'))));
+    ok('报错正文看得见', !!errRow && errRow.textContent.includes('无可用渠道'), errRow && errRow.textContent);
+    const tokenRow = rows.find(r => !r._class.has('err'));
+    ok('成功那条显示 token 明细', !!tokenRow && tokenRow.textContent.includes('11'),
+      tokenRow && tokenRow.textContent);
+    sandbox.SHELL.mountDebug(false);
+    ok('关掉之后面板没了', !walk(byId.phone).some(n => n._class.has('dbg-panel')));
+  } else {
+    ok('SHELL 暴露了 mountDebug', false, 'sandbox.SHELL.mountDebug 不存在');
+  }
+
+  /* ── 4. 删消息：删掉就不该再进上下文和记忆 ── */
+  reset();
+  App.state.settings.apiKey = 'sk-test';
+  App.state.settings.apiModel = 'test-model';
+  /* 这一段不打开聊天页，所以不会画出空态提示气泡，清空是安全的 */
+  App.clearChat('k1');
+  App.pushMessage('k1', true, '第一句');
+  App.pushMessage('k1', false, '第二句');
+  App.pushMessage('k1', true, '第三句');
+  ok('测试前提：三条消息', App.messages('k1').length === 3, String(App.messages('k1').length));
+
+  const goneMsg = App.deleteMessage('k1', 1);
+  ok('删掉中间那条，返回被删的那条', !!goneMsg && goneMsg.text === '第二句', JSON.stringify(goneMsg));
+  ok('列表里只剩两条', App.messages('k1').length === 2, String(App.messages('k1').length));
+  ok('剩下的是第一句和第三句',
+    App.messages('k1').map(m => m.text).join('|') === '第一句|第三句',
+    App.messages('k1').map(m => m.text).join('|'));
+
+  /* 关键：她真的看不到了 */
+  let sent2 = null;
+  fetchImpl = (url, opts) => {
+    sent2 = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '嗯' } }] }));
+  };
+  await App.askCharacter(App.state.characters[0], App.messages('k1'));
+  ok('删掉的那条不会再发给模型',
+    !!sent2 && !sent2.messages.some(m => /第二句/.test(m.content || '')),
+    JSON.stringify(sent2 && sent2.messages.map(m => m.content)));
+  ok('没删的还在', !!sent2 && sent2.messages.some(m => /第三句/.test(m.content || '')));
+
+  /* 记忆蒸馏也不该再读到它 */
+  let sumSent = null;
+  fetchImpl = (url, opts) => {
+    sumSent = JSON.parse(opts.body);
+    return Promise.resolve(mockRes(true, { choices: [{ message: { content: '她记得一件事' } }] }));
+  };
+  await App.summarize(App.state.characters[0], App.messages('k1'));
+  ok('删掉的那条也不会进记忆蒸馏',
+    !!sumSent && !/第二句/.test(sumSent.messages.map(m => m.content).join('\n')),
+    JSON.stringify(sumSent && sumSent.messages.map(m => m.content)));
+  fetchImpl = null;
+
+  /* ⚠️ memUpTo 是「总结到第几条」的下标：在它前面删一条不减一，边界就会错位 */
+  reset();
+
+  for (let i = 0; i < 5; i++) App.pushMessage('k1', i % 2 === 0, 'm' + i);
+  App.state.characters[0].memUpTo = 4;
+  App.save();
+  App.deleteMessage('k1', 1);
+  ok('在前几条里删一条时，memUpTo 跟着减一（边界不错位）',
+    App.state.characters[0].memUpTo === 3, String(App.state.characters[0].memUpTo));
+  App.deleteMessage('k1', 0);
+  ok('再删一条继续减', App.state.characters[0].memUpTo === 2, String(App.state.characters[0].memUpTo));
+
+  /* 在 memUpTo 之后删，就不该动它 */
+  reset();
+
+  for (let i = 0; i < 5; i++) App.pushMessage('k1', i % 2 === 0, 'n' + i);
+  App.state.characters[0].memUpTo = 2;
+  App.save();
+  App.deleteMessage('k1', 4);
+  ok('删的是还没总结的那部分时，memUpTo 不动', App.state.characters[0].memUpTo === 2,
+    String(App.state.characters[0].memUpTo));
+
+  /* 下标越界 / 脏值不能炸 */
+  ok('越界的下标返回 null，不炸', App.deleteMessage('k1', 99) === null);
+  ok('负数下标返回 null', App.deleteMessage('k1', -1) === null);
+  ok('NaN 返回 null', App.deleteMessage('k1', NaN) === null);
+  reset();
+
+  /* 长按 → 删除这条：整条 UI 链路（这是用户真正会走的那条路） */
+  reset();
+  App.clearChat('k1');
+  App.pushMessage('k1', true, '第一句');
+  App.pushMessage('k1', false, '要删掉的这句');
+  App.pushMessage('k1', true, '第三句');
+  const cvDel = openFresh('chat', 'k1');
+  const target = walk(cvDel).find(n => n._class.has('msg') && String(n.textContent).includes('要删掉的这句'));
+  ok('找得到要删的那一行', !!target);
+  if (target) {
+    dispatch(target, 'mousedown', {});
+    await waitFor(() => sheetLabels().includes('删除这条'), 2000);
+    ok('长按弹出了「删除这条」', sheetLabels().includes('删除这条'), sheetLabels().join(','));
+    clickSheet('删除这条');
+    await waitFor(() => walk(byId.phone).some(n => n._class.has('confirm')), 2000);
+    const conf = walk(byId.phone).find(n => n._class.has('confirm'));
+    ok('删除前有二次确认', !!conf, '没弹确认框');
+    ok('确认框说清了后果',
+      !!conf && /不会再被发给她/.test(conf.textContent) && /记忆/.test(conf.textContent),
+      conf && conf.textContent);
+    /* 点「确定」 */
+    const okBtn = walk(byId.phone).find(n => n._class.has('btn') && n._class.has('danger') && n.textContent === '确定');
+    ok('确认框里有「确定」', !!okBtn);
+    if (okBtn) {
+      okBtn.click();
+      await waitFor(() => !App.messages('k1').some(m => m.text === '要删掉的这句'), 2000);
+      ok('点确定之后那条真的没了',
+        App.messages('k1').map(m => m.text).join('|') === '第一句|第三句',
+        App.messages('k1').map(m => m.text).join('|'));
+      ok('屏幕上也跟着没了（不用手动刷新）',
+        !walk(byId.stack).some(n => String(n.textContent).includes('要删掉的这句')),
+        '界面上还留着');
+    }
+  }
+
+  /* 实时打出来的那条也要能删 —— 它的 index 是旧的，靠「按内容找」兜底 */
+  reset();
+  App.state.settings.readIgnore = false;
+  App.state.settings.allAtOnce = true;
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: { content: '刚打出来的一条' } }] }));
+  const cvFresh = openFresh('chat', 'k1');
+  const inpF = walk(cvFresh).find(n => n._class.has('chat-input'));
+  if (inpF) inpF.value = '在吗';
+  walk(cvFresh).find(n => n._class.has('chat-send')).click();
+  walk(cvFresh).find(n => n._class.has('chat-send')).click();
+  await waitFor(() => walk(cvFresh).some(n => n._class.has('bubble') && String(n.textContent).includes('刚打出来的一条')), 4000);
+  const freshRow = walk(cvFresh).find(n => n._class.has('msg') && String(n.textContent).includes('刚打出来的一条'));
+  ok('刚打出来的那条在屏幕上', !!freshRow);
+  if (freshRow) {
+    dispatch(freshRow, 'mousedown', {});
+    await waitFor(() => sheetLabels().includes('删除这条'), 2000);
+    ok('实时气泡长按也能弹出「删除这条」', sheetLabels().includes('删除这条'), sheetLabels().join(','));
+    clickSheet('删除这条');
+    await waitFor(() => walk(byId.phone).some(n => n._class.has('confirm')), 2000);
+    const okB = walk(byId.phone).find(n => n._class.has('btn') && n._class.has('danger') && n.textContent === '确定');
+    /* ⚠️ 这条必须显式断言「确定按钮存在」。以前这里是 if(okB){...}，
+       okB 找不到就整段不执行 —— 用例照样绿，等于白写。 */
+    ok('实时气泡的确认框里有「确定」', !!okB, '没找到确定按钮');
+    if (okB) {
+      okB.click();
+      await waitFor(() => !App.messages('k1').some(m => m.text === '刚打出来的一条'), 2000);
+      /* 刚打出来那条没经过 redraw，curIndex 是旧的 —— 这条测的就是「按内容兜底定位」 */
+      ok('没经过重画的实时气泡也能删（按内容兜底定位）',
+        !App.messages('k1').some(m => m.text === '刚打出来的一条'),
+        App.messages('k1').map(m => m.text).join('|'));
+    }
+  }
+  fetchImpl = null;
+
+  /* ── 5. 打字的时候就要换行（不是刷新之后才换） ── */
+  reset();
+  App.state.settings.readIgnore = false;   // 关掉「已读不回」，否则这条用例是掷骰子
+  App.state.settings.allAtOnce = true;     // 不等打字动画，直接看结果
+  /* ⚠️ 不要 clearChat：空聊天页会先画一个「还没聊过」的提示气泡，
+     它也是 .bubble.ta，会被算进条数里。存档种子里本来就有一条我的话。 */
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: {
+    content: '诶%%在的%%刚下课'
+  } }] }));
+  const cv = openFresh('chat', 'k1');
+  const inp = walk(cv).find(n => n._class.has('chat-input'));
+  if (inp) inp.value = '在吗';
+  walk(cv).find(n => n._class.has('chat-send')).click();
+  walk(cv).find(n => n._class.has('chat-send')).click();
+  await waitFor(() => App.messages('k1').some(m => !m.me && /刚下课/.test(m.text || '')), 4000);
+  await waitFor(() => walk(cv).filter(n => n._class.has('bubble') && n._class.has('ta')).length === 3, 4000);
+
+  /* 屏幕上的三条：和「刷新后重画」出来的必须一模一样 */
+  const live = walk(cv).filter(n => n._class.has('bubble') && n._class.has('ta'));
+  ok('打字过程中就断成了 3 个气泡（不用刷新）', live.length === 3,
+    live.length + ' 个：' + JSON.stringify(live.map(b => b.textContent)));
+  ok('任何气泡里都不该出现分隔符 %',
+    !live.some(b => /[%％]/.test(b.textContent)), JSON.stringify(live.map(b => b.textContent)));
+  const liveTexts = live.map(b => b.textContent).join('|');
+
+  /* 刷新（重画）一遍，两边必须一致 —— 这就是用户说的「刷新才对」那个差异 */
+  App.save();
+  boot(); App = sandbox.SJ;
+  const cv2 = openFresh('chat', 'k1');
+  const after = walk(cv2).filter(n => n._class.has('bubble') && n._class.has('ta')).map(b => b.textContent).join('|');
+  ok('实时打出来的和刷新之后的是同一套', liveTexts === after, liveTexts + '  vs  ' + after);
+  ok('刷新之后也是三条', after === '诶|在的|刚下课', after);
+
+  /* 全角 ％％ 也一样（中文输入法下最容易打出来的那个） */
+  reset();
+  App.state.settings.readIgnore = false;
+  App.state.settings.allAtOnce = true;
+
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: {
+    content: '好呀％％那就这样'
+  } }] }));
+  const cv3 = openFresh('chat', 'k1');
+  const inp3 = walk(cv3).find(n => n._class.has('chat-input'));
+  if (inp3) inp3.value = '嗨';
+  walk(cv3).find(n => n._class.has('chat-send')).click();
+  walk(cv3).find(n => n._class.has('chat-send')).click();
+  await waitFor(() => walk(cv3).filter(n => n._class.has('bubble') && n._class.has('ta')).length === 2, 4000);
+  const fw = walk(cv3).filter(n => n._class.has('bubble') && n._class.has('ta')).map(b => b.textContent);
+  ok('全角 ％％ 也在打字时就断开', fw.length === 2 && fw.join('|') === '好呀|那就这样', JSON.stringify(fw));
+
+  /* 语音 / 红包的判定也要按「拆开之后」来 —— 以前是拿整段去判的 */
+  reset();
+  App.state.settings.readIgnore = false;
+  App.state.settings.allAtOnce = true;
+
+  fetchImpl = () => Promise.resolve(mockRes(true, { choices: [{ message: {
+    content: '普通一句话%%[[rp:5:给你]]'
+  } }] }));
+  const cv4 = openFresh('chat', 'k1');
+  const inp4 = walk(cv4).find(n => n._class.has('chat-input'));
+  if (inp4) inp4.value = '在吗';
+  walk(cv4).find(n => n._class.has('chat-send')).click();
+  walk(cv4).find(n => n._class.has('chat-send')).click();
+  await waitFor(() => walk(cv4).some(n => n._class.has('packet')), 4000);
+  const mixed = walk(cv4).filter(n => n._class.has('bubble'));
+  ok('一段里「话 + 红包」能拆成气泡和红包两个',
+    mixed.some(b => String(b.textContent).includes('普通一句话')) && mixed.some(b => b._class.has('packet')),
+    JSON.stringify(mixed.map(b => [...b._class].join('.') + ':' + b.textContent)));
+
+  fetchImpl = null;
+}
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

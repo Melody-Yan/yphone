@@ -3456,6 +3456,16 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 #phone.dark .seg button.on { background: #f2f2f2; color: #1c1c1e; }
 
+/* ── 世界书：几处收口 ── */
+/* 详情页顶上的搜索：不要再套一层灰底，跟卡片叠成好几块 */
+.wb-search { padding: 2px 14px 10px; }
+.wb-search .field { width: 100%; }
+/* 书架和下面的设置之间留一道空 */
+.wb-sep { height: 22px; }
+/* 编辑页的优先级下拉：别太宽 */
+.wb-pri { max-width: 100%; }
+#phone .sel.wb-pri { padding-top: 11px; padding-bottom: 11px; font-size: var(--fs-base); }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

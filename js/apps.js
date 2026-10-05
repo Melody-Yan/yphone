@@ -3372,7 +3372,9 @@ const APPS = [
           });
 
           /* 上下文：这两个数决定每次发给模型多少东西，直接影响花费 */
-          listBox.append(SJ.el('div', { class: 'group-title' }, '上下文'));
+          /* 书架是一块，下面这些是另一块 —— 拉开距离，别糊在一起 */
+            listBox.append(SJ.el('div', { class: 'wb-sep' }));
+            listBox.append(SJ.el('div', { class: 'group-title' }, '世界书设置'));
           listBox.append(numRow('原文窗口', '最多带最近几条原话给她看', 'historyKeep', 4, 200));
           listBox.append(numRow('关键词扫描深度', '在最近几条消息里找世界书关键词', 'scanDepth', 1, 50));
           /* 导入的文件选择器。display:none 也能 .click() 唤起，
@@ -3489,7 +3491,7 @@ const APPS = [
         sq.addEventListener('input', paint);
         paintBook = paint;                       /* 卡片上的 ↑↓ 改完顺序，重画这本书 */
 
-        box.append(SJ.el('div', { class: 'pad', style: { paddingBottom: '4px' } }, [sq]));
+        box.append(SJ.el('div', { class: 'wb-search' }, [sq]));
         box.append(wrap);
         box.append(SJ.el('div', { class: 'wb-book-acts', style: { paddingTop: '4px' } }, [
           SJ.el('button', { onclick: () => addToBook(name) }, '加一条'),
@@ -3669,7 +3671,14 @@ const APPS = [
            textarea 的 value 和子节点是两回事，靠子节点会读回 undefined，
            保存时把正文整个抹掉。真浏览器两头都认，垫片只认这一头。 */
         content.value = e.content || '';
-        const order = SJ.el('input', { class: 'field tiny', type: 'number', value: String(e.order) });
+        /* 优先级用点击下拉，别让人手填数字。
+             优先级和「类型」是两件事：类型决定它是什么卡，优先级决定先读哪张。 */
+          const order = SJ.el('select', { class: 'sel wb-pri' }, [
+            SJ.el('option', { value: '50' }, '高 —— 优先读'),
+            SJ.el('option', { value: '100' }, '中 —— 正常'),
+            SJ.el('option', { value: '200' }, '低 —— 排后面')
+          ]);
+          order.value = String(SJ.wbPriToOrder(SJ.wbPriOf(e.order)));
 
         const catText = SJ.el('div', { class: 'row-time' });
         const ownerText = SJ.el('div', { class: 'row-time' });
@@ -3703,15 +3712,15 @@ const APPS = [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), title]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '关键词（聊到这些词就注入）'), keys, warn]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '正文'), content]),
-          SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_CATS.map(c => ({
-            icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+          SJ.el('div', { class: 'row', onclick: () => window.popover(SJ.WB_CATS.map(c => ({
+            svg: SJ.wbCatIndex(c) === 0 ? 'pin' : 'note',
             label: c,
             hint: (SJ.wbCatIndex(c) + 1) + ' · ' + SJ.WB_CAT_SUB[c],
             run: () => { e.cat = c; paintButtons(); }
-          })), SJ.el('div', { class: 'sheet-head' }, '归到哪一类？越靠前的越先被她读到')) }, [
+          })), SJ.el('div', { class: 'sheet-head' }, '选择类型')) }, [
             SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '分类（= 优先级）'),
-              SJ.el('div', { class: 'row-sub' }, '破限 / 文风 / 人设 / 世界观')
+              SJ.el('div', { class: 'row-title' }, '类型'),
+              SJ.el('div', { class: 'row-sub' }, '这张卡是什么 —— 跟先读哪张无关')
             ]),
             catText
           ]),
@@ -3726,8 +3735,8 @@ const APPS = [
           onBtn,
           SJ.el('div', { class: 'row' }, [
             SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '顺序'),
-              SJ.el('div', { class: 'row-sub' }, '越小越先读到；↑↓ 改顺序')
+              SJ.el('div', { class: 'row-title' }, '优先级'),
+              SJ.el('div', { class: 'row-sub' }, '先读哪张 —— 跟类型无关；↑↓ 也能改')
             ]),
             order
           ]),
@@ -4002,12 +4011,12 @@ const APPS = [
 
         root.append(SJ.el('div', { class: 'pad' }, [info, segBox]));
         root.append(SJ.el('div', { class: 'pad' }, [
-          SJ.el('div', { class: 'row', onclick: () => sheet(SJ.WB_CATS.map(c => ({
-            icon: SJ.wbCatIndex(c) === 0 ? '⛔' : '📄',
+          SJ.el('div', { class: 'row', onclick: () => window.popover(SJ.WB_CATS.map(c => ({
+            svg: SJ.wbCatIndex(c) === 0 ? 'pin' : 'note',
             label: c, run: () => { impCat = c; paintSections(); }
-          })), SJ.el('div', { class: 'sheet-head' }, '导进来的卡算哪一类？')) }, [
+          })), { head: '选择类型', at: 'top' }) }, [
             SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '归到哪一类'),
+              SJ.el('div', { class: 'row-title' }, '类型'),
               catSub
             ]),
             SJ.el('div', { class: 'row-time' }, '改 ›')

@@ -3169,6 +3169,9 @@ input.field[type="range"]::-webkit-slider-thumb {
   width: 78%; max-width: 300px; margin: 0 auto;
   display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
 }
+  /* 网格里的卡片必须填满自己那一格 —— .lw-card 的 width:74% 是「一排一张」时代的
+     写法，留着会让每张卡只占格子的 74%、贴左，看着就是不居中。 */
+  .lw-grid .lw-card { width: 100%; max-width: none; }
 .lw-card {
   /* 立体感：柔光面 + 外投影 + 上沿高光，跟 App 里的卡片同一套做法 */
   background: linear-gradient(168deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, .46));
@@ -3308,6 +3311,49 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* ── 世界书：书架 ──
    一本书一行：左边一条书脊（按书名取灰度，深浅错开才像一排书），
    右边书名 + 条数；箭头展开时转 90°，子项依次淡入。 */
+/* ── 世界书：视图 A 的书卡 / 视图 B 的词条卡 ── */
+.wb-bcard {
+  display: flex; align-items: center; gap: 11px;
+  margin: 9px 14px; padding: 13px 14px;
+  background: var(--card); border-radius: var(--r-m);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+}
+.wb-bcard:active { transform: scale(.985); }
+.wb-book-time { margin-top: 3px; font-size: var(--fs-cap); color: var(--ink-3); }
+
+.wb-ecards { padding: 0 14px; }
+.wb-ecard {
+  display: block; margin-bottom: 10px; padding: 13px 14px;
+  background: var(--card); border-radius: var(--r-m);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+  animation: wbIn var(--dur-2) var(--ease-out) both;
+  animation-delay: calc(var(--stagger) * var(--i, 0));
+}
+.wb-ec-top { display: flex; align-items: center; gap: 7px; }
+.wb-ec-top .row-main { flex: 1 1 auto; min-width: 0; }
+.wb-ec-top .row-title { flex: 1 1 auto; min-width: 0; font-weight: 500; }
+.wb-ec-mv { display: flex; gap: 2px; }
+.wb-ec-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.wb-kw {
+  font-size: var(--fs-cap); color: var(--ink-2);
+  background: var(--bg-2); border-radius: var(--r-full); padding: 2px 8px;
+}
+.wb-ec-body {
+  margin-top: 8px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wb-ecard.open .wb-ec-body { -webkit-line-clamp: 99; }
+.wb-ec-more {
+  margin-top: 4px; border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: var(--fs-cap); color: var(--ink-3);
+}
+.wb-ec-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line);
+}
+.wb-ec-l { font-size: var(--fs-sm); color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .wb-ecard { animation: none; } }
+
 .wb-book { border-bottom: 1px solid var(--line); }
 .wb-book-info { flex: 1 1 auto; min-width: 0; }
 .wb-book-name {

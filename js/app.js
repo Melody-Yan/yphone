@@ -926,6 +926,11 @@ function paintLockWidgets() {
     grid.append(ev);
   }
 
+  /* 方卡数量是奇数时，最后一张会孤零零占左格、右边空着 —— 让它铺满两列。
+     在全部 append 完之后统一处理，比每处判断简单。 */
+  const sq = grid.querySelectorAll('.lw-s');
+  if (sq.length % 2 === 1) sq[sq.length - 1].classList.add('lw-w');
+
   box.append(grid);
 }
 /* 锁屏底部快捷按钮：点了先进解锁（有密码的话），解锁后直接进那个 App */

@@ -100,7 +100,7 @@ const WB_TEXT_MAX = 20000;
    localStorage 一共就 5MB 左右，再往上存就要开始丢东西了。 */
 const WALL_IMG_MAX = 6;
 /* 壁纸改版号。加了一批照片壁纸 → 直接 +1，老存档会被一次性换成新的初始桌面/锁屏。 */
-const WALL_REV = 2;
+const WALL_REV = 3;
 /* 朋友圈最多留几条 */
 const MOMENT_KEEP = 120;
 /* 每个角色最多留几通通话记录。通话正文不占聊天，但也不能无限长 */
@@ -123,7 +123,7 @@ const FONT_NAMES = { system: '系统', rounded: '圆体', serif: '宋体', mono:
 
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
-  wallpaper: 'p0',       // 默认「窗边」那张照片（壁纸 id，见 WALLS）
+  wallpaper: 'w6',       // 默认「石墨」中性深灰（壁纸 id，见 WALLS）；以前是 p0 那张绿植照片
   wallRev: 0,            // 壁纸改版号：比 WALL_REV 小就一次性换上新的初始桌面/锁屏，之后尊重用户自己的选择
   lock: false,
   password: '',
@@ -157,7 +157,7 @@ const DEFAULTS = {
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
     /* 锁屏 */
-    lockWallpaper: 'p1', // 默认「雨窗」；空 = 跟随桌面壁纸
+    lockWallpaper: '',   // 默认跟随桌面壁纸
     lockWidgets: true,   // 锁屏上显示「今日安排」
     lockQuick: true,     // 锁屏底部快捷按钮
     /* 外观 */
@@ -500,13 +500,13 @@ function migrate(saved) {
   };
   out.wallpaper = wallId(out.wallpaper, false);
   out.settings.lockWallpaper = wallId(out.settings.lockWallpaper, true);
-  /* 换了一批照片壁纸：wallRev 落后的老存档一次性切到新的初始桌面 + 锁屏。
-     只做一次 —— wallRev 会随下一次 save() 落盘，之后用户选什么就是什么。
-     （load() 本身不 save()，所以在那之前每次加载都会重算一遍，但结果一样，不会打架。） */
+  /* 壁纸改版：默认从 p0「窗边」（绿植照片，当默认太绿）换成 w1「灰蓝」渐变，
+     锁屏改成跟随桌面。照样只做一次 —— wallRev 会随下一次 save() 落盘，
+     之后用户自己挑什么就是什么，不会被拨回来。 */
   if ((out.wallRev | 0) < WALL_REV) {
     out.wallRev = WALL_REV;
-    out.wallpaper = 'p0';
-    out.settings.lockWallpaper = 'p1';
+    out.wallpaper = 'w6';
+    out.settings.lockWallpaper = '';
   }
   return out;
 }

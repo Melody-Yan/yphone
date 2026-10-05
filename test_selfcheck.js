@@ -2206,9 +2206,9 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', settings: { lockWallpaper: '' } }));
     const old1 = App.load();
     ok('老存档被换到新的初始桌面 + 锁屏，并盖上 wallRev',
-      old1.wallpaper === 'p0' && old1.settings.lockWallpaper === 'p1' && old1.wallRev === 2,
+      old1.wallpaper === 'w6' && old1.settings.lockWallpaper === '' && old1.wallRev === 3,
       old1.wallpaper + '/' + old1.settings.lockWallpaper + '/' + old1.wallRev);
-    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', wallRev: 2, settings: { lockWallpaper: 'w5' } }));
+    store.set('xiaoshouji.v1', JSON.stringify({ wallpaper: 'w3', wallRev: 3, settings: { lockWallpaper: 'w5' } }));
     const old2 = App.load();
     ok('已经换过的存档不再被覆盖（用户自己选的还算数）',
       old2.wallpaper === 'w3' && old2.settings.lockWallpaper === 'w5', old2.wallpaper + '/' + old2.settings.lockWallpaper);

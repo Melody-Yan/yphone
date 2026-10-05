@@ -167,7 +167,7 @@ function closeTop(immediate = false) {
   rec.node.addEventListener('transitionend', e => {
     if (e.target === rec.node && (e.propertyName === 'transform' || e.propertyName === 'opacity')) finish();
   });
-  setTimeout(finish, 900);
+  setTimeout(finish, 460);      // 退场 260ms，兜底也不能拖太久
 }
 
 function closeAll() { while (stack.length) closeTop(true); }

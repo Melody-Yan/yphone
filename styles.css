@@ -3477,6 +3477,19 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 右划回复：跟手拖的时候不要有过渡，松手才弹回去 */
 #phone .chat-list .row.swiping, #phone .list .row.swiping { transition: none; }
 
+/* 右划回复：跟手时露出一个 ↩，松手弹回 */
+.swipe-row { position: relative; transition: transform var(--dur-2) var(--spring); }
+.swipe-row.swiping { transition: none; }
+.swipe-row::before {
+  content: '\21a9';
+  position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
+  font-size: 17px; color: var(--ink-3); opacity: var(--sw, 0);
+  transition: opacity var(--dur-1) var(--ease-quiet); pointer-events: none;
+}
+/* 贴着长按那条消息的卡片 */
+.pop-point { align-items: flex-start !important; justify-content: flex-start !important; }
+.pop-point .pop { position: absolute; }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

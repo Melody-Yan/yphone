@@ -3595,6 +3595,22 @@ async function apiFail(res) {
 }
 
 /* 拉模型列表：省得手动填模型名。失败就抛，让调用方显示原因。 */
+/* 生图那套接口的模型列表（跟聊天分开：很多中转站聊天和生图是两个模型名） */
+async function fetchImgModels() {
+  const base = imgRoot();
+  if (!base) throw new Error('先填生图接口地址');
+  const res = await fetch(base + '/models', { headers: { Authorization: 'Bearer ' + imgKey() } });
+  if (!res.ok) throw new Error(await apiFail(res));
+  const data = await res.json();
+  const list = [...new Set(((data && (data.data || data.models)) || [])
+    .map(m => (typeof m === 'string' ? m : (m && (m.id || m.name))))
+    .filter(Boolean))];
+  if (!list.length) throw new Error('返回里没有模型列表');
+  state.settings.imgModelList = list;
+  save();
+  return list;
+}
+
 async function fetchModels() {
   const base = apiRoot();
   if (!base) throw new Error('先填接口地址');
@@ -4381,7 +4397,7 @@ window.SJ = {
   WALL_IMG_MAX, wallList, wallById, wallCSS, addWall, removeWall, avatarSrc,
   FONT_STACKS, FONT_NAMES,
   /* 生图 */
-  imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData,
+  imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData, fetchImgModels,
   /* 朋友圈 */
   MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
   generateMoment, autoMoment,

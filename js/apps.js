@@ -483,12 +483,23 @@ function sheet(items, head) {
 /* ▌at：卡片从哪儿长出来。
    默认 bottom —— 聊天页那个「＋」在左下角，卡片贴着它往上长。
    消息页的「＋」在右上角，就得给 at: 'top'，否则卡片跑到底下去（用户报的就是这个）。 */
-function popover(items, { head, bottom = 92, at = 'bottom' } = {}) {
+  /* at: 'bottom'（默认，从底下长出）/ 'top'（从顶上）/ 'point'（贴着某个位置，
+     比如长按的那条消息）。point 要配 x / y（视口坐标），会夹在手机范围里。 */
+function popover(items, { head, bottom = 92, at = 'bottom', x, y } = {}) {
   const mask = SJ.el('div', {
     class: 'mask pop-mask' + (at === 'top' ? ' pop-top' : ''),
     style: at === 'top' ? { paddingTop: '58px' } : { paddingBottom: bottom + 'px' }
   });
   const panel = SJ.el('div', { class: 'pop' });
+  if (at === 'point') {
+    const ph = document.getElementById('phone');
+    const pr = (ph && ph.getBoundingClientRect) ? ph.getBoundingClientRect() : { left: 0, top: 0, width: 330 };
+    mask.style.alignItems = 'flex-start';
+    mask.style.justifyContent = 'flex-start';
+    panel.style.position = 'absolute';
+    panel.style.left = Math.max(10, Math.min(pr.width - 200, (Number(x) || 0) - pr.left - 6)) + 'px';
+    panel.style.top = Math.max(12, Math.min((window.innerHeight || 800) - 220, (Number(y) || 0) - 10)) + 'px';
+  }
   if (head) panel.append(SJ.el('div', { class: 'pop-head' }, head));
   const grid = SJ.el('div', { class: 'pop-grid' });
   items.forEach((it, i) => grid.append(SJ.el('button', {
@@ -2136,6 +2147,7 @@ const APPS = [
             const TH = 52;
             let sx = 0, sy = 0, dx = 0, on = false, moved = false;
             row.style.touchAction = 'pan-y';
+            row.classList.add('swipe-row');
             const reset = () => { row.style.transform = ''; row.classList.remove('swiping'); };
             const start = (x, y) => { sx = x; sy = y; dx = 0; on = true; moved = false; };
             const move = (x, y) => {
@@ -2147,6 +2159,7 @@ const APPS = [
               moved = true;
               row.classList.add('swiping');
               row.style.transform = 'translateX(' + Math.min(TH * 1.6, dx * 0.55).toFixed(1) + 'px)';
+              row.style.setProperty('--sw', Math.min(1, dx / TH).toFixed(2));
             };
             const end = () => {
               if (!on) return;
@@ -2155,7 +2168,6 @@ const APPS = [
               reset();
               if (hit) {
                 setQuote(m);
-                toast('回复这条');
                 if (input && input.focus) input.focus();
               }
               dx = 0; moved = false;
@@ -2278,7 +2290,8 @@ const APPS = [
               hold = setTimeout(() => {
                 const txt = (inner && inner.textContent) || m.text;
                 if (!txt) return;                      // 图片/语音那种本来就没正文，不给菜单
-                openMsgSheet(Object.assign({}, m, { text: txt }));
+                const rc = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
+                openMsgSheet(Object.assign({}, m, { text: txt }), rc);
               }, 480);
             };
             const stop = () => clearTimeout(hold);
@@ -2291,7 +2304,7 @@ const APPS = [
           }
           return r;
         }
-        function openMsgSheet(m) {
+        function openMsgSheet(m, rect) {
           /* 用户要卡片，不要半屏弹层 —— 跟「类型 / 优先级」一个样子 */
           window.popover([
             { svg: 'comment', label: '引用回复', hint: String(m.text).slice(0, 16), run: () => { setQuote(m); input.focus(); } },
@@ -2325,7 +2338,7 @@ const APPS = [
                 toast('删掉了');
               })
             }
-          ]);
+          ], { head: '这条消息', at: 'point', x: rect && rect.left, y: rect && rect.top });
         }
         function bubble(text, me, q) {
           const b = SJ.el('div', { class: 'bubble ' + (me ? 'me' : 'ta') + (q ? ' has-qt' : '') },
@@ -6263,6 +6276,22 @@ const APPS = [
           field('生图接口地址', 'imgBase', 'https://api.openai.com/v1'),
           field('生图 API Key', 'imgKey', 'sk-…', 'password'),
           field('生图模型', 'imgModel', 'gpt-image-1 / gemini-2.5-flash-image'),
+    /* 拉取：走生图那套接口的 /models，点开卡片挑一个 —— 省得手打模型名 */
+    (() => {
+      const b = SJ.el('button', { class: 'btn ghost', onclick: async () => {
+        b.disabled = true; b.textContent = '拉取中…';
+        try {
+          const list = await SJ.fetchImgModels();
+          window.popover(list.map(m => ({
+            label: m,
+            hint: m === SJ.state.settings.imgModel ? '当前' : '',
+            run: () => { SJ.state.settings.imgModel = m; SJ.save(); toast('生图模型改成 ' + m); }
+          })), { head: '生图模型（' + list.length + ' 个）' });
+        } catch (e) { toast(e.message || '拉不到模型列表'); }
+        b.disabled = false; b.textContent = '拉取模型';
+      } }, '拉取模型');
+      return b;
+    })(),
           field('图片尺寸', 'imgSize', '1024x1024'),
           imgTest,
           imgTip,

@@ -5750,14 +5750,14 @@ const APPS = [
           ]));
 
           box.append(SJ.el('div', { class: 'group-title' }, '让对话更准的几句'));
-          const toneIn = SJ.el('textarea', { class: 'field area', placeholder: '你说话的习惯，例如：句子很短，很少用语气词，不爱发表情' }, draft.tone);
+          const toneIn = SJ.el('textarea', { class: 'field area', placeholder: '你的兴趣爱好，例如：喜欢摄影、做饭，周末常去爬山' }, draft.tone);
           toneIn.addEventListener('input', () => { draft.tone = toneIn.value; });
           const bioIn = SJ.el('textarea', { class: 'field area', placeholder: '一句话说清你自己，例如：做设计的，养了只猫，最近在学做饭' }, draft.bio);
           bioIn.addEventListener('input', () => { draft.bio = bioIn.value; });
           const boundIn = SJ.el('textarea', { class: 'field area', placeholder: '绝对不要，例如：别写我哭，别叫我小姐，别提我的家人' }, draft.bound);
           boundIn.addEventListener('input', () => { draft.bound = boundIn.value; });
           box.append(SJ.el('div', { class: 'pad' }, [
-            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '说话习惯'), toneIn]),
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '兴趣爱好'), toneIn]),
             SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '自我介绍'), bioIn]),
             SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '雷区'), boundIn])
           ]));

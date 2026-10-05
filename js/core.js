@@ -1558,7 +1558,7 @@ function personaPrompt(p) {
   }
   if (p.mbti) out.push('MBTI：' + p.mbti);
   if (p.rel) out.push('你们现在的关系：' + p.rel);
-  if (p.tone) out.push('他说话的习惯：' + p.tone);
+  if (p.tone) out.push('他的兴趣爱好：' + p.tone);
   if (p.bio) out.push('他自己：' + p.bio);
   if (p.bound) out.push('绝对不要：' + p.bound);
   return out;

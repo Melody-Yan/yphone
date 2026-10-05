@@ -1443,6 +1443,81 @@ ok('移除后存档里也没了', wk.state.widgets[0].length === 1, JSON.stringi
   store.set('xiaoshouji.v1', keepPS);
 }
 
+/* ── 世界书的存档格式（用户选的 B：存档里就是 {book_name, entries:[...]}）── */
+{
+  const keep = JSON.stringify({ wb: wb.state.worldbook, id: wb.state.personaId });
+  wb.state.worldbook = [
+    wb.makeEntry({ title: '铁律', content: '永远不要跳戏。', keys: '跳戏,出戏', constant: true, order: 50, book: '活人感' }),
+    wb.makeEntry({ title: '天气', content: '这座城市常年下雨。', keys: ['天气'], order: 100, book: '活人感' }),
+    wb.makeEntry({ title: '孤零零', content: '没写书名的老卡', keys: 'x', order: 200 })
+  ];
+
+  const packed = wb.wbPackBooks(wb.state.worldbook);
+  ok('打包成一本一本的（不是一堆平铺条目）', Array.isArray(packed) && packed.length === 2, String(packed.length));
+  const b0 = packed.find(b => b.book_name === '活人感');
+  ok('一本里有 book_name 和 entries', !!b0 && Array.isArray(b0.entries) && b0.entries.length === 2,
+    JSON.stringify(b0 && Object.keys(b0)));
+  ok('词条字段用用户给的命名（keywords / is_constant / priority）',
+    b0.entries[0].keywords.length === 2 && b0.entries[0].is_constant === true &&
+    ['high', 'medium', 'low'].indexOf(b0.entries[0].priority) >= 0,
+    JSON.stringify(b0.entries[0]));
+  ok('常驻排前面、优先级按 order 映射（50→high，100→medium，200→low）',
+    b0.entries[0].priority === 'high' && b0.entries[1].priority === 'medium' &&
+    packed.find(b => b.book_name === '未分类').entries[0].priority === 'low',
+    JSON.stringify(packed.map(b => [b.book_name, b.entries.map(e => e.priority)])));
+  ok('没写书名的落进「未分类」', packed[packed.length - 1].book_name === '未分类');
+
+  /* 存档里必须真的是这个形状：有 books、没有摊平的那份 */
+  wb.save();
+  const stored = JSON.parse(store.get('xiaoshouji.v1'));
+  ok('存档里世界书是 books 数组，摊平的那份不写进去',
+    Array.isArray(stored.books) && stored.books.length === 2 && stored.worldbook === undefined,
+    JSON.stringify(Object.keys(stored).filter(k => k === 'books' || k === 'worldbook')));
+  ok('存档里那本书的第一条就是用户要的字段',
+    (() => {
+      const b = stored.books.find(x => x.book_name === '活人感');
+      return !!b && b.entries[0].title === '铁律' && b.entries[0].is_constant === true &&
+        b.entries[0].priority === 'high' && Array.isArray(b.entries[0].keywords);
+    })(), JSON.stringify(stored.books && stored.books[0] && stored.books[0].entries[0]));
+
+  /* 读回来：条目一个不少、归属和优先级都还原 */
+  const back = wb.load();
+  const rb = back.worldbook.filter(e => e.book === '活人感');
+  ok('读回来还是两本、条目归属没丢', back.worldbook.length === 3 && rb.length === 2, String(back.worldbook.length));
+  ok('priority 还原成 order（high→50 / low→200）',
+    back.worldbook.find(e => e.title === '铁律').order === 50 &&
+    back.worldbook.find(e => e.title === '孤零零').order === 200,
+    JSON.stringify(back.worldbook.map(e => [e.title, e.order])));
+  ok('常驻标志还原', back.worldbook.find(e => e.title === '铁律').constant === true);
+  ok('触发词还原成 keys', back.worldbook.find(e => e.title === '铁律').keys.join(',') === '跳戏,出戏');
+
+  /* 老存档（平铺 + book 字段）照样读得进来 */
+  store.set('xiaoshouji.v1', JSON.stringify({ worldbook: [
+    { title: '老卡', book: '老书', keys: 'a,b', cat: '世界观', order: 100 }
+  ] }));
+  const legacy = wb.load();
+  ok('老存档（摊平 + book 字段）照旧读得进来',
+    legacy.worldbook.length === 1 && legacy.worldbook[0].book === '老书' && legacy.worldbook[0].title === '老卡',
+    JSON.stringify(legacy.worldbook));
+
+  /* 导入：用户给的形状 + 没写触发词就自动生成 */
+  const made = wb.wbFromBookJson({
+    book_name: '我的一本',
+    entries: [
+      { title: '雨的规矩', content: '【不能停雨】这座城市常年下雨。', is_constant: false, priority: 'low' },
+      { title: '铁律', keywords: ['跳戏'], content: '不要跳戏', is_constant: true, priority: 'high' }
+    ]
+  });
+  ok('导入用户形状：一本两条，书名带过来', made.length === 2 && made.every(e => e.book === '我的一本'),
+    JSON.stringify(made.map(e => [e.title, e.book, e.order])));
+  ok('priority 进得来（high→50 / low→200）', made[1].order === 50 && made[0].order === 200,
+    JSON.stringify(made.map(e => e.order)));
+  ok('没写触发词时自动生成', wb.wbKeyList(made[0].keys).length >= 1, JSON.stringify(wb.wbKeyList(made[0].keys)));
+  ok('写了触发词就照用', wb.wbKeyList(made[1].keys).join(',') === '跳戏', JSON.stringify(wb.wbKeyList(made[1].keys)));
+
+  wb.state.worldbook = JSON.parse(keep).wb;
+  wb.save();
+}
 /* ── 未读 ── */
 {
   const keepU = JSON.stringify(wk.state.unread || {});
@@ -1663,11 +1738,11 @@ ok('列表顺序 = 她读到的顺序',
   rowTitles(vbv).indexOf('世界背景') < rowTitles(vbv).indexOf('世界第二'), JSON.stringify(rowTitles(vbv)));
 
 /* 已经排第一了再往上挪，要安静地什么都不做 */
-const topOrder = wb.state.worldbook.find(e => e.title === '别跳出角色').order;
-cardBtn(vbv, '别跳出角色', '↑').click();
+const topE = wb.state.worldbook.slice().sort((a, b) => Number(a.order) - Number(b.order))[0];
+cardBtn(vbv, topE.title, '↑').click();
 ok('已经排第一了再往上挪不会出事',
-  wb.state.worldbook.find(e => e.title === '别跳出角色').order === topOrder,
-  String(wb.state.worldbook.find(e => e.title === '别跳出角色').order));
+wb.state.worldbook.find(e => e.id === topE.id).order === topE.order,
+String(wb.state.worldbook.find(e => e.id === topE.id).order));
 
 /* ── 归属：一张卡能同时挂给多个角色 ── */
 ok('点卡片正文进得了编辑页', (() => { cardEl(vbv, '世界背景').click(); return true; })()

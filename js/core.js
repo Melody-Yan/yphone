@@ -103,6 +103,10 @@ const PERSONA_RELS = ['恋人', '暧昧对象', '朋友', '同事', '家人', '�
 const PERSONA_MBTI = ['INTJ', 'INTP', 'ENTJ', 'ENTP', 'INFJ', 'INFP', 'ENFJ', 'ENFP',
   'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ', 'ISTP', 'ISFP', 'ESTP', 'ESFP'];
 const PERSONA_MAX = 20;
+
+/* 优先级：对外是 high/medium/low，对内只有一个 order（数字，本来就决定注入顺序）。
+   只在进出存档/文件的那道门槛上换算 —— 存两份迟早不同步。 */
+const WB_PRI_ORDER = { high: 50, medium: 100, low: 200 };
 /* 插件大小三档：桌面是 4 列网格，所以就是「跨几列 × 跨几行」。
    默认值跟着类型的 span 走（半行插件默认小、整行默认中）。 */
 const WIDGET_SIZES = [
@@ -474,6 +478,13 @@ function migrate(saved) {
   const WB_CATS_IN = ['破限', '文风', '人设', '世界观', '剧情', '状态', '其他'];
   const wbSplit = v => (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，、]/))
     .map(k => String(k).trim()).filter(Boolean).slice(0, 40);
+  /* 存档里的世界书是新形状（[{book_name, entries:[...]}]）就先摊平；
+     老存档没有 books，直接用平铺那份。 */
+  const savedBooks = Array.isArray(saved && saved.books) ? saved.books
+    : (Array.isArray(out.books) ? out.books : null);
+  if (savedBooks && savedBooks.length) out.worldbook = wbUnpackBooks(savedBooks);
+  delete out.books;
+
   out.worldbook = (Array.isArray(out.worldbook) ? out.worldbook : [])
     .filter(e => e && typeof e === 'object' && !Array.isArray(e))
     .slice(0, 500)
@@ -591,14 +602,23 @@ function migrate(saved) {
   return out;
 }
 
+/* 写盘前把世界书打包成 {book_name, entries:[...]}，摊平的那份不进存档。
+   内存里仍是摊平的，只在这道门槛上换算。 */
+function packForStore() {
+  const o = Object.assign({}, state);
+  o.books = wbPackBooks(state.worldbook || []);
+  delete o.worldbook;
+  return o;
+}
+
 function writeRaw() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    localStorage.setItem(KEY, JSON.stringify(packForStore()));
     stateSaveErr = '';
     return true;
   } catch (e) {
     let kb = 0;
-    try { kb = Math.round(JSON.stringify(state).length * 2 / 1024); } catch (e2) {}
+    try { kb = Math.round(JSON.stringify(packForStore()).length * 2 / 1024); } catch (e2) {}
     stateSaveErr = '写不进去了：浏览器给的空间满了（存档 ' + kb + 'KB）。去「设置 → 存储」清一下图片。';
     console.error('[core] 保存失败（可能是容量满了）', e);
     return false;
@@ -1549,6 +1569,134 @@ function personaSummary(p) {
 }
 
 /* 优先级就是 order，只是给个人话名字 —— 不另存一份，改一处不会打架。 */
+/* ── 优先级 ↔ order（对外 high/medium/low，对内只有 order）── */
+function wbPriOf(order) {
+  const n = Number(order);
+  if (!isFinite(n) || n <= 60) return 'high';
+  if (n >= 140) return 'low';
+  return 'medium';
+}
+
+function wbPriToOrder(pri) {
+  return WB_PRI_ORDER[String(pri || '').trim().toLowerCase()] || 100;
+}
+
+/* 没写触发词时按标题/正文猜几个。规则朴素，但比空着强，而且用户能改。
+   ponytail: 纯启发式（标题整句 + 标题切段 + 正文里【】「」《》包住的词）。
+   想更准就交给模型，那是另一个功能。 */
+function wbAutoKeys(title, content) {
+  const out = [];
+  const push = v => {
+    const t = String(v || '').trim().replace(/[：:。，,、！？!?；;]+$/, '');
+    if (t.length >= 2 && t.length <= 12 && out.indexOf(t) < 0) out.push(t);
+  };
+  const t = String(title || '').trim();
+  if (t) {
+    push(t);
+    t.split(/[\s、·｜|\/]+/).forEach(push);
+  }
+  (String(content || '').match(/[【「《\[]([^】」》\]]{2,12})[】」》\]]/g) || [])
+    .forEach(q => push(q.replace(/[【「《\[\]】」》]/g, '')));
+  return out.slice(0, 6);
+}
+
+/* ── 存档里的世界书：[{ book_name, created_at, entries:[...] }] ──
+   内存里仍然是摊平的一条条（几十处代码按它读），只在这道门槛上换算。 */
+/* 关键词统一成数组：条目可能还没过 saveEntry，keys 还是「a,b」这种串 */
+function wbKeyList(v) {
+  if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean);
+  return String(v == null ? '' : v).split(/[,，、]/).map(x => String(x).trim()).filter(Boolean);
+}
+
+function wbPackBooks(flat) {
+  const map = new Map();
+  (flat || []).forEach(e => {
+    const k = wbBook(e);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(e);
+  });
+  const out = [];
+  map.forEach((arr, name) => {
+    const list = wbSorted(arr);
+    const tss = arr.map(e => Number(e.ts) || 0).filter(Boolean);
+    const born = tss.length ? Math.min.apply(null, tss) : Date.now();
+    out.push({
+      book_name: name,
+      created_at: new Date(born).toISOString(),
+      entries: list.map(e => ({
+        id: e.id,
+        title: e.title,
+        keywords: wbKeyList(e.keys),
+        content: e.content,
+        is_constant: !!e.constant,
+        priority: wbPriOf(e.order),
+        keysecondary: (e.keysecondary || []).slice(),
+        cat: e.cat,
+        logic: e.logic,
+        enabled: e.enabled !== false,
+        charIds: (e.charIds || []).slice()
+      }))
+    });
+  });
+  /* 「未分类」永远排最后，其余按书名 */
+  out.sort((a, b) => {
+    if (a.book_name === '未分类') return 1;
+    if (b.book_name === '未分类') return -1;
+    return a.book_name.localeCompare(b.book_name, 'zh');
+  });
+  return out;
+}
+
+/* 反过来：存档形状 → 内存里摊平的条目 */
+function wbUnpackBooks(books) {
+  const flat = [];
+  (Array.isArray(books) ? books : []).forEach(b => {
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return;
+    const name = String(b.book_name || b.bookName || b.name || '').trim().slice(0, NAME_MAX);
+    (Array.isArray(b.entries) ? b.entries : []).forEach(e => {
+      if (!e || typeof e !== 'object' || Array.isArray(e)) return;
+      flat.push(Object.assign({}, e, {
+        book: name,
+        keys: e.keywords != null ? e.keywords : e.keys,
+        constant: e.is_constant != null ? e.is_constant : e.constant,
+        order: e.priority != null ? wbPriToOrder(e.priority) : e.order
+      }));
+    });
+  });
+  return flat;
+}
+
+/* 一本书 → 用户要的形状（导出用） */
+function wbBookJson(name) {
+  const want = String(name || '').trim() || '未分类';
+  const one = wbPackBooks((state.worldbook || []).filter(e => wbBook(e) === want));
+  return one[0] || { book_name: want, created_at: new Date().toISOString(), entries: [] };
+}
+
+/* 用户给的形状 → 内部条目。容错：没有 entries 就当数组，没有触发词就自动生成。 */
+function wbFromBookJson(obj, fallbackName) {
+  const o = (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  const name = String(o.book_name || o.bookName || o.name || fallbackName || '').trim().slice(0, NAME_MAX);
+  const raw = Array.isArray(o.entries) ? o.entries : (Array.isArray(obj) ? obj : []);
+  return raw.filter(e => e && typeof e === 'object').map(e => {
+    const title = String(e.title || e.name || '').trim().slice(0, NAME_MAX) || '未命名';
+    const content = String(e.content || e.text || e.body || '');
+    let keys = e.keywords != null ? e.keywords : (e.keys != null ? e.keys : (e.key != null ? e.key : ''));
+    if (Array.isArray(keys)) keys = keys.join(',');
+    if (!String(keys || '').trim()) keys = wbAutoKeys(title, content).join(',');
+    return makeEntry({
+      title: title,
+      content: content,
+      keys: keys,
+      keysecondary: e.keysecondary || '',
+      constant: !!(e.is_constant != null ? e.is_constant : e.constant),
+      order: e.priority != null ? wbPriToOrder(e.priority) : (e.order != null ? e.order : 100),
+      cat: e.cat || wbGuessCat(title + ' ' + content),
+      book: name
+    });
+  });
+}
+
 function wbPriLabel(order) {
   const n = Number(order);
   if (!isFinite(n) || n <= 60) return '高';
@@ -4213,7 +4361,9 @@ window.SJ = {
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
   parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove,
-  wbBooks, wbBook, wbPriLabel, musicClear, musicNow, musicSetNow,
+  wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
+  wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
+  musicClear, musicNow, musicSetNow,
   PERSONA_GENDERS, PERSONA_AGES, PERSONA_RELS, PERSONA_MBTI, PERSONA_MAX,
   personaList, personaById, activePersona, personaOf, makePersona, savePersona,
   removePersona, setActivePersona, zodiacOf, personaPrompt, personaSummary,

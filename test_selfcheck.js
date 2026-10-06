@@ -2526,6 +2526,77 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   if (plCard) plCard.click();
   ok('歌单详情每行也带封面', walk(plApp).some(n => n._class.has('music-track-art') && /c\.jpg/.test(String(n.style.backgroundImage))));
 
+  /* ── 搜索：以前那个输入框纯摆设，打字没用 ── */
+  App.musicClear();
+  App.musicAdd([
+    { name: '晴天', artist: '周杰伦', album: '叶惠美', url: 'https://a.test/q.mp3' },
+    { name: '夜曲', artist: '周杰伦', album: '十一月的萧邦', url: 'https://a.test/y.mp3' },
+    { name: '起风了', artist: '买辣椒也用券', url: 'https://a.test/f.mp3' }
+  ]);
+  const scApp = openFresh('music');
+  const sIn = walk(scApp).find(n => n.attrs && n.attrs.type === 'search');
+  ok('音乐库有搜索框', !!sIn);
+  if (sIn) { sIn.value = '周杰伦'; dispatch(sIn, 'input', {}); }
+  const hitRows = walk(scApp).filter(n => n._class.has('music-track'));
+  ok('按歌手搜出两首', hitRows.length === 2 && hitRows.every(n => /周杰伦/.test(n.textContent)), hitRows.length + ' 行');
+  if (sIn) { sIn.value = '起风'; dispatch(sIn, 'input', {}); }
+  ok('按歌名也能搜', walk(scApp).filter(n => n._class.has('music-track')).length === 1);
+  if (sIn) { sIn.value = '没这首歌'; dispatch(sIn, 'input', {}); }
+  ok('搜不到时给一句提示而不是空白', walk(scApp).some(n => /没找到/.test(n.textContent)) && walk(scApp).filter(n => n._class.has('music-track')).length === 0);
+  if (sIn) { sIn.value = ''; dispatch(sIn, 'input', {}); }
+  ok('清空关键词回到全部三首', walk(scApp).filter(n => n._class.has('music-track')).length === 3);
+
+  /* ── 歌词：lrc 以前既不存也不取，点了封面永远是空的；
+        而且黑胶一 hide 就再没东西可点，回不到封面 ── */
+  App.musicClear();
+  App.musicAdd([{ name: '有词', artist: '谁', url: 'https://a.test/l.mp3', lrc: 'https://a.test/l.lrc' }]);
+  ok('曲库存下 lrc 地址', App.musicTracks()[0].lrc === 'https://a.test/l.lrc', JSON.stringify(App.musicTracks()[0]));
+  ok('存盘后 lrc 不丢', App.normalizeTracks([{ name: 'x', url: 'https://a/x.mp3', lrc: 'https://a/x.lrc' }])[0].lrc === 'https://a/x.lrc');
+  fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}), text: () => Promise.resolve('[00:01.00]第一句\n[00:05.50]第二句') });
+  const lrcApp = openFresh('music');
+  (walk(lrcApp).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  const stageEl = walk(lrcApp).find(n => n._class.has('music-stage'));
+  ok('播放器有个常驻的舞台（黑胶和歌词都挂在里面，不会被自己藏掉）', !!stageEl);
+  if (stageEl) stageEl.click();
+  await waitFor(() => walk(lrcApp).some(n => n.textContent === '第一句'), 2000);   // 别被「歌词加载中…」那行占位骗了
+  ok('点封面会去取歌词并渲染出来', walk(lrcApp).filter(n => n._class.has('lyric-line')).length === 2,
+    walk(lrcApp).filter(n => n._class.has('lyric-line')).length + ' 行');
+  const stage2 = walk(lrcApp).find(n => n._class.has('music-stage'));
+  if (stage2) stage2.click();
+  ok('再点一下能切回封面', !!walk(lrcApp).find(n => n._class.has('music-disc'))
+    && !walk(lrcApp).some(n => n._class.has('music-lyrics') && n._class.has('show')));
+  fetchImpl = null;
+
+  /* ── 歌单名：接口给的原名不能被「网易云歌单」这个占位盖掉 ── */
+  fetchImpl = () => Promise.resolve(mockRes(true, [{ name: '歌', artist: '人', url: 'https://a.test/b.mp3' }]));
+  const bare = await App.importNetEasePlaylist('3778678');
+  ok('裸数组没有歌单名时不编一个假名字出来', bare.name === '', JSON.stringify(bare.name));
+  App.musicClear();
+  App.musicPlaylists().length = 0;
+  fetchImpl = () => Promise.resolve(mockRes(true, { name: '真实的歌单名', cover: 'https://img/p.jpg', tracks: [{ name: '歌', artist: '人', url: 'https://a.test/b.mp3', pic: 'https://img/c.jpg' }] }));
+  const imApp = openFresh('music');
+  (walk(imApp).find(n => n._class.has('music-fab')) || { click: function(){} }).click();
+  const ta2 = walk(imApp).find(n => n.tagName === 'TEXTAREA');
+  ok('导入页说明改成了新原理（歌单链接/ID，不再是只认直链）', /歌单 ID|分享链接/.test((ta2 && ta2.attrs.placeholder) || ''), (ta2 && ta2.attrs.placeholder) || '');
+  if (ta2) ta2.value = 'https://music.163.com/m/playlist?id=3778678';
+  (findBtn(imApp, '导入') || { click: function(){} }).click();
+  await waitFor(() => App.musicPlaylists().some(p => p.name === '真实的歌单名'), 2000);
+  ok('歌单卡片用接口返回的原名', App.musicPlaylists().some(p => p.name === '真实的歌单名'),
+    JSON.stringify(App.musicPlaylists().map(p => p.name)));
+
+  /* ── 删除歌单：长按卡片 ── */
+  const dpApp = openFresh('music');
+  (walk(dpApp).find(n => n.textContent.trim() === '歌单' && n.tagName === 'BUTTON') || { click: function(){} }).click();
+  const card = walk(dpApp).find(n => n._class.has('music-playlist'));
+  ok('歌单卡片在', !!card);
+  if (card) dispatch(card, 'pointerdown', { pointerType: 'touch' });
+  await waitFor(() => walk(byId.phone).some(x => x._class.has('confirm')), 1500);
+  ok('长按歌单卡片弹出确认', walk(byId.phone).some(x => x._class.has('confirm')));
+  confirmYes();
+  ok('确认后歌单真的没了', App.musicPlaylists().length === 0, String(App.musicPlaylists().length));
+  ok('删歌单不删歌', App.musicTracks().length === 1, String(App.musicTracks().length));
+  fetchImpl = null;
+
   /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */
   App.musicClear();                    // 空态才有那个「粘贴歌单导入」按钮
   const muApp = openFresh('music');

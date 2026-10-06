@@ -2808,6 +2808,7 @@ function normalizeTracks(raw) {
       artist: String(t.artist || '').slice(0, NAME_MAX),
       album: String(t.album || '').slice(0, NAME_MAX),
       cover: String(t.cover || '').slice(0, 300),
+      lrc: String(t.lrc || '').slice(0, 300),
       url: String(t.url)
     }));
 }
@@ -3338,11 +3339,27 @@ function musicPlaylists() { return state.music.playlists || (state.music.playlis
 function musicAddPlaylist(data) {
   const p = data && typeof data === 'object' ? data : {};
   const tracks = Array.isArray(p.tracks) ? p.tracks : [];
-  const ids = tracks.map(t => { const old = state.music.tracks.find(x => x.url === t.url || (x.name === t.name && x.artist === t.artist)); if (old) return old.id; musicAdd([t]); return state.music.tracks[state.music.tracks.length - 1].id; });
+  const ids = tracks.map(t => {
+    const old = state.music.tracks.find(x => x.url === t.url || (x.name === t.name && x.artist === t.artist));
+    if (old) {
+      /* 之前导过的歌没有歌词/封面地址，重新导入一次要把它补上，不然永远缺 */
+      if (!old.lrc && t.lrc) old.lrc = String(t.lrc).slice(0, 300);
+      if (!old.cover && t.cover) old.cover = String(t.cover).slice(0, 300);
+      if (!old.album && t.album) old.album = String(t.album).slice(0, NAME_MAX);
+      return old.id;
+    }
+    musicAdd([t]); return state.music.tracks[state.music.tracks.length - 1].id;
+  });
   const out = { id: uid(), name: String(p.name || '未命名歌单').slice(0, 80), creator: String(p.creator || '').slice(0, 60), cover: String(p.cover || '').slice(0, 300), tracks: ids };
   musicPlaylists().push(out); save(); return out.id;
 }
 function musicPlaylist(id) { return musicPlaylists().find(p => p.id === String(id)) || null; }
+function musicRemovePlaylist(id) {
+  const before = musicPlaylists().length;
+  state.music.playlists = musicPlaylists().filter(p => p.id !== String(id));
+  if (state.music.playlists.length !== before) save();
+  return before - state.music.playlists.length;
+}
 function parseLRC(text) {
   const out = []; const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]([^\n]*)/g; let m;
   while ((m = re.exec(String(text || '')))) out.push({ time: Number(m[1]) * 60 + Number(m[2]) + Number(('0.' + String(m[3] || '0')).replace(/(\d{2})$/, '$1')), text: m[4].trim() });
@@ -3367,7 +3384,7 @@ function musicAdd(list) {
     const key = t.url || String(t.name) + '\u0000' + String(t.artist || '');
     if (have.has(key)) return;   // 同一条链接或同名同歌手只进一次
     have.add(key);
-    state.music.tracks.push({ id: uid(), name: String(t.name || '未命名').slice(0, NAME_MAX), artist: String(t.artist || '').slice(0, NAME_MAX), album: String(t.album || '').slice(0, NAME_MAX), cover: String(t.cover || '').slice(0, 300), url: String(t.url) });
+    state.music.tracks.push({ id: uid(), name: String(t.name || '未命名').slice(0, NAME_MAX), artist: String(t.artist || '').slice(0, NAME_MAX), album: String(t.album || '').slice(0, NAME_MAX), cover: String(t.cover || '').slice(0, 300), lrc: String(t.lrc || '').slice(0, 300), url: String(t.url) });
     n++;
   });
   if (n) save();
@@ -3429,14 +3446,17 @@ function normalizeNetEasePlaylist(data) {
   const root = data && (data.playlist || data.result || data.data || data);
   const tracks = Array.isArray(root) ? root : (Array.isArray(root && (root.tracks || root.songs)) ? (root.tracks || root.songs) : []);
   return {
-    name: String((root && !Array.isArray(root) && (root.name || root.title)) || '网易云歌单').slice(0, 80),
+    /* 拿不到名字就返回空串 —— 调用方会依次退到分享文案里的名字、再到「未命名歌单」。
+       以前这里写死 '网易云歌单'，把真名字盖掉了。 */
+    name: String((root && !Array.isArray(root) && (root.name || root.title)) || '').slice(0, 80),
+    cover: String((root && !Array.isArray(root) && (root.cover || root.coverImgUrl)) || '').slice(0, 300),
     tracks: tracks.map((x, i) => {
       const song = x.song || x;
       const artists = Array.isArray(song.ar || song.artists) ? (song.ar || song.artists) : [];
       const album = song.al || song.album || {};
       const albumName = typeof album === 'string' ? album : album.name;
       const albumCover = typeof album === 'object' ? album.picUrl : '';
-      return { id: String(song.id || x.id || 'ne-' + i), name: String(song.name || x.name || '未命名').slice(0, NAME_MAX), artist: String(song.artist || (Array.isArray(song.artist) ? song.artist.join('、') : '') || artists.map(a => a.name || a).join('、')).slice(0, NAME_MAX), album: String(albumName || song.album || '').slice(0, NAME_MAX), cover: String(albumCover || song.pic || song.picUrl || song.cover || '').slice(0, 300), url: String(song.url || x.url || '') };
+      return { id: String(song.id || x.id || 'ne-' + i), name: String(song.name || x.name || '未命名').slice(0, NAME_MAX), artist: String(song.artist || (Array.isArray(song.artist) ? song.artist.join('、') : '') || artists.map(a => a.name || a).join('、')).slice(0, NAME_MAX), album: String(albumName || song.album || '').slice(0, NAME_MAX), cover: String(albumCover || song.pic || song.picUrl || song.cover || '').slice(0, 300), lrc: String(song.lrc || x.lrc || '').slice(0, 300), url: String(song.url || x.url || '') };
     }).filter(x => x.name && x.artist)
   };
 }
@@ -4811,7 +4831,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

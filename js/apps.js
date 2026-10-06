@@ -5582,18 +5582,19 @@ const APPS = [
 
       function listView() {
         root.innerHTML = '';
+        const searchBox = SJ.el('input', { type: 'search', placeholder: '搜索歌曲、歌手、专辑' });
         root.append(SJ.el('div', { class: 'ymusic-head' }, [
            SJ.el('button', { class: 'nav-btn back ymusic-back', onclick: () => window.SHELL && window.SHELL.closeTop() }, '返回'),
            SJ.el('div', { class: 'ymusic-brand' }, 'ymusic'),
            SJ.el('div', { class: 'ymusic-search-row' }, [
-             SJ.el('label', { class: 'ymusic-search' }, [SJ.el('span', { html: svg('search', 17) }), SJ.el('input', { type: 'search', placeholder: '搜索歌曲、歌手、专辑' })]),
+             SJ.el('label', { class: 'ymusic-search' }, [SJ.el('span', { html: svg('search', 17) }), searchBox]),
              SJ.el('button', { class: 'ymusic-settings', title: '设置', onclick: settingsView }, [SJ.el('span', { html: svg('gear', 18) })])
            ])
          ]));
          const bar = nowCard(); if (bar) { bar.classList.add('music-mini-fixed'); bar.addEventListener('click', e => { if (!e.target.closest('button')) { const t = SJ.musicNow(); if (t) playerView(t.id); } }); root.append(bar); }
         root.append(SJ.el('button', { class: 'music-fab', title: '导入', onclick: importView }, '+'));
-        const tracks = SJ.musicTracks();
-        if (!tracks.length) {
+        const all = SJ.musicTracks();
+        if (!all.length) {
           root.append(emptyState('music', '你的音乐还没上车',
             '粘贴网易云公开歌单，或从手机导入音频。',
             '粘贴歌单导入', importView));
@@ -5601,23 +5602,33 @@ const APPS = [
           return;
         }
         const list = SJ.el('div', { class: 'music-list' });
-        tracks.forEach((t, index) => {
-          const on = SJ.state.music.now === t.id;
-          list.append(SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playerView(t.id) }, [
-            SJ.el('span', { class: 'music-track-no' }, String(index + 1).padStart(2, '0')),
-            SJ.el('span', { class: 'music-track-art', style: { backgroundImage: t.cover ? `url(${t.cover})` : '' }, html: t.cover ? '' : svg('music', 16) }),
-            SJ.el('span', { class: 'music-track-main' }, [
-              SJ.el('span', { class: 'music-track-title row-title' }, t.name),
-              SJ.el('span', { class: 'music-track-artist' }, [t.artist || '未知歌手', t.album ? ' · ' + t.album : ''])
-            ]),
-            SJ.el('span', { class: 'music-track-play', html: svg(on ? 'pause' : 'play', 16) }),
-            SJ.el('button', {
-              class: 'music-remove', title: '从歌单里删掉', html: '×',
-              onclick: ev => { ev.stopPropagation(); SJ.musicRemove(t.id); listView(); }
-            })
-          ]));
-        });
+        /* 只重画列表本身，不碰上面的输入框 —— 整页重画会把光标和输入法一起弄丢 */
+        const renderList = () => {
+          const raw = String(searchBox.value || '').trim();
+          const q = raw.toLowerCase();
+          const hit = q ? all.filter(t => (t.name + ' ' + (t.artist || '') + ' ' + (t.album || '')).toLowerCase().indexOf(q) >= 0) : all;
+          list.innerHTML = '';
+          if (!hit.length) { list.append(SJ.el('div', { class: 'music-empty' }, '没找到「' + raw + '」')); return; }
+          hit.forEach((t, index) => {
+            const on = SJ.state.music.now === t.id;
+            list.append(SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playerView(t.id) }, [
+              SJ.el('span', { class: 'music-track-no' }, String(index + 1).padStart(2, '0')),
+              SJ.el('span', { class: 'music-track-art', style: { backgroundImage: t.cover ? `url(${t.cover})` : '' }, html: t.cover ? '' : svg('music', 16) }),
+              SJ.el('span', { class: 'music-track-main' }, [
+                SJ.el('span', { class: 'music-track-title row-title' }, t.name),
+                SJ.el('span', { class: 'music-track-artist' }, [t.artist || '未知歌手', t.album ? ' · ' + t.album : ''])
+              ]),
+              SJ.el('span', { class: 'music-track-play', html: svg(on ? 'pause' : 'play', 16) }),
+              SJ.el('button', {
+                class: 'music-remove', title: '从歌单里删掉', html: '×',
+                onclick: ev => { ev.stopPropagation(); SJ.musicRemove(t.id); listView(); }
+              })
+            ]));
+          });
+        };
+        searchBox.addEventListener('input', renderList);
         root.append(list);
+        renderList();
         musicShell();
 
         /* ── 从手机导入音乐 ──
@@ -5679,14 +5690,35 @@ const APPS = [
          root.append(navBar('歌单', { back: listView }));
          const ps = SJ.musicPlaylists();
          const box = SJ.el('div', { class: 'music-playlists' });
-         ps.forEach(p => box.append(SJ.el('button', { class: 'music-playlist', onclick: () => playlistDetail(p.id) }, [
+         ps.forEach(p => {
+           const card = SJ.el('button', { class: 'music-playlist', onclick: () => {
+             /* 长按抬手后浏览器还会补一个 click，别顺手把详情页也打开 */
+             if (card._held) { card._held = false; return; }
+             playlistDetail(p.id);
+           } }, [
            SJ.el('div', { class: 'music-playlist-cover', style: { backgroundImage: p.cover ? `url(${p.cover})` : '' }, html: p.cover ? '' : svg('music', 28) }),
            SJ.el('span', { class: 'music-playlist-main' }, [SJ.el('b', {}, p.name), SJ.el('small', {}, (p.creator || '本地歌单') + ' · ' + p.tracks.length + ' 首')]),
            SJ.el('span', { class: 'music-playlist-arrow', html: svg('right', 16) })
-         ])));
+         ]);
+           let held = null;
+           const cancel = () => { if (held) { clearTimeout(held); held = null; } };
+           card.addEventListener('pointerdown', () => {
+             cancel();
+             held = setTimeout(() => { held = null; card._held = true; askDeletePlaylist(p); }, 600);
+           });
+           ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => card.addEventListener(ev, cancel));
+           box.append(card);
+         });
          if (!ps.length) box.append(emptyState('music', '还没有歌单', '导入网易云歌单后会出现在这里。', '去导入', importView));
          root.append(box); musicShell();
        }
+        function askDeletePlaylist(p) {
+          window.confirmBox('删除歌单「' + p.name + '」？（歌还在音乐库里，不会跟着删）', () => {
+            SJ.musicRemovePlaylist(p.id);
+            toast('已删除「' + p.name + '」');
+            playlistView();
+          });
+        }
        function playlistDetail(pid) {
          const p = SJ.musicPlaylist(pid); if (!p) return playlistView();
          root.innerHTML = ''; root.append(navBar(p.name, { back: playlistView }));
@@ -5698,14 +5730,55 @@ const APPS = [
          p.tracks.map(id => SJ.musicTracks().find(t => t.id === id)).filter(Boolean).forEach((t,i) => list.append(SJ.el('button', { class: 'music-track', onclick: () => playerView(t.id) }, [SJ.el('span', { class:'music-track-no' }, String(i+1).padStart(2,'0')), SJ.el('span',{class:'music-track-art',style:{backgroundImage:t.cover?`url(${t.cover})`:''},html:t.cover?'':svg('music',16)}), SJ.el('span',{class:'music-track-main'},[SJ.el('span',{class:'music-track-title row-title'},t.name),SJ.el('span',{class:'music-track-artist'},t.artist||'未知歌手')]), SJ.el('span',{class:'music-track-play',html:svg('play',16)})])));
          root.append(list); musicShell();
        }
-       function playerView(trackId) {
-          const tracks = SJ.musicTracks(), index = Math.max(0, tracks.findIndex(x => x.id === trackId)); const t = tracks[index] || SJ.musicNow(); if (!t) return listView(); SJ.musicSetNow(t.id); root.innerHTML = ''; let lyric = false;
+        function playerView(trackId) {
+          const tracks = SJ.musicTracks(), index = Math.max(0, tracks.findIndex(x => x.id === trackId));
+          const t = tracks[index] || SJ.musicNow(); if (!t) return listView();
+          SJ.musicSetNow(t.id); root.innerHTML = '';
+          let lyric = false, lyricText = null;
           const player = SJ.el('div', { class: 'music-player', style: { backgroundImage: t.cover ? `linear-gradient(#1118,#111e),url(${t.cover})` : '' } });
-          const lyricBox = SJ.el('div', { class: 'music-lyrics' }); const disc = SJ.el('button', { class: 'music-disc', title: '点击切换歌词', onclick: () => { lyric = !lyric; lyricBox.classList.toggle('show', lyric); disc.classList.toggle('hide', lyric); } }, [t.cover ? SJ.el('img', { src: t.cover, alt: '' }) : svgNode('music', 42)]  /* 没封面就别塞 img src=，那会去请求页面自己 */);
-          SJ.parseLRC(t.lrc || '').forEach(l => lyricBox.append(SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text)));
-          const progress = SJ.el('input', { class:'music-progress', type:'range', min:0, max:100, value:0 }); const times = SJ.el('div',{class:'music-times'},[SJ.el('span',{},'00:00'),SJ.el('span',{},'00:00')]); const fmt=n=>{n=Math.floor(Number(n)||0);return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')}; const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration)}; if(a){a.addEventListener('timeupdate',update);a.addEventListener('loadedmetadata',update)} progress.addEventListener('input',()=>{if(a&&isFinite(a.duration))a.currentTime=Number(progress.value)});
-          const syncPlayIcon=()=>{playIcon.innerHTML=svg(a&&!a.paused&&a.src?'pause':'play',24)}; const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]), playIcon=SJ.el('span',{html:svg('play',24)}), play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]), next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
-          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]); player.append(disc,lyricBox,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面切换歌词')); root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player); if(a&&a._trackId!==t.id) loadTrack(t); syncPlayIcon();
+          const disc = SJ.el('div', { class: 'music-disc' }, [t.cover ? SJ.el('img', { src: t.cover, alt: '' }) : svgNode('music', 42)]);
+          const lyricBox = SJ.el('div', { class: 'music-lyrics' });
+          /* 可点的是整个舞台，不是黑胶本身 —— 以前黑胶一切到歌词就 display:none 了，
+             于是屏幕上没有任何东西可以点回去。舞台一直在，歌词这块也能点回封面。 */
+          const stage = SJ.el('div', { class: 'music-stage', title: '点击切换歌词', onclick: () => { lyric = !lyric; applyStage(); } }, [disc, lyricBox]);
+          const CREDIT = /^(作词|作曲|编曲|制作|制作人|混音|母带|录音|吉他|贝斯|鼓|和声|出品|监制|OP|SP|词|曲|演唱)\s*[:：]/;
+          const paint = text => {
+            lyricBox.innerHTML = '';
+            const lines = SJ.parseLRC(text || '').filter(l => !CREDIT.test(l.text));
+            if (!lines.length) { lyricBox.append(SJ.el('div', { class: 'lyric-line empty' }, '这首歌没有歌词')); return; }
+            lines.forEach(l => lyricBox.append(SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text)));
+          };
+          const loadLyrics = async () => {
+            if (lyricText !== null) return paint(lyricText);
+            if (!t.lrc) { lyricText = ''; return paint(''); }
+            if (!/^https?:/i.test(t.lrc)) { lyricText = t.lrc; return paint(lyricText); }   // 存的本来就是 LRC 文本
+            lyricBox.innerHTML = '';
+            lyricBox.append(SJ.el('div', { class: 'lyric-line empty' }, '歌词加载中…'));
+            try { const res = await fetch(t.lrc); lyricText = res.ok ? await res.text() : ''; }
+            catch (e) { lyricText = ''; }
+            paint(lyricText);
+          };
+          const applyStage = () => {
+            disc.classList.toggle('hide', lyric);
+            lyricBox.classList.toggle('show', lyric);
+            if (lyric) loadLyrics();
+          };
+          const progress = SJ.el('input', { class:'music-progress', type:'range', min:0, max:100, value:0 });
+          const times = SJ.el('div',{class:'music-times'},[SJ.el('span',{},'00:00'),SJ.el('span',{},'00:00')]);
+          const fmt=n=>{n=Math.floor(Number(n)||0);return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')};
+          const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration)};
+          if(a){a.addEventListener('timeupdate',update);a.addEventListener('loadedmetadata',update)}
+          progress.addEventListener('input',()=>{if(a&&isFinite(a.duration))a.currentTime=Number(progress.value)});
+          const playIcon=SJ.el('span',{html:svg('play',24)});
+          const syncPlayIcon=()=>{playIcon.innerHTML=svg(a&&!a.paused&&a.src?'pause':'play',24)};
+          const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]);
+          const play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]);
+          const next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
+          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]);
+          player.append(stage,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面或歌词切换'));
+          root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player);
+          if(a&&a._trackId!==t.id) loadTrack(t);
+          syncPlayIcon();
         }
         function settingsView() {
           root.innerHTML = '';
@@ -5765,7 +5838,7 @@ const APPS = [
         root.append(navBar('导入歌单', { back: listView, right: SJ.el('button', { class: 'nav-btn', onclick: doImport }, '导入') }));
         const ta = SJ.el('textarea', {
           class: 'field area',
-          placeholder: '每行一首，例如：\n\n晴天 - 周杰伦 | https://example.com/qing.mp3\nhttps://example.com/a.mp3 起风了\n\n也认 m3u 里的 #EXTINF 行。\n认不出链接的行会被自动跳过。'
+          placeholder: '粘贴网易云歌单：分享链接、带 id= 的链接、或纯歌单 ID 都行，会自动取回整个歌单（歌名、歌手、封面、歌词）。\n例如 https://music.163.com/m/playlist?id=3778678\n\n也可以每行一首写「歌名 - 歌手 | 音频直链」，或粘贴 m3u（#EXTINF 行）。\n认不出链接的行会被自动跳过。'
         });
         root.append(SJ.el('div', { class: 'pad' }, [
           ta,
@@ -5776,8 +5849,8 @@ const APPS = [
           if (/music\.163\.com|y\.music\.163\.com/i.test(value) || /^\d+$/.test(value)) {
             try {
               const out = await SJ.importNetEasePlaylist(value);
-              const pid = SJ.musicAddPlaylist(out);
-              toast('「' + out.name + '」已导入完整歌单');
+              const pid = SJ.musicAddPlaylist(Object.assign({}, out, { name: out.name || SJ.playlistNameFromInput(value) }));
+              toast('「' + (out.name || '未命名歌单') + '」导入 ' + out.tracks.length + ' 首');
               if (pid) listView();
             } catch (e) { toast(e.message || '网易云歌单导入失败'); }
             return;

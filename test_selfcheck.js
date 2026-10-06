@@ -2575,6 +2575,17 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('唱到哪句就高亮哪句', !!actLine && actLine.textContent === '第二句', actLine && actLine.textContent);
   ok('内置播放页背景文件都在', App.MUSIC_BGS.length >= 4 && App.MUSIC_BGS.every(b => fs.existsSync(path.join(DIR, b.img))),
     App.MUSIC_BGS.map(b => b.img).join(','));
+
+  /* 「列表划不动」那个 bug：.app-view 是 flex 列容器，滚动容器必须自己带
+     flex:1 + min-height:0 + overflow-y:auto，少一条内容就只是溢出、不滚。
+     无头 DOM 没有布局引擎量不出来，所以直接守住样式本身。 */
+  const cssText = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  const cssRule = sel => { const i = cssText.indexOf(sel + ' {'); return i < 0 ? '' : cssText.slice(i, cssText.indexOf('}', i)); };
+  ['.music-list', '.music-playlists'].forEach(sel => {
+    const r = cssRule(sel);
+    ok(sel + ' 带齐滚动三件套', /flex:\s*1/.test(r) && /min-height:\s*0/.test(r) && /overflow-y:\s*auto/.test(r),
+      r.replace(/\s+/g, ' ').slice(0, 80));
+  });
   const stage2 = walk(lrcApp).find(n => n._class.has('music-stage'));
   if (stage2) stage2.click();
   ok('再点一下能切回封面', !!walk(lrcApp).find(n => n._class.has('music-disc'))

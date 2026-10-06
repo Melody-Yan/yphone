@@ -2,7 +2,7 @@
 
 一个运行在浏览器中的虚拟手机界面，面向角色扮演与 AI 对话场景。项目采用原生 HTML、CSS 与 JavaScript 实现，无构建步骤，支持作为 PWA 使用。
 
-**在线体验：** <https://melody-yan.github.io/yphone/>
+**在线体验：** <https://yphone.pages.dev>
 
 ## 功能
 

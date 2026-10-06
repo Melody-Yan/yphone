@@ -183,7 +183,11 @@ FakeAudio.prototype.play = function () { this.playCalls++; this.paused = false; 
 FakeAudio.prototype.pause = function () { this.pauseCalls++; this.paused = true; };
 FakeAudio.prototype.load = function () {};
 FakeAudio.prototype.addEventListener = function (k, fn) { (this._listeners[k] = this._listeners[k] || []).push(fn); };
-FakeAudio.prototype.removeEventListener = function () {};
+FakeAudio.prototype.removeEventListener = function (k, fn) {
+  const a = this._listeners[k] || [];
+  const i = a.indexOf(fn);
+  if (i >= 0) a.splice(i, 1);
+};
 
 let sandbox = null;
 let sandboxCtx = null;
@@ -2405,7 +2409,10 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
 {
   /* S 只是个极简门面（openApp/closeTop/SHELL），新 App 要的东西它没暴露，直接用 sandbox.SJ */
   const App = sandbox.SJ;
+  /* 抽屉项的按钮里是「标题 + 说明」两段文字，等值匹配的 findBtn 用不了 */
+  const sheetItem = label => walk(byId.phone).find(n => n._class.has('sheet-item') && n.textContent.includes(label));
   /* ── 歌单解析：纯函数，先把三种贴法钉死 ── */
+
   const pl = App.parsePlaylist([
     '晴天 - 周杰伦 | https://a.test/qing.mp3',
     'https://a.test/feng.mp3 起风了 - 买辣椒也用券',
@@ -2446,7 +2453,7 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   const playBtn = walk(playerApp).find(n => n._class.has('music-player-play')); if (playBtn) playBtn.click();
   ok('点击全屏播放按钮仍停留在播放器', walk(playerApp).some(n => n._class.has('music-player')));
   const musicGear = walk(playerApp).find(n => n.attrs && n.attrs.title === '设置'); if (musicGear) musicGear.click();
-  ok('音乐设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('音乐设置')));
+ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('接口设置')));
 
   /* 网易云接口：公共实例服务端是通的，浏览器里挂在跨域上。
      设置页要能自己判断填的地址对不对，别让用户靠猜。 */
@@ -2602,11 +2609,14 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   (walk(bgApp2).find(n => n._class.has('music-track')) || { click: function(){} }).click();
   const pv2 = walk(bgApp2).find(n => n._class.has('music-player'));
   ok('没选背景时跟随歌曲封面', !!pv2 && /c\.jpg/.test(String(pv2.style.backgroundImage)), pv2 && String(pv2.style.backgroundImage));
-  ok('音乐设置里有背景选择器', (() => {
+  /* 背景选择器搬到了「我的 → 外观与主题」 */
+  ok('外观与主题里有背景选择器', (() => {
     const s2 = openFresh('music');
-    (walk(s2).find(n => n.attrs && n.attrs.title === '设置') || { click: function(){} }).click();
+    (walk(s2).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+    (walk(s2).find(n => n._class.has('row') && /外观与主题/.test(n.textContent)) || { click: function(){} }).click();
     return walk(s2).filter(n => n._class.has('music-bg')).length >= 5;
   })());
+
   fetchImpl = null;
 
   /* ── 歌单名：接口给的原名不能被「网易云歌单」这个占位盖掉 ── */
@@ -2618,7 +2628,9 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   fetchImpl = () => Promise.resolve(mockRes(true, { name: '真实的歌单名', cover: 'https://img/p.jpg', tracks: [{ name: '歌', artist: '人', url: 'https://a.test/b.mp3', pic: 'https://img/c.jpg' }] }));
   const imApp = openFresh('music');
   (walk(imApp).find(n => n._class.has('music-fab')) || { click: function(){} }).click();
+  (sheetItem('粘贴链接导入') || { click: function(){} }).click();
   const ta2 = walk(imApp).find(n => n.tagName === 'TEXTAREA');
+
   ok('导入页说明改成了新原理（歌单链接/ID，不再是只认直链）', /歌单 ID|分享链接/.test((ta2 && ta2.attrs.placeholder) || ''), (ta2 && ta2.attrs.placeholder) || '');
   if (ta2) ta2.value = 'https://music.163.com/m/playlist?id=3778678';
   (findBtn(imApp, '导入') || { click: function(){} }).click();
@@ -2651,16 +2663,217 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   fetchImpl = null;
 
   /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */
-  App.musicClear();                    // 空态才有那个「粘贴歌单导入」按钮
+  App.musicClear();                    // 空态那个按钮现在开的是导入抽屉
   const muApp = openFresh('music');
-  ok('音乐 App 空态给的是「粘贴歌单导入」', !!findBtn(muApp, '粘贴歌单导入'));
-  (findBtn(muApp, '粘贴歌单导入') || { click: function(){} }).click();
+  ok('音乐 App 空态给的是「导入音乐」', !!findBtn(muApp, '导入音乐'));
+  (findBtn(muApp, '导入音乐') || { click: function(){} }).click();
+  ok('空态按钮弹出的是四项导入抽屉', walk(byId.phone).filter(n => n._class.has('sheet-item')).length === 4);
+  (sheetItem('粘贴链接导入') || { click: function(){} }).click();
   const ta = walk(muApp).find(n => n.tagName === 'TEXTAREA');
+
   ok('导入页有粘贴框', !!ta);
   ta.value = '起风了 - 买辣椒也用券 | https://a.test/feng.mp3';
   (findBtn(muApp, '导入') || { click: function(){} }).click();
   ok('粘一行进去就进歌单了', App.musicTracks().some(t => t.name === '起风了'), App.musicTracks().map(t => t.name).join(','));
   ok('导入后回到列表，行上能看到歌名', walk(muApp).some(n => n._class.has('row-title') && /起风了/.test(n.textContent)));
+
+
+  /* ══════ 「我的」页面 + 导入抽屉 ══════ */
+  App.musicClear();
+  App.musicPlaylists().length = 0;
+  App.state.settings.userName = '阿七';
+  App.state.settings.myAvatarImg = '';
+  App.musicAdd([
+    { name: '第一首', artist: '甲', url: 'https://a.test/1.mp3' },
+    { name: '第二首', artist: '乙', url: 'https://a.test/2.mp3' }
+  ]);
+  const t1 = App.musicTracks()[0].id, t2 = App.musicTracks()[1].id;
+  App.musicCreatePlaylist('我的歌单');
+  App.musicSetNow(t1);
+  App.musicListen(125);                       // 2 分 5 秒
+
+  const meApp = openFresh('music');
+  (walk(meApp).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+  ok('「我的」页有圆形头像区', !!walk(meApp).find(n => n._class.has('me-avatar')));
+  ok('「我的」页显示昵称', walk(meApp).some(n => n._class.has('me-name') && n.textContent === '阿七'));
+  ok('「我的」页有一句小字', walk(meApp).some(n => n._class.has('me-slogan') && n.textContent.length > 0));
+  const meStats = walk(meApp).filter(n => n._class.has('me-stat')).map(n => n.textContent);
+  ok('三个统计卡片', meStats.length === 3, meStats.join(' | '));
+  ok('统计数字对得上（时长/歌曲/歌单）',
+    meStats[0].includes('2 分') && meStats[1].includes('2 首') && meStats[2].includes('1 个'), meStats.join(' | '));
+  ok('四个快捷入口', ['我的收藏', '最近播放', '导入管理', '睡眠定时'].every(t =>
+    walk(meApp).some(n => n._class.has('me-grid-btn') && n.textContent.includes(t))));
+  ok('菜单四项', ['播放与音效', '外观与主题', '清理失效歌曲', '关于 ymusic'].every(t =>
+    walk(meApp).some(n => n._class.has('row-title') && n.textContent === t)));
+  const meCss = (() => { const t = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8'); const i = t.indexOf('.music-me {'); return i < 0 ? '' : t.slice(i, t.indexOf('}', i)); })();
+  ok('.music-me 带齐滚动三件套', /flex:\s*1/.test(meCss) && /min-height:\s*0/.test(meCss) && /overflow-y:\s*auto/.test(meCss),
+    meCss.replace(/\s+/g, ' ').slice(0, 70));
+
+  /* 收藏：翻面 + 收藏页只列收藏的歌 */
+  ok('收藏开关能翻面', App.musicToggleFav(t1) === true && App.musicToggleFav(t1) === false);
+  App.musicToggleFav(t1);
+  const favApp = openFresh('music');
+  (walk(favApp).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+  (walk(favApp).find(n => n._class.has('me-grid-btn') && /我的收藏/.test(n.textContent)) || { click: function(){} }).click();
+  ok('收藏页只列收藏的那首', walk(favApp).filter(n => n._class.has('music-track')).length === 1 &&
+    walk(favApp).some(n => n._class.has('music-track') && /第一首/.test(n.textContent)));
+  App.musicToggleFav(t1);
+  const favEmpty = openFresh('music');
+  (walk(favEmpty).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+  (walk(favEmpty).find(n => n._class.has('me-grid-btn') && /我的收藏/.test(n.textContent)) || { click: function(){} }).click();
+  ok('没有收藏时给一句提示', walk(favEmpty).some(n => n._class.has('music-empty')));
+
+  /* 最近播放：新的在前，删掉的歌不留洞 */
+  App.musicSetNow(t2);
+  ok('最近播放按新的在前记', App.musicRecent().map(t => t.name).join(',') === '第二首,第一首',
+    App.musicRecent().map(t => t.name).join(','));
+  App.musicRemoveTracks([t2]);
+  ok('删歌之后最近播放里不留空洞', App.musicRecent().every(t => t.name !== '第二首') && App.musicRecent().length === 1,
+    JSON.stringify(App.musicRecent().map(t => t.name)));
+  ok('删歌时歌单里的悬空 id 一起摘掉', App.musicPlaylist(App.musicPlaylists()[0].id).tracks.length === 0);
+
+  /* 睡眠定时：设 15 分钟 → 页面报剩余 → 关掉（不关的话 node 进程要挂着等 15 分钟）*/
+  const slApp = openFresh('music');
+  (walk(slApp).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+  (walk(slApp).find(n => n._class.has('me-grid-btn') && /睡眠定时/.test(n.textContent)) || { click: function(){} }).click();
+  (walk(slApp).find(n => n._class.has('row') && n.textContent.includes('15 分钟')) || { click: function(){} }).click();
+  ok('设了睡眠定时，页面报剩余时间', walk(slApp).some(n => n._class.has('hint') && /还有约 15 分钟/.test(n.textContent)),
+    walk(slApp).filter(n => n._class.has('hint')).map(n => n.textContent).join(' | '));
+  (walk(slApp).find(n => n._class.has('row') && n.textContent.includes('关闭定时')) || { click: function(){} }).click();
+  ok('关掉之后不再报剩余时间', walk(slApp).some(n => n._class.has('hint') && /到点自动暂停/.test(n.textContent)));
+
+  /* 循环模式：播放页那个按钮转一圈，图标跟着换 */
+  App.state.settings.musicLoop = 'list';
+  const lpApp = openFresh('music');
+  (walk(lpApp).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  const loopBtn = walk(lpApp).find(n => n.attrs && n.attrs.title === '循环模式');
+  ok('播放页有循环模式按钮', !!loopBtn);
+  if (loopBtn) loopBtn.click();
+  ok('点一下到单曲循环', App.state.settings.musicLoop === 'one', App.state.settings.musicLoop);
+  if (loopBtn) loopBtn.click();
+  ok('再点到随机播放', App.state.settings.musicLoop === 'shuffle', App.state.settings.musicLoop);
+  if (loopBtn) loopBtn.click();
+  ok('转一圈回到列表循环', App.state.settings.musicLoop === 'list', App.state.settings.musicLoop);
+
+  /* 自动接下一首：ended 只挂一份，列表循环接下一首，单曲循环原地重放 */
+  App.musicClear();
+  App.musicAdd([
+    { name: 'A 首', artist: '甲', url: 'https://a.test/a.mp3' },
+    { name: 'B 首', artist: '乙', url: 'https://a.test/b.mp3' }
+  ]);
+  const a1 = App.musicTracks()[0].id, a2 = App.musicTracks()[1].id;
+  App.musicSetNow(a1);
+  App.state.settings.musicLoop = 'list';
+  const endApp = openFresh('music');
+  (walk(endApp).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  ok('ended 监听只挂一份（重画不会越挂越多）',
+    !!(lastAudio && lastAudio._listeners.ended && lastAudio._listeners.ended.length === 1),
+    String(lastAudio && lastAudio._listeners.ended && lastAudio._listeners.ended.length));
+  dispatch(lastAudio, 'ended', {});
+  ok('列表循环：放完自动接下一首', App.state.music.now === a2, App.state.music.now);
+  App.state.settings.musicLoop = 'one';
+  App.musicSetNow(a1);
+  lastAudio.currentTime = 99;
+  lastAudio.playCalls = 0;
+  dispatch(lastAudio, 'ended', {});
+  ok('单曲循环：原地重放，不换歌', App.state.music.now === a1 && lastAudio.currentTime === 0 && lastAudio.playCalls === 1,
+    App.state.music.now + '/' + lastAudio.currentTime + '/' + lastAudio.playCalls);
+  App.state.settings.musicLoop = 'list';
+
+  /* 音量：写进设置，装载时套到 audio 上 */
+  App.state.settings.musicVol = 0.4;
+  const volApp = openFresh('music');
+  (walk(volApp).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  ok('音量设置会套到播放器上', lastAudio && lastAudio.volume === 0.4, String(lastAudio && lastAudio.volume));
+  App.state.settings.musicVol = 1;
+
+  /* 导入文件解析：json / lrc / txt 三条路 */
+  const jf = App.parseImportFile('list.json', JSON.stringify({ name: '朋友给的', tracks: [{ name: 'A', artist: 'B', url: 'https://a.test/j1.mp3' }] }));
+  ok('json 歌单能认出来（带名字）', jf.kind === 'playlist' && jf.name === '朋友给的' && jf.tracks.length === 1, JSON.stringify(jf).slice(0, 80));
+  const jf2 = App.parseImportFile('list.json', '["https://a.test/j2.mp3"]');
+  ok('裸数组 json 也认', jf2.kind === 'playlist' && jf2.tracks[0].url === 'https://a.test/j2.mp3');
+  ok('坏 json 给一句人话', App.parseImportFile('x.json', '{oops').kind === 'bad');
+  ok('lrc 认成歌词，不是歌单', App.parseImportFile('a.lrc', '[00:01.00]第一句\n[00:05.00]第二句').kind === 'lyrics');
+  const tf = App.parseImportFile('a.txt', '起风了 - 买辣椒也用券 | https://a.test/f.mp3');
+  ok('txt 里的直链能认出来', tf.kind === 'tracks' && tf.tracks[0].name === '起风了', JSON.stringify(tf).slice(0, 80));
+  ok('认不出来的文件给提示而不是静默', App.parseImportFile('a.txt', '这里什么都没有').kind === 'bad');
+
+  /* 清理失效歌曲：只认「没链接」和「字节没了」，不联网试探 */
+  App.musicClear();
+  App.musicAdd([
+    { name: '能放', artist: '甲', url: 'https://a.test/ok.mp3' },
+    { name: '没链接', artist: '乙', url: '' },
+    { name: '字节没了', artist: '丙', url: 'idb:nope-000' }
+  ]);
+  const bad = await App.musicBroken();
+  ok('没链接的歌一定算失效', bad.length === 1 && bad[0].name === '没链接', JSON.stringify(bad.map(t => t.name)));
+  ok('能放的歌不会被误判', !bad.some(t => t.name === '能放'));
+  /* 自检沙箱里没有 IndexedDB（见 [30] 那一块）：读不到字节仓时 idb: 的歌必须原样留着，
+     宁可漏报也不能误删 —— 联网试探更不行，跨域音频服务器不给 CORS 时 fetch 也会失败。 */
+  ok('读不到字节仓时不许猜：idb: 的歌不算失效', !bad.some(t => t.name === '字节没了'));
+  App.musicRemoveTracks(bad.map(t => t.id));
+  ok('清理只清掉该清的（能放的和 idb: 的都留着）',
+    App.musicTracks().length === 2 && !App.musicTracks().some(t => t.name === '没链接'),
+    JSON.stringify(App.musicTracks().map(t => t.name)));
+
+
+  /* 新建空歌单：能建、能加歌、能显示 */
+  App.musicClear();
+  App.musicPlaylists().length = 0;
+  const newPid = App.musicCreatePlaylist('  ');
+  ok('空名字也能建出歌单（给个默认名）', App.musicPlaylist(newPid).name === '新歌单', App.musicPlaylist(newPid).name);
+  const newPid2 = App.musicCreatePlaylist('深夜开车');
+  App.musicAdd([{ name: '夜曲', artist: '周杰伦', url: 'https://a.test/ye.mp3' }]);
+  App.musicPlaylistSetTrack(newPid2, App.musicTracks()[0].id, true);
+  ok('能往空歌单里加歌', App.musicPlaylist(newPid2).tracks.length === 1);
+  App.musicPlaylistSetTrack(newPid2, App.musicTracks()[0].id, false);
+  ok('也能把歌从歌单里拿掉', App.musicPlaylist(newPid2).tracks.length === 0);
+
+  /* 挑歌页那个按钮：点一下是加、再点一下必须是减。
+     踩过的坑：闭包里存了一份渲染时的 has，点第二下传的还是 !false，于是加得进去、拿不出来。 */
+  {
+    App.musicClear();
+    App.musicPlaylists().length = 0;
+    App.musicAdd([{ name: '甲歌', artist: '甲', url: 'https://a.test/p1.mp3' }]);
+    const pvPid = App.musicCreatePlaylist('挑歌测试');
+    const pickRoot = openFresh('music');
+    (walk(pickRoot).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '歌单') || { click: function(){} }).click();
+    (walk(pickRoot).find(n => n._class.has('music-playlist')) || { click: function(){} }).click();
+    (walk(pickRoot).find(n => n._class.has('music-detail-add')) || { click: function(){} }).click();
+    const pickBtn = walk(pickRoot).find(n => n._class.has('music-pick'));
+    ok('挑歌页有加/移按钮', !!pickBtn);
+    if (pickBtn) pickBtn.click();
+    ok('点一下加进歌单', App.musicPlaylist(pvPid).tracks.length === 1, String(App.musicPlaylist(pvPid).tracks.length));
+    ok('加完按钮变成打勾', !!pickBtn && pickBtn._class.has('on'));
+    if (pickBtn) pickBtn.click();
+    ok('再点一下是从歌单里拿掉（不是又加一遍）', App.musicPlaylist(pvPid).tracks.length === 0,
+      String(App.musicPlaylist(pvPid).tracks.length));
+    ok('拿掉之后打勾也取消了', !!pickBtn && !pickBtn._class.has('on'));
+  }
+
+  /* ＋ 抽屉：四项都在，且点的每一项都能落到对应的地方 */
+  App.musicClear();
+  App.musicPlaylists().length = 0;
+  const fabApp2 = openFresh('music');
+  (walk(fabApp2).find(n => n._class.has('music-fab')) || { click: function(){} }).click();
+  const items = walk(byId.phone).filter(n => n._class.has('sheet-item'));
+  ok('＋ 弹出来的是四项抽屉', items.length === 4, String(items.length));
+  ok('抽屉四项都在', ['导入本地音频', '导入歌单文件', '新建空歌单', '粘贴链接导入'].every(t =>
+    items.some(n => n.textContent.includes(t))));
+  ok('抽屉标题是「导入音乐」', walk(byId.phone).some(n => n._class.has('sheet-head') && n.textContent === '导入音乐'));
+  (sheetItem('新建空歌单') || { click: function(){} }).click();
+  const nameTa = walk(byId.phone).find(n => n.tagName === 'TEXTAREA');
+  ok('「新建空歌单」弹出起名输入框', !!nameTa);
+  if (nameTa) {
+    nameTa.value = '开车听';
+    (findBtn(byId.phone, '建好了') || { click: function(){} }).click();
+  }
+  ok('起好名字就建出了歌单', App.musicPlaylists().some(p => p.name === '开车听'),
+    JSON.stringify(App.musicPlaylists().map(p => p.name)));
+  ok('建完直接进歌单详情（能往里加歌）',
+    walk(byId.phone).some(n => n._class.has('music-detail-add')) || walk(byId.phone).some(n => n._class.has('music-empty')));
+  App.musicClear();
+  App.musicPlaylists().length = 0;
 
   /* ── 外卖：商家是让 AI 现生成的 ── */
   App.state.settings.apiBase = 'https://api.example.com/v1';   // askOnce 没配好会直接抛，先把接口配齐

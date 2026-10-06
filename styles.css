@@ -3892,3 +3892,51 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone .tag-sale,
 #phone .addr-act.danger { color: var(--danger); }
 
+/* ── 「我的」（个人中心）──
+   头像区用的是 --ink 的柔和渐变（不是写死的颜色）：浅色下是一层淡灰，
+   深色下自然变成一层淡白光晕，不用为主题再写一套。 */
+.music-me { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 110px; }
+.me-hero {
+  display: grid; gap: 10px; justify-items: center; padding: 26px 20px 20px;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--ink) 9%, transparent), transparent 76%);
+}
+.me-hero.about { padding-top: 30px; }
+.me-avatar {
+  display: grid; width: 84px; height: 84px; padding: 0; place-items: center; overflow: hidden;
+  border: 0; border-radius: 50%; background: var(--card); color: var(--ink);
+  box-shadow: 0 8px 22px rgba(44, 40, 36, .16); cursor: pointer;
+}
+.me-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.me-avatar-emoji { font-size: 40px; line-height: 1; }
+.me-name {
+  max-width: 100%; overflow: hidden; border: 0; background: none;
+  color: var(--ink); font: inherit; font-size: 18px; font-weight: 600;
+  text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.me-slogan { color: var(--ink-3); font-size: 12.5px; }
+.me-stats { display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); padding: 2px 16px 0; }
+.me-stat {
+  display: grid; gap: 2px; padding: 12px 8px; place-items: center;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+}
+.me-stat b { font-size: 16px; font-weight: 600; }
+.me-stat span { color: var(--ink-3); font-size: 11.5px; }
+.me-grid { display: grid; gap: 8px; grid-template-columns: repeat(4, 1fr); padding: 12px 16px 0; }
+.me-grid-btn {
+  display: grid; gap: 7px; padding: 14px 4px; place-items: center;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+  color: var(--ink); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.me-grid-btn:active { background: var(--card-2); }
+/* 圆角卡片里装一排 row：row 自带下边框，最后一条要去掉 */
+.music-card { margin: 12px 16px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+.music-card .row { padding: 13px 16px; }
+.music-card .row:last-child { border-bottom: 0; }
+/* 播放页标题行：标题 + 收藏心心。加在标题旁边，不动下面那排 5 个按钮 */
+.music-title-row { display: flex; max-width: 100%; align-items: center; justify-content: center; gap: 6px; }
+.music-fav {
+  display: grid; width: 30px; height: 30px; flex: 0 0 auto; padding: 0; place-items: center;
+  border: 0; border-radius: 50%; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer;
+}
+.music-fav.on { color: #ff5a7a; }
+.about-logo { display: grid; width: 72px; height: 72px; place-items: center; border-radius: 22px; background: var(--ink); color: var(--card); }

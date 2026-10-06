@@ -46,7 +46,9 @@ const ICON = {
   search: '<circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" />',
   plus: '<path d="M5 12h14" /> <path d="M12 5v14" />',
   close: '<path d="M18 6 6 18" /> <path d="m6 6 12 12" />',
-  check: '<path d="M20 6 9 17l-5-5" />',
+check: '<path d="M20 6 9 17l-5-5" />',
+  repeat: '<path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" />',
+  repeat1: '<path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /> <path d="M11 10h1v4" />',
   left: '<path d="m15 18-6-6 6-6" />',
   right: '<path d="m9 18 6-6-6-6" />',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" />',
@@ -160,7 +162,8 @@ function confirmBox(text, onOk) {
 
 /* 一句话输入面板。「想吃什么 / 想要什么」都走它 —— 与其做一套筛选 UI，
    不如让用户直接说一句，交给模型去理解。 */
-function askText(title, placeholder, hint, onSubmit) {
+function askText(title, placeholder, hint, onSubmit, okLabel) {
+
   let mask = null;
   const input = SJ.el('textarea', { class: 'field area sm', placeholder: placeholder || '' });
   const go = () => {
@@ -173,7 +176,7 @@ function askText(title, placeholder, hint, onSubmit) {
     SJ.el('div', { class: 'sheet-head' }, title),
     input,
     hint ? SJ.el('div', { class: 'hint' }, hint) : null,
-    SJ.el('button', { class: 'btn', onclick: go }, '就这些')
+SJ.el('button', { class: 'btn', onclick: go }, okLabel || '就这些')
   ].filter(Boolean));
   mask = sheet([], box);
   setTimeout(() => { if (input.focus) input.focus(); }, 60);
@@ -629,6 +632,23 @@ function getPlayer() {
   try { player = new Audio(); } catch (e) { player = null; }
   return player;
 }
+
+/* 睡眠定时。放模块作用域：播放器/页面会重画很多次，定时器必须比它们活得久。
+   到点只做一件事 —— 暂停。 */
+let sleepAt = 0, sleepTimer = null;
+function sleepSet(min) {
+  if (sleepTimer) { clearTimeout(sleepTimer); sleepTimer = null; }
+  const m = Number(min) || 0;
+  sleepAt = m > 0 ? Date.now() + m * 60000 : 0;
+  if (m > 0) sleepTimer = setTimeout(() => {
+    const a = getPlayer(); if (a) a.pause();
+    sleepAt = 0; sleepTimer = null;
+    toast('睡眠定时到，音乐停了');
+  }, m * 60000);
+  return sleepAt;
+}
+function sleepLeft() { return sleepAt ? Math.max(0, Math.ceil((sleepAt - Date.now()) / 60000)) : 0; }
+
 
 /* 设置/世界书共用的两种行：开关行、数字行 */
 /* 开关行：右边是一个真的滑动开关（用户：「不要只点一下就切换开关了，没有交互」）。
@@ -5592,13 +5612,14 @@ const APPS = [
            ])
          ]));
          const bar = nowCard(); if (bar) { bar.classList.add('music-mini-fixed'); bar.addEventListener('click', e => { if (!e.target.closest('button')) { const t = SJ.musicNow(); if (t) playerView(t.id); } }); root.append(bar); }
-        root.append(SJ.el('button', { class: 'music-fab', title: '导入', onclick: importView }, '+'));
+        root.append(SJ.el('button', { class: 'music-fab', title: '导入音乐', onclick: importSheet }, '+'));
         const all = SJ.musicTracks();
         if (!all.length) {
           root.append(emptyState('music', '你的音乐还没上车',
             '粘贴网易云公开歌单，或从手机导入音频。',
-            '粘贴歌单导入', importView));
-          musicShell();
+            '导入音乐', importSheet));
+          musicShell(listView);
+
           return;
         }
         const list = SJ.el('div', { class: 'music-list' });
@@ -5609,81 +5630,50 @@ const APPS = [
           const hit = q ? all.filter(t => (t.name + ' ' + (t.artist || '') + ' ' + (t.album || '')).toLowerCase().indexOf(q) >= 0) : all;
           list.innerHTML = '';
           if (!hit.length) { list.append(SJ.el('div', { class: 'music-empty' }, '没找到「' + raw + '」')); return; }
-          hit.forEach((t, index) => {
-            const on = SJ.state.music.now === t.id;
-            list.append(SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playerView(t.id) }, [
-              SJ.el('span', { class: 'music-track-no' }, String(index + 1).padStart(2, '0')),
-              SJ.el('span', { class: 'music-track-art', style: { backgroundImage: t.cover ? `url(${t.cover})` : '' }, html: t.cover ? '' : svg('music', 16) }),
-              SJ.el('span', { class: 'music-track-main' }, [
-                SJ.el('span', { class: 'music-track-title row-title' }, t.name),
-                SJ.el('span', { class: 'music-track-artist' }, [t.artist || '未知歌手', t.album ? ' · ' + t.album : ''])
-              ]),
-              SJ.el('span', { class: 'music-track-play', html: svg(on ? 'pause' : 'play', 16) }),
-              SJ.el('button', {
-                class: 'music-remove', title: '从歌单里删掉', html: '×',
-                onclick: ev => { ev.stopPropagation(); SJ.musicRemove(t.id); listView(); }
-              })
-            ]));
-          });
+          hit.forEach((t, index) => list.append(trackRow(t, index, SJ.el('button', {
+            class: 'music-remove', title: '从歌单里删掉', html: '×',
+            onclick: ev => { ev.stopPropagation(); SJ.musicRemove(t.id); listView(); }
+          }))));
+
         };
         searchBox.addEventListener('input', renderList);
         root.append(list);
         renderList();
-        musicShell();
+        musicShell(listView);
 
-        /* ── 从手机导入音乐 ──
-           字节进 IndexedDB（存档放不下音频），存档里只留 'idb:<id>'。
-           注意：它跟图片共用同一个字节仓 —— 「设置 → 存储」里清图片会一起清掉。
-           这是取舍：不为音频再开一个仓，省得两套清理逻辑。 */
-        const fileIn = SJ.el('input', {
-          type: 'file', accept: 'audio/*', multiple: true, style: { display: 'none' }
-        });
-        fileIn.addEventListener('change', async () => {
-          const files = Array.from(fileIn.files || []);
-          if (!files.length) return;
-          toast('读入 ' + files.length + ' 个文件…');
-          const add = [];
-          for (const f of files) {
-            try {
-              const ref = await SJ.putBlob(f);
-              if (!ref) continue;
-              add.push({
-                id: 'lf-' + Date.now().toString(36) + '-' + add.length,
-                name: String(f.name || '本地音乐').replace(/\.[^.]+$/, '').slice(0, 60),
-                artist: '本地',
-                url: ref
-              });
-            } catch (e) { /* 单个读不进来就跳过，别让整批失败 */ }
-          }
-          if (!add.length) { toast('这些文件读不进来'); return; }
-          SJ.musicAdd(add);
-          toast('加进来 ' + add.length + ' 首');
-          listView();
-        });
-        root.append(fileIn);
-        root.append(SJ.el('div', { class: 'pad music-import-pad' }, [
-          SJ.el('div', { class: 'row', onclick: () => fileIn.click() }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '从手机导入音乐'),
-              SJ.el('div', { class: 'row-sub' }, '选手机里的音频（mp3 / m4a / wav…），存在本机，不吃流量')
-            ]),
-            SJ.el('div', { class: 'row-time' }, '选择 ›')
-          ])
-        ]));
-        root.append(SJ.el('div', { class: 'pad' }, SJ.el('button', {
-          class: 'btn danger',
-          onclick: () => window.confirmBox('清空整个歌单？（只是从这个列表里去掉，文件不会被删）', () => { SJ.musicClear(); listView(); })
-        }, '清空歌单')));
+
+
       }
 
       function svgNode(n, size) { return SJ.el('span', { class: 'music-icon', html: svg(n, size) }); }
-       function musicShell() {
-         root.append(SJ.el('div', { class: 'music-bottom' }, [
-           SJ.el('button', { class: 'music-tab on', onclick: listView }, [svgNode('music', 18), SJ.el('span', {}, '音乐库')]),
-           SJ.el('button', { class: 'music-tab', onclick: playlistView }, [svgNode('folder', 18), SJ.el('span', {}, '歌单')]),
-           SJ.el('button', { class: 'music-tab', onclick: importView }, [svgNode('person', 18), SJ.el('span', {}, '我的')])
-         ]));
-       }
+        /* 底部三个 Tab。self 是「当前这页怎么重画」—— 一首放完自动接下一首时，
+           要重画的正是用户眼前这一屏（列表/歌单/我的…），不是写死的音乐库。 */
+        /* 一首放完自动接下一首。audio 只有一个，而页面会重画很多次 ——
+           每次渲染都把监听换成「当前这页怎么重画」那一份，后渲染的页面接管。 */
+        function bindEnded(again) {
+          if (!a) return;
+          if (a._ended) a.removeEventListener('ended', a._ended);
+          a._ended = () => {
+            const list = SJ.musicTracks(); if (!list.length) return;
+            const mode = SJ.state.settings.musicLoop || 'list';
+            if (mode === 'one') { a.currentTime = 0; a.play().catch(() => {}); return; }
+            const i = list.findIndex(x => x.id === SJ.state.music.now);
+            const nx = mode === 'shuffle' ? list[Math.floor(Math.random() * list.length)] : list[(Math.max(0, i) + 1) % list.length];
+            if (!nx) return;
+            SJ.musicSetNow(nx.id); loadTrack(nx); again(nx);
+          };
+          a.addEventListener('ended', a._ended);
+        }
+        function musicShell(self) {
+          bindEnded(self || listView);
+          root.append(SJ.el('div', { class: 'music-bottom' }, [
+
+            SJ.el('button', { class: 'music-tab on', onclick: listView }, [svgNode('music', 18), SJ.el('span', {}, '音乐库')]),
+            SJ.el('button', { class: 'music-tab', onclick: playlistView }, [svgNode('folder', 18), SJ.el('span', {}, '歌单')]),
+            SJ.el('button', { class: 'music-tab', onclick: meView }, [svgNode('user', 18), SJ.el('span', {}, '我的')])
+          ]));
+        }
+
 
        function playlistView() {
          root.innerHTML = '';
@@ -5710,10 +5700,12 @@ const APPS = [
            box.append(card);
          });
          if (!ps.length) box.append(emptyState('music', '还没有歌单', '导入网易云歌单后会出现在这里。', '去导入', importView));
-         root.append(box); musicShell();
-       }
+          root.append(box); musicShell(playlistView);
+        }
+
         function askDeletePlaylist(p) {
-          window.confirmBox('删除歌单「' + p.name + '」？（歌还在音乐库里，不会跟着删）', () => {
+          /* 删歌单 = 连里面的歌一起删（别的歌单也挂了同一首的会留下） */
+          confirmBox('删除歌单「' + p.name + '」？里面的歌会跟着一起删（同时挂在别的歌单上的会留下）。', () => {
             SJ.musicRemovePlaylist(p.id);
             toast('已删除「' + p.name + '」');
             playlistView();
@@ -5726,10 +5718,45 @@ const APPS = [
            SJ.el('div', { class: 'music-detail-cover', style: { backgroundImage: p.cover ? `url(${p.cover})` : '' }, html: p.cover ? '' : svg('music', 42) }),
            SJ.el('div', { class: 'music-detail-copy' }, [SJ.el('h2', {}, p.name), SJ.el('p', {}, (p.creator || '本地歌单') + ' · ' + p.tracks.length + ' 首')])
          ]));
-         const list = SJ.el('div', { class: 'music-list detail-list' });
-         p.tracks.map(id => SJ.musicTracks().find(t => t.id === id)).filter(Boolean).forEach((t,i) => list.append(SJ.el('button', { class: 'music-track', onclick: () => playerView(t.id) }, [SJ.el('span', { class:'music-track-no' }, String(i+1).padStart(2,'0')), SJ.el('span',{class:'music-track-art',style:{backgroundImage:t.cover?`url(${t.cover})`:''},html:t.cover?'':svg('music',16)}), SJ.el('span',{class:'music-track-main'},[SJ.el('span',{class:'music-track-title row-title'},t.name),SJ.el('span',{class:'music-track-artist'},t.artist||'未知歌手')]), SJ.el('span',{class:'music-track-play',html:svg('play',16)})])));
-         root.append(list); musicShell();
-       }
+          const addBtn = SJ.el('button', { class: 'music-detail-add', onclick: () => addToPlaylistView(pid) },
+            [svgNode('plus', 16), SJ.el('span', {}, '从音乐库加歌')]);
+          const mine = p.tracks.map(id => SJ.musicTracks().find(t => t.id === id)).filter(Boolean);
+          const list = SJ.el('div', { class: 'music-list detail-list' });
+          if (!mine.length) list.append(SJ.el('div', { class: 'music-empty' }, '这个歌单还是空的'));
+          else mine.forEach((t, i) => list.append(trackRow(t, i)));
+          root.append(addBtn, list);
+          musicShell(() => playlistDetail(pid));
+        }
+
+        /* 挑歌页：列出音乐库，点一下加进/移出这个歌单 */
+        function addToPlaylistView(pid) {
+          const p = SJ.musicPlaylist(pid); if (!p) return playlistView();
+          root.innerHTML = '';
+          root.append(navBar('加进「' + p.name + '」', { back: () => playlistDetail(pid) }));
+          const all = SJ.musicTracks();
+          const list = SJ.el('div', { class: 'music-list' });
+          if (!all.length) list.append(SJ.el('div', { class: 'music-empty' }, '音乐库还是空的'));
+          all.forEach((t, i) => {
+            /* ⚠️ 别在闭包里存一份 has —— 那只是渲染那一刻的值，点第二下传的还是 !false，
+               于是「加进歌单」点得动、「移出歌单」点不动。每次现查才盖得住两个方向。 */
+            const inList = () => p.tracks.indexOf(t.id) >= 0;
+            list.append(trackRow(t, i, SJ.el('button', {
+              class: 'music-pick' + (inList() ? ' on' : ''), title: inList() ? '移出歌单' : '加进歌单',
+              html: inList() ? svg('check', 16) : svg('plus', 16),
+              onclick: ev => {
+                ev.stopPropagation();
+                const on = SJ.musicPlaylistSetTrack(p.id, t.id, !inList());
+                ev.currentTarget.classList.toggle('on', on);
+                ev.currentTarget.innerHTML = on ? svg('check', 16) : svg('plus', 16);
+                ev.currentTarget.title = on ? '移出歌单' : '加进歌单';
+              }
+            })));
+          });
+          root.append(list);
+          musicShell(() => addToPlaylistView(pid));
+
+        }
+
         function playerView(trackId) {
           const tracks = SJ.musicTracks(), index = Math.max(0, tracks.findIndex(x => x.id === trackId));
           const t = tracks[index] || SJ.musicNow(); if (!t) return listView();
@@ -5790,10 +5817,12 @@ const APPS = [
           const loadLyrics = async () => {
             if (lyricText !== null) return paint(lyricText);
             if (!t.lrc) { lyricText = ''; return paint(''); }
-            if (!/^https?:/i.test(t.lrc)) { lyricText = t.lrc; return paint(lyricText); }   // 存的本来就是 LRC 文本
+            /* 三种来源：http(s) 地址、idb: 字节（导入的 .lrc 文件）、直接存下来的 LRC 文本 */
+            if (!/^(https?:|idb:|data:)/i.test(t.lrc)) { lyricText = t.lrc; return paint(lyricText); }
             lyricBox.innerHTML = '';
             lyricBox.append(SJ.el('div', { class: 'lyric-line empty' }, '歌词加载中…'));
-            try { const res = await fetch(t.lrc); lyricText = res.ok ? await res.text() : ''; }
+            try { const res = await fetch(SJ.imgSrc(t.lrc)); lyricText = res.ok ? await res.text() : ''; }
+
             catch (e) { lyricText = ''; }
             paint(lyricText);
           };
@@ -5813,43 +5842,42 @@ const APPS = [
           const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]);
           const play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]);
           const next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
-          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]);
+          /* 循环模式：点一下换一档，图标跟着换（列表循环/单曲循环/随机） */
+          const LOOP = { list: ['repeat', '列表循环'], one: ['repeat1', '单曲循环'], shuffle: ['shuffle', '随机播放'] };
+          const loopIcon = SJ.el('span', { html: svg((LOOP[SJ.state.settings.musicLoop] || LOOP.list)[0], 18) });
+          const loopBtn = SJ.el('button', { class: 'music-control', title: '循环模式', onclick: () => {
+            const order = ['list', 'one', 'shuffle'];
+            const k = order[(order.indexOf(SJ.state.settings.musicLoop) + 1) % order.length] || 'list';
+            SJ.state.settings.musicLoop = k; SJ.save();
+            loopIcon.innerHTML = svg(LOOP[k][0], 18);
+            toast(LOOP[k][1]);
+          } }, [loopIcon]);
+          const controls=SJ.el('div',{class:'music-controls'},[loopBtn,prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]);
+
           /* 内容包一层：矮屏上要能滚，但模糊背景不能跟着滚走，所以滚的是里面这层 */
           player.append(SJ.el('div', { class: 'music-body' }, [
             stage,
-            SJ.el('h2',{class:'music-player-title'},t.name),
+            SJ.el('div', { class: 'music-title-row' }, [
+              SJ.el('h2',{class:'music-player-title'},t.name),
+              SJ.el('button', { class: 'music-fav' + (t.fav ? ' on' : ''), title: t.fav ? '取消收藏' : '收藏', onclick: ev => {
+                ev.stopPropagation();
+                t.fav = SJ.musicToggleFav(t.id);
+                ev.currentTarget.classList.toggle('on', t.fav);
+              } }, [svgNode('heart', 17)])
+            ]),
             SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),
+
             progress, times, controls,
             SJ.el('div',{class:'music-flip-tip'},'点击封面或歌词切换')
           ]));
           root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player);
           if(a&&a._trackId!==t.id) loadTrack(t);
           syncPlayIcon();
+          bindEnded(nx => playerView(nx.id));
         }
-        function settingsView() {
-          root.innerHTML = '';
-          const input = SJ.el('input', { class: 'field', value: SJ.state.settings.netEaseApi || '', placeholder: 'https://你的域名/meting/' });
-          const save = () => { SJ.state.settings.netEaseApi = input.value.trim(); SJ.save(); };
-          /* 一键诊断：连不上时用户只会看到一句「跨域或网络拦截」，分不清是地址写错、
-             域名没解析、还是没带 CORS 头。这里真去拉一次热歌榜，把原因报出来。 */
-          const test = SJ.el('button', {
-            class: 'btn ghost',
-            onclick: async () => {
-              save();
-              test.disabled = true; test.textContent = '测试中…';
-              try {
-                const out = await SJ.importNetEasePlaylist('3778678');
-                test.textContent = '连接正常';
-                toast('接口正常：热歌榜 ' + out.tracks.length + ' 首');
-              } catch (e) {
-                test.textContent = '测试连接';
-                toast('连不上：' + ((e && e.message) || '网络错误'));
-              }
-              test.disabled = false;
-            }
-          }, '测试连接');
-          const saveBtn = SJ.el('button', { class: 'btn', onclick: () => { save(); toast('音乐设置已保存'); listView(); } }, '保存');
-          /* 播放页背景：跟随封面 / 内置几张 / 自己传一张。上传复用聊天背景那套 pickToStore。 */
+
+        /* 播放页背景：跟随封面 / 内置几张 / 自己传一张。上传复用聊天背景那套 pickToStore。 */
+        function bgStrip() {
           const strip = SJ.el('div', { class: 'music-bgs' });
           const drawBgs = () => {
             strip.innerHTML = '';
@@ -5875,17 +5903,351 @@ const APPS = [
             }, mine ? '' : '+'));
           };
           drawBgs();
-          root.append(navBar('音乐设置', { back: listView }), SJ.el('div', { class: 'pad' }, [
-            SJ.el('div', { class: 'field-wrap' }, [SJ.el('span', {}, '播放页背景'), strip]),
+          return strip;
+        }
+
+        /* 外观与主题：深色模式 + 播放页背景（背景选择器原来在「音乐设置」里，搬过来更顺） */
+        function lookView() {
+          root.innerHTML = '';
+          const S = SJ.state.settings;
+          const seg = SJ.el('div', { class: 'seg' }, [['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']].map(([k, label]) =>
+            SJ.el('button', {
+              class: (S.theme || 'light') === k ? 'on' : '',
+              onclick: () => {
+                S.theme = k; SJ.save();
+                if (window.SHELL) window.SHELL.applyLook();
+                lookView();
+              }
+            }, label)));
+          root.append(navBar('外观与主题', { back: meView }), SJ.el('div', { class: 'music-me' }, [
+            SJ.el('div', { class: 'group-title' }, '深色模式'),
+            seg,
+            SJ.el('div', { class: 'hint' }, '深色只改界面，不动你挑的壁纸和桌面图标。'),
+            SJ.el('div', { class: 'group-title' }, '播放页背景'),
+            SJ.el('div', { class: 'field-wrap' }, [bgStrip()]),
+            SJ.el('div', { class: 'hint' }, '跟随当前歌曲封面，或者挑一张内置的 / 从手机传一张。')
+          ]));
+          musicShell(lookView);
+        }
+
+        /* 接口设置：浏览器直连网易云会被跨域拦掉，这里配 Meting 兼容地址 */
+        function settingsView() {
+          root.innerHTML = '';
+          const input = SJ.el('input', { class: 'field', value: SJ.state.settings.netEaseApi || '', placeholder: 'https://你的域名/meting/' });
+          const save = () => { SJ.state.settings.netEaseApi = input.value.trim(); SJ.save(); };
+          /* 一键诊断：连不上时用户只会看到一句「跨域或网络拦截」，分不清是地址写错、
+             域名没解析、还是没带 CORS 头。这里真去拉一次热歌榜，把原因报出来。 */
+          const test = SJ.el('button', {
+            class: 'btn ghost',
+            onclick: async () => {
+              save();
+              test.disabled = true; test.textContent = '测试中…';
+              try {
+                const out = await SJ.importNetEasePlaylist('3778678');
+                test.textContent = '连接正常';
+                toast('接口正常：热歌榜 ' + out.tracks.length + ' 首');
+              } catch (e) {
+                test.textContent = '测试连接';
+                toast('连不上：' + ((e && e.message) || '网络错误'));
+              }
+              test.disabled = false;
+            }
+          }, '测试连接');
+          const saveBtn = SJ.el('button', { class: 'btn', onclick: () => { save(); toast('接口设置已保存'); meView(); } }, '保存');
+          root.append(navBar('接口设置', { back: meView }), SJ.el('div', { class: 'pad' }, [
             SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '网易云接口地址（Meting 兼容，留空用公共实例）'), input]),
             SJ.el('div', { class: 'hint' }, '浏览器直连网易云会被跨域拦掉。留空就行：会先试同源的 /api/netease（Cloudflare Pages 部署后自动生效），再试公共实例。要换自己的接口就填 Meting 的地址，例如 https://你的域名/meting/ （https 页面只能连 https 地址）。'),
             SJ.el('div', { style: { display: 'grid', gap: '8px', marginTop: '4px' } }, [test, saveBtn])
           ]));
         }
 
+        /* ── 我的（个人中心）──
+           复用全局的昵称/头像：settings.userName / myAvatarImg —— 不再另起一套「音乐昵称」，
+           用户改一个地方就够了。 */
+        const fmtListen = sec => {
+          const m = Math.floor((Number(sec) || 0) / 60);
+          return m < 60 ? m + ' 分' : Math.floor(m / 60) + ' 时 ' + (m % 60) + ' 分';
+        };
+        const loopName = () => ({ list: '列表循环', one: '单曲循环', shuffle: '随机播放' })[SJ.state.settings.musicLoop || 'list'];
+        const themeName = () => ({ light: '浅色', dark: '深色', auto: '跟随系统' })[SJ.state.settings.theme || 'light'];
+        const volNow = () => { const v = Number(SJ.state.settings.musicVol); return isFinite(v) ? v : 1; };
+
+        /* 列表行只写一份：音乐库、歌单详情、收藏、最近播放、挑歌页都走它 */
+        function trackRow(t, index, tail) {
+          const on = SJ.state.music.now === t.id;
+          return SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playerView(t.id) }, [
+            SJ.el('span', { class: 'music-track-no' }, String(index + 1).padStart(2, '0')),
+            SJ.el('span', { class: 'music-track-art', style: { backgroundImage: t.cover ? `url(${t.cover})` : '' }, html: t.cover ? '' : svg('music', 16) }),
+            SJ.el('span', { class: 'music-track-main' }, [
+              SJ.el('span', { class: 'music-track-title row-title' }, t.name),
+              SJ.el('span', { class: 'music-track-artist' }, [t.artist || '未知歌手', t.album ? ' · ' + t.album : ''])
+            ]),
+            SJ.el('span', { class: 'music-track-play', html: svg(on ? 'pause' : 'play', 16) }),
+            tail || null
+          ].filter(Boolean));
+        }
+        function trackListBox(tracks, emptyText) {
+          const box = SJ.el('div', { class: 'music-list' });
+          if (!tracks.length) box.append(SJ.el('div', { class: 'music-empty' }, emptyText));
+          else tracks.forEach((t, i) => box.append(trackRow(t, i)));
+          return box;
+        }
+        const rowGo = (title, sub, go) => SJ.el('div', { class: 'row', onclick: go }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, title),
+            sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+          ]),
+          SJ.el('div', { class: 'row-time' }, '\u203a')
+        ]);
+        const rowInfo = (title, sub) => SJ.el('div', { class: 'row' }, [
+          SJ.el('div', { class: 'row-main' }, [
+            SJ.el('div', { class: 'row-title' }, title),
+            sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+          ])
+        ]);
+        const gridBtn = (icon, label, go) => SJ.el('button', { class: 'me-grid-btn', onclick: go }, [svgNode(icon, 22), SJ.el('span', {}, label)]);
+        const statCard = (label, value) => SJ.el('div', { class: 'me-stat' }, [SJ.el('b', {}, value), SJ.el('span', {}, label)]);
+
+        function meView() {
+          root.innerHTML = '';
+          const S = SJ.state.settings;
+          const tracks = SJ.musicTracks(), pls = SJ.musicPlaylists();
+          root.append(SJ.el('div', { class: 'music-me' }, [
+            SJ.el('div', { class: 'me-hero' }, [
+              SJ.el('button', { class: 'me-avatar', title: '换头像', onclick: pickAvatar }, [
+                S.myAvatarImg ? SJ.el('img', { src: SJ.imgSrc(S.myAvatarImg), alt: '' })
+                              : SJ.el('span', { class: 'me-avatar-emoji' }, S.myAvatar || '\u{1F642}')
+              ]),
+              SJ.el('button', { class: 'me-name', title: '改昵称', onclick: renameMe }, S.userName || '我'),
+              SJ.el('div', { class: 'me-slogan' }, '让音乐陪伴你')
+            ]),
+            SJ.el('div', { class: 'me-stats' }, [
+              statCard('听歌时长', fmtListen(SJ.state.music.listened)),
+              statCard('歌曲', tracks.length + ' 首'),
+              statCard('歌单', pls.length + ' 个')
+            ]),
+            SJ.el('div', { class: 'me-grid' }, [
+              gridBtn('heart', '我的收藏', favView),
+              gridBtn('clock', '最近播放', recentView),
+              gridBtn('folder', '导入管理', importManageView),
+              gridBtn('timer', '睡眠定时', sleepView)
+            ]),
+            SJ.el('div', { class: 'music-card' }, [
+              rowGo('播放与音效', loopName() + ' \u00b7 音量 ' + Math.round(volNow() * 100) + '%', soundView),
+              rowGo('外观与主题', themeName() + (S.musicBg ? ' \u00b7 自定义背景' : ' \u00b7 背景跟随封面'), lookView),
+              rowGo('清理失效歌曲', '清掉放不出来的条目', cleanBroken),
+              rowGo('关于 ymusic', 'v1.0', aboutView)
+            ])
+          ]));
+          musicShell(meView);
+        }
+
+        function pickAvatar() {
+          const S = SJ.state.settings;
+          sheet([
+            { svg: 'image', label: '从相册选一张', hint: '方形图最合适', run: async () => {
+                const ref = await pickToStore(512, 0.85);
+                if (!ref) return;
+                S.myAvatarImg = ref; SJ.save(); toast('头像换好了'); meView();
+              } },
+            { svg: 'user', label: '用回默认表情', hint: S.myAvatar || '\u{1F642}', run: () => { S.myAvatarImg = ''; SJ.save(); meView(); } }
+          ], '换头像');
+        }
+        function renameMe() {
+          askText('改昵称', '你希望我叫你什么', '聊天里也用的是这个名字', v => {
+            SJ.state.settings.userName = v.slice(0, 12); SJ.save(); toast('改好了'); meView();
+          }, '就叫这个');
+        }
+        /* 失效 = 文件被清掉了 / 没链接。不联网试探：跨域音频服务器不给 CORS 时 fetch 也会失败，
+           那会把能放的歌误删（判断逻辑在 core 的 musicBroken 里）。 */
+        async function cleanBroken() {
+          const bad = await SJ.musicBroken();
+          if (!bad.length) { toast('没有失效的歌'); return; }
+          confirmBox('找到 ' + bad.length + ' 首放不出来的歌（本机文件被清掉了，或者没有链接），删掉它们？', () => {
+            SJ.musicRemoveTracks(bad.map(t => t.id));
+            toast('清掉 ' + bad.length + ' 首');
+            meView();
+          });
+        }
+
+        function favView() {
+          root.innerHTML = '';
+          root.append(navBar('我的收藏', { back: meView }));
+          root.append(trackListBox(SJ.musicTracks().filter(t => t.fav), '还没有收藏 \u2014\u2014 播放页点一下小心心'));
+          musicShell(favView);
+        }
+        function recentView() {
+          root.innerHTML = '';
+          root.append(navBar('最近播放', { back: meView }));
+          root.append(trackListBox(SJ.musicRecent(), '还没放过歌'));
+          musicShell(recentView);
+        }
+
+        function importManageView() {
+          root.innerHTML = '';
+          const tracks = SJ.musicTracks();
+          const local = tracks.filter(t => /^idb:/.test(String(t.url))).length;
+          root.append(navBar('导入管理', { back: meView }), SJ.el('div', { class: 'music-me' }, [
+            SJ.el('div', { class: 'hint' }, '音乐库 ' + tracks.length + ' 首，其中 ' + local + ' 首是本机文件（存在这个浏览器里，换设备不会跟着走）。'),
+            SJ.el('div', { class: 'music-card' }, [
+              rowGo('导入本地音频', '选手机里的 mp3 / m4a / wav', pickLocalAudio),
+              rowGo('导入歌单文件', 'json / txt / lrc', pickPlaylistFile),
+              rowGo('新建空歌单', '起个名字，之后再往里加歌', newPlaylist),
+              rowGo('粘贴链接导入', '网易云歌单链接、音频直链', importView)
+            ]),
+            SJ.el('div', { class: 'pad' }, SJ.el('button', {
+              class: 'btn danger',
+              onclick: () => confirmBox('清空整个音乐库？（只是从这个列表里去掉，本机文件不会被删）', () => { SJ.musicClear(); toast('音乐库清空了'); meView(); })
+            }, '清空音乐库'))
+          ]));
+          musicShell(importManageView);
+        }
+
+        /* 睡眠定时：模块作用域的定时器，不跟着页面重画走（见文件顶部 sleepSet/sleepLeft） */
+        function sleepView() {
+          root.innerHTML = '';
+          const pad = SJ.el('div', { class: 'music-me' });
+          const draw = () => {
+            pad.innerHTML = '';
+            const left = sleepLeft();
+            pad.append(
+              SJ.el('div', { class: 'hint' }, left ? '还有约 ' + left + ' 分钟自动停止播放。' : '到点自动暂停播放，适合睡前听。'),
+              SJ.el('div', { class: 'music-card' }, [0, 15, 30, 60, 90].map(m => rowGo(
+                m ? m + ' 分钟' : '关闭定时',
+                m ? '' : '现在就取消',
+                () => { sleepSet(m); toast(m ? m + ' 分钟后停止播放' : '已取消睡眠定时'); draw(); }
+              )))
+            );
+          };
+          draw();
+          root.append(navBar('睡眠定时', { back: meView }), pad);
+          musicShell(sleepView);
+        }
+
+        function soundView() {
+          root.innerHTML = '';
+          const S = SJ.state.settings;
+          const seg = SJ.el('div', { class: 'seg' }, [['list', '列表循环'], ['one', '单曲循环'], ['shuffle', '随机播放']].map(([k, label]) =>
+            SJ.el('button', {
+              class: (S.musicLoop || 'list') === k ? 'on' : '',
+              onclick: () => { S.musicLoop = k; SJ.save(); soundView(); }
+            }, label)));
+          const vol = SJ.el('input', { class: 'field', type: 'range', min: '0', max: '1', step: '0.05', value: String(volNow()) });
+          const volLab = SJ.el('div', { class: 'row-time' }, Math.round(volNow() * 100) + '%');
+          vol.addEventListener('input', () => {
+            const v = Number(vol.value);
+            volLab.textContent = Math.round(v * 100) + '%';
+            S.musicVol = v; SJ.save();
+            const au = getPlayer(); if (au) au.volume = v;
+          });
+          root.append(navBar('播放与音效', { back: meView }), SJ.el('div', { class: 'music-me' }, [
+            SJ.el('div', { class: 'group-title' }, '循环模式'),
+            seg,
+            SJ.el('div', { class: 'hint' }, '一首放完自动接下一首；单曲循环就一直重放这一首。'),
+            SJ.el('div', { class: 'group-title' }, '音量'),
+            SJ.el('div', { class: 'row' }, [SJ.el('div', { class: 'row-main' }, vol), volLab]),
+            SJ.el('div', { class: 'hint' }, '只影响这个 App 的播放，不动系统音量。')
+          ]));
+          musicShell(soundView);
+        }
+
+        function aboutView() {
+          root.innerHTML = '';
+          root.append(navBar('关于 ymusic', { back: meView }), SJ.el('div', { class: 'music-me' }, [
+            SJ.el('div', { class: 'me-hero about' }, [
+              SJ.el('div', { class: 'about-logo', html: svg('music', 30) }),
+              SJ.el('div', { class: 'me-name' }, 'ymusic'),
+              SJ.el('div', { class: 'me-slogan' }, '版本 1.0 \u00b7 本地优先的音乐播放器')
+            ]),
+            SJ.el('div', { class: 'music-card' }, [
+              rowInfo('音乐库', SJ.musicTracks().length + ' 首 \u00b7 ' + SJ.musicPlaylists().length + ' 个歌单'),
+              rowInfo('数据存在哪', '全部在这个浏览器里，不上传、不登录'),
+              rowInfo('歌单来源', '网易云公开歌单 / 音频直链 / 本机文件')
+            ]),
+            SJ.el('div', { class: 'hint' }, 'ymusic 是这台「虚拟手机」里的一个 App：不联网同步，歌和歌单都只存在本机。本机导入的音频和图片共用一份存储，在「设置 → 存储」里清图片会一起清掉。')
+          ]));
+          musicShell(aboutView);
+        }
+
+        /* ── 导入：右下角那个 + 弹出来的抽屉 ── */
+        function importSheet() {
+          sheet([
+            { svg: 'music', label: '导入本地音频', hint: 'mp3 / m4a / wav\u2026，存在本机', run: pickLocalAudio },
+            { svg: 'folder', label: '导入歌单文件', hint: 'json / txt / lrc', run: pickPlaylistFile },
+            { svg: 'plus', label: '新建空歌单', hint: '起个名字，之后再往里加歌', run: newPlaylist },
+            { svg: 'link', label: '粘贴链接导入', hint: '网易云歌单链接、音频直链', run: importView }
+          ], '导入音乐');
+        }
+        /* 本地音频进 IndexedDB（存档放不下音频），存档里只留 'idb:<id>'。
+           它跟图片共用同一个字节仓 —— 「设置 → 存储」里清图片会一起清掉，这是取舍。 */
+        function pickLocalAudio() {
+          const fileIn = SJ.el('input', { type: 'file', accept: 'audio/*,.mp3,.m4a,.wav,.flac,.aac,.ogg', multiple: true, style: { display: 'none' } });
+          fileIn.addEventListener('change', async () => {
+            const files = Array.from(fileIn.files || []);
+            if (!files.length) return;
+            toast('读入 ' + files.length + ' 个文件\u2026');
+            const add = [];
+            for (const f of files) {
+              try {
+                const ref = await SJ.putBlob(f);
+                if (!ref) continue;
+                add.push({ name: String(f.name || '本地音乐').replace(/\.[^.]+$/, '').slice(0, 60), artist: '本地', url: ref });
+              } catch (e) { /* 单个读不进来就跳过，别让整批失败 */ }
+            }
+            if (!add.length) { toast('这些文件读不进来'); return; }
+            SJ.musicAdd(add);
+            toast('加进来 ' + add.length + ' 首');
+            listView();
+          });
+          root.append(fileIn);
+          fileIn.click();
+        }
+        function pickPlaylistFile() {
+          const fileIn = SJ.el('input', { type: 'file', accept: '.json,.txt,.lrc,application/json,text/plain', style: { display: 'none' } });
+          fileIn.addEventListener('change', async () => {
+            const f = (fileIn.files || [])[0];
+            if (!f) return;
+            let text = '';
+            try { text = await f.text(); } catch (e) { toast('这个文件读不出来'); return; }
+            const out = SJ.parseImportFile(f.name, text);
+            if (out.kind === 'bad') { toast(out.reason); return; }
+            if (out.kind === 'lyrics') {
+              /* lrc 是歌词不是歌单：挂给正在放的那首（只存了一个 idb 引用，正文放存档里会撑爆） */
+              const now = SJ.musicNow() || (SJ.musicTracks().length === 1 ? SJ.musicTracks()[0] : null);
+              if (!now) { toast('歌词要挂给某一首歌 —— 先打开一首歌再导入'); return; }
+              const ref = await SJ.putBlob(new Blob([text], { type: 'text/plain' }));
+              if (!ref) { toast('这个歌词文件存不下'); return; }
+              now.lrc = ref; SJ.save();
+              toast('《' + now.name + '》的歌词配好了');
+              return;
+            }
+            if (out.kind === 'playlist') {
+              SJ.musicAddPlaylist(out);
+              toast('「' + (out.name || '导入的歌单') + '」导入 ' + out.tracks.length + ' 首');
+              playlistView();
+              return;
+            }
+            const n = SJ.musicAdd(out.tracks);
+            toast(n ? '导入了 ' + n + ' 首' : '这些歌都已经在列表里了');
+            if (n) listView();
+          });
+          root.append(fileIn);
+          fileIn.click();
+        }
+        function newPlaylist() {
+          askText('新建歌单', '比如：深夜开车', '建好之后从音乐库往里加歌', name => {
+            const pid = SJ.musicCreatePlaylist(name);
+            toast('建好了');
+            playlistDetail(pid);
+          }, '建好了');
+        }
+
         function loadTrack(t) {
         if (!a) { toast('这台设备不支持播放'); return; }
+        const v = Number(SJ.state.settings.musicVol);
+        a.volume = isFinite(v) && v >= 0 && v <= 1 ? v : 1;
         a.src = SJ.imgSrc(t.url);
+
         a._trackId = t.id;                       // 记住这首已经装进去了，再进播放器不用从头重放
         const p = a.play();
         if (p && p.catch) p.catch(() => toast('这首放不出来：链接可能失效，或者对方不允许跨域播放'));

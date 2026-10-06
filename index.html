@@ -1,32 +1,30 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#faf8f5">
-<!-- 这台手机是「浅色 + 自己一套深色壁纸」，不该让浏览器自作主张反色。
-     安卓 Chrome 的「自动深色」会整页反相，纸色被翻成深底、头像看着像负片。
-     注意：只有 `only light` 能挡住，写 `light` 没用（实测 rgb(33,32,30) vs rgb(250,248,245)）。 -->
+<!-- 杩欏彴鎵嬫満鏄€屾祬鑹?+ 鑷繁涓€濂楁繁鑹插绾搞€嶏紝涓嶈璁╂祻瑙堝櫒鑷綔涓诲紶鍙嶈壊銆?     瀹夊崜 Chrome 鐨勩€岃嚜鍔ㄦ繁鑹层€嶄細鏁撮〉鍙嶇浉锛岀焊鑹茶缈绘垚娣卞簳銆佸ご鍍忕湅鐫€鍍忚礋鐗囥€?     娉ㄦ剰锛氬彧鏈?`only light` 鑳芥尅浣忥紝鍐?`light` 娌＄敤锛堝疄娴?rgb(33,32,30) vs rgb(250,248,245)锛夈€?-->
 <meta name="color-scheme" content="only light">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="yphone">
-<meta name="description" content="运行在浏览器中的虚拟手机，支持角色卡、AI 对话、世界书与本地应用。">
-<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=ymusic9">
+<meta name="description" content="杩愯鍦ㄦ祻瑙堝櫒涓殑铏氭嫙鎵嬫満锛屾敮鎸佽鑹插崱銆丄I 瀵硅瘽銆佷笘鐣屼功涓庢湰鍦板簲鐢ㄣ€?>
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=ymusic10">
 <title>yphone</title>
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css?v=ymusic9">
-<!-- 默认那两张照片先拉起来：不然进桌面/锁屏会先闪一下白底再跳出来 -->
+<link rel="stylesheet" href="styles.css?v=ymusic10">
+<!-- 榛樿閭ｄ袱寮犵収鐗囧厛鎷夎捣鏉ワ細涓嶇劧杩涙闈?閿佸睆浼氬厛闂竴涓嬬櫧搴曞啀璺冲嚭鏉?-->
 <link rel="preload" as="image" href="img/wall-window.webp">
 <link rel="preload" as="image" href="img/wall-rain.webp">
 </head>
 <body>
 
-<!-- 桌面端把手机居中，屏幕小的时候直接铺满 -->
+<!-- 妗岄潰绔妸鎵嬫満灞呬腑锛屽睆骞曞皬鐨勬椂鍊欑洿鎺ラ摵婊?-->
 <div id="stage">
   <div id="phone">
 
-    <!-- ══ L2 虚拟系统层：状态栏 ══ -->
+    <!-- 鈺愨晲 L2 铏氭嫙绯荤粺灞傦細鐘舵€佹爮 鈺愨晲 -->
     <div id="statusbar">
       <span id="sb-clock">--:--</span>
       <span id="sb-notch"></span>
@@ -36,7 +34,7 @@
       </span>
     </div>
 
-    <!-- ══ 桌面 ══ -->
+    <!-- 鈺愨晲 妗岄潰 鈺愨晲 -->
     <div id="home">
       <div id="pages">
         <div class="page" data-page="0"></div>
@@ -47,27 +45,27 @@
       <div id="dock"></div>
     </div>
 
-    <!-- ══ L3 App 视图栈：app 全从这里挂载 ══ -->
+    <!-- 鈺愨晲 L3 App 瑙嗗浘鏍堬細app 鍏ㄤ粠杩欓噷鎸傝浇 鈺愨晲 -->
     <div id="stack"></div>
 
-    <!-- ══ 锁屏 ══ -->
+    <!-- 鈺愨晲 閿佸睆 鈺愨晲 -->
     <div id="lock">
       <div id="lock-time">--:--</div>
       <div id="lock-date"></div>
       <div id="lock-widgets"></div>
-      <div id="lock-hint">上滑解锁</div>
+      <div id="lock-hint">涓婃粦瑙ｉ攣</div>
       <div id="lock-quick"></div>
       <div id="lock-pad" hidden></div>
     </div>
 
-    <!-- ══ 底部小白条 ══ -->
+    <!-- 鈺愨晲 搴曢儴灏忕櫧鏉?鈺愨晲 -->
     <div id="homebar"></div>
 
   </div>
 </div>
 
-<script src="js/core.js?v=ymusic9"></script>
-<script src="js/apps.js?v=ymusic9"></script>
-<script src="js/app.js?v=ymusic9"></script>
+<script src="js/core.js?v=ymusic10"></script>
+<script src="js/apps.js?v=ymusic10"></script>
+<script src="js/app.js?v=ymusic10"></script>
 </body>
 </html>

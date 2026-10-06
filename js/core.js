@@ -223,6 +223,9 @@ const DEFAULTS = {
     chatBg: '',          // 聊天背景（图片仓引用），空 = 默认纸色；角色自己的 c.chatBg 优先
     /* 播放页背景：'' = 跟随歌曲封面；'img/...' = 内置；'idb:xxx' = 自己传的 */
     musicBg: '',
+    /* 播放行为：循环模式 + 音量。放 settings 不放 music —— 这是偏好，不是曲库数据 */
+    musicLoop: 'list',   // list | one | shuffle
+    musicVol: 1,
     readReceipt: true,   // 我的消息下面显示「已读 / 未读」
     /* 支付密码：4 位数字，空 = 不验（老用户和新用户默认都是空，
        不塞默认值 —— 突然弹一个谁都不知道的密码等于把钱锁死）。 */
@@ -264,9 +267,11 @@ const DEFAULTS = {
   addresses: [],         // [{id,name,phone,detail,tag,def}, ...]
   /* 音乐：歌单靠粘贴链接导入 */
   music: {
-    tracks: [],          // [{id,name,artist,album,cover,url}, ...]
+    tracks: [],          // [{id,name,artist,album,cover,lrc,url,fav}, ...]
     playlists: [],       // [{id,name,creator,cover,tracks:[trackId]}]
-    now: ''              // 当前播放的曲目 id
+    now: '',             // 当前播放的曲目 id
+    recent: [],          // 最近播放的曲目 id，新的在前
+    listened: 0          // 累计听歌秒数（「我的」页那个统计）
   },
   /* 桃桃商城：商品 AI 现生成，分类固定几大类（分类写死才搜得动，商品是活的） */
   mall: {
@@ -472,6 +477,10 @@ function migrate(saved) {
   out.settings.chatBg = bgOk(out.settings.chatBg);
   /* 播放页背景多认一种：内置素材是相对路径（img/...），bgOk 会把它当垃圾丢掉 */
   out.settings.musicBg = /^(idb:[\w-]+|data:image\/|https?:|img\/)/.test(String(out.settings.musicBg || '')) ? String(out.settings.musicBg) : '';
+  /* 循环模式和音量也是存档边界：老存档没这两个键，乱值要退回默认 */
+  out.settings.musicLoop = ['list', 'one', 'shuffle'].indexOf(out.settings.musicLoop) >= 0 ? out.settings.musicLoop : 'list';
+  const mvol = Number(out.settings.musicVol);
+  out.settings.musicVol = isFinite(mvol) && mvol >= 0 && mvol <= 1 ? mvol : 1;
 
   /* 支付密码：只认 4 位数字，其它（含 null/对象）一律当没设。
      用字面量 4 —— 这里是 migrate 链路，绝不能引用文件后面声明的 const（TDZ 会把整个存档清空）。 */
@@ -2813,7 +2822,8 @@ function normalizeTracks(raw) {
       album: String(t.album || '').slice(0, NAME_MAX),
       cover: String(t.cover || '').slice(0, 300),
       lrc: String(t.lrc || '').slice(0, 300),
-      url: String(t.url)
+      url: String(t.url),
+      fav: t.fav === true
     }));
 }
 
@@ -3342,6 +3352,13 @@ const MUSIC_BGS = [
   { name: '车窗外', img: 'img/musicbg-window.webp' }
 ];
 function musicTracks() { return state.music.tracks; }
+/* 最近播放只留还存在的歌，最多 50 条 —— 删掉的歌不该在历史里留个洞 */
+function musicRecent() {
+  const ids = Array.isArray(state.music.recent) ? state.music.recent : [];
+  const by = {};
+  state.music.tracks.forEach(t => { by[t.id] = t; });
+  return ids.map(id => by[id]).filter(Boolean);
+}
 function normalizePlaylists(raw, legacyTracks) {
   return (Array.isArray(raw) ? raw : []).filter(p => p && typeof p === 'object').slice(0, 100).map((p, i) => ({
     id: String(p.id || 'pl-' + i), name: String(p.name || '未命名歌单').slice(0, 80), creator: String(p.creator || '').slice(0, 60), cover: String(p.cover || '').slice(0, 300), tracks: (Array.isArray(p.tracks) ? p.tracks : []).map(String).slice(0, 500)
@@ -3366,6 +3383,17 @@ function musicAddPlaylist(data) {
   musicPlaylists().push(out); save(); return out.id;
 }
 function musicPlaylist(id) { return musicPlaylists().find(p => p.id === String(id)) || null; }
+/* 往歌单里加减一首歌。新建的空歌单要靠它填上内容，不然建了也没用。 */
+function musicPlaylistSetTrack(pid, tid, on) {
+  const p = musicPlaylist(pid);
+  if (!p) return false;
+  const id = String(tid);
+  const has = p.tracks.indexOf(id) >= 0;
+  if (on && !has) p.tracks.push(id);
+  if (!on && has) p.tracks = p.tracks.filter(x => x !== id);
+  if (has !== !!on) { save(); return !!on; }
+  return has;
+}
 /* 删歌单 = 连里面的歌一起删（不然音乐库只进不出）。
    但同一首歌可能还挂在别的歌单上 —— 那种留着，别把别的歌单掏空。 */
 function musicRemovePlaylist(id) {
@@ -3404,22 +3432,71 @@ function musicAdd(list) {
     const key = t.url || String(t.name) + '\u0000' + String(t.artist || '');
     if (have.has(key)) return;   // 同一条链接或同名同歌手只进一次
     have.add(key);
-    state.music.tracks.push({ id: uid(), name: String(t.name || '未命名').slice(0, NAME_MAX), artist: String(t.artist || '').slice(0, NAME_MAX), album: String(t.album || '').slice(0, NAME_MAX), cover: String(t.cover || '').slice(0, 300), lrc: String(t.lrc || '').slice(0, 300), url: String(t.url) });
+    state.music.tracks.push({ id: uid(), name: String(t.name || '未命名').slice(0, NAME_MAX), artist: String(t.artist || '').slice(0, NAME_MAX), album: String(t.album || '').slice(0, NAME_MAX), cover: String(t.cover || '').slice(0, 300), lrc: String(t.lrc || '').slice(0, 300), url: String(t.url), fav: t.fav === true });
     n++;
   });
   if (n) save();
   return n;
 }
-function musicRemove(id) {
+function musicRemove(id) { return musicRemoveTracks([id]); }
+/* 一次删多首。歌单里的 id 也一起摘掉：留着的话歌单卡片会显示「5 首」但只列出 3 首。 */
+function musicRemoveTracks(ids) {
+  const gone = new Set((Array.isArray(ids) ? ids : [ids]).map(String));
   const before = state.music.tracks.length;
-  state.music.tracks = state.music.tracks.filter(t => t.id !== id);
-  if (state.music.now === id) state.music.now = '';
-  if (state.music.tracks.length !== before) save();
-  return before - state.music.tracks.length;
+  state.music.tracks = state.music.tracks.filter(t => !gone.has(t.id));
+  state.music.recent = (Array.isArray(state.music.recent) ? state.music.recent : []).filter(id => !gone.has(id));
+  musicPlaylists().forEach(p => { p.tracks = p.tracks.filter(id => !gone.has(id)); });
+  if (gone.has(state.music.now)) state.music.now = '';
+  const n = before - state.music.tracks.length;
+  if (n) save();
+  return n;
 }
-function musicClear() { state.music.tracks = []; state.music.now = ''; save(); }
+function musicClear() { state.music.tracks = []; state.music.now = ''; state.music.recent = []; save(); }
 function musicNow() { return state.music.tracks.find(t => t.id === state.music.now) || null; }
-function musicSetNow(id) { state.music.now = String(id || ''); save(); return musicNow(); }
+function musicSetNow(id) {
+  state.music.now = String(id || '');
+  if (state.music.now) {
+    state.music.recent = [state.music.now].concat((Array.isArray(state.music.recent) ? state.music.recent : []).filter(x => x !== state.music.now)).slice(0, 50);
+  }
+  save();
+  return musicNow();
+}
+/* 收藏开关，返回切换后的值 */
+function musicToggleFav(id) {
+  const t = state.music.tracks.find(x => x.id === String(id));
+  if (!t) return false;
+  t.fav = !t.fav;
+  save();
+  return t.fav;
+}
+/* 新建空歌单：名字空着就叫「新歌单」 */
+function musicCreatePlaylist(name) {
+  const out = { id: uid(), name: String(name || '').trim().slice(0, 80) || '新歌单', creator: '', cover: '', tracks: [] };
+  musicPlaylists().push(out);
+  save();
+  return out.id;
+}
+/* 听歌时长累加。timeupdate 每秒都来，所以这里不存盘 —— 由调用方按节流去 save() */
+function musicListen(sec) {
+  const n = Number(sec);
+  if (!isFinite(n) || n <= 0) return state.music.listened || 0;
+  state.music.listened = Math.min(86400 * 365, Number(state.music.listened || 0) + n);
+  return state.music.listened;
+}
+/* 失效的歌：没有链接，或者链接指向的字节已经不在仓里（清图片会连音频一起清掉 —— 共用同一个仓）。
+   不去联网试探：跨域音频服务器不给 CORS 时 fetch 也会失败，那样会把能放的歌误删。 */
+async function musicBroken() {
+  const all = await idbAll();
+  const have = all ? new Set(all.keys.map(String)) : null;   // null = 仓读不到，idb: 那类就不判
+  return state.music.tracks.filter(t => {
+    const u = String(t.url || '');
+    if (!u) return true;                    // 没链接：不用查仓就知道是坏的
+    if (!have) return false;                // 仓读不到就别猜，宁可漏报也不能误删
+    if (u.slice(0, IMG_REF.length) !== IMG_REF) return false;
+    return !have.has(u.slice(IMG_REF.length));
+  });
+}
+
 
 /* 歌单解析：纯函数，方便测。认三种常见贴法 ——
    1) 每行「歌名 - 歌手 | https://…」
@@ -3455,6 +3532,26 @@ function parsePlaylist(text) {
   return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
 }
 
+/* 导入文件的解析：json / lrc / txt（含 m3u）。
+   读文件那一层只负责把文本递进来，判断逻辑全在这儿，方便自检。 */
+function parseImportFile(fileName, text) {
+  const body = String(text || '');
+  const head = body.replace(/^\uFEFF/, '').trim();
+  const ext = ((String(fileName || '').match(/\.([a-z0-9]+)$/i) || [])[1] || '').toLowerCase();
+  if (ext === 'lrc' || /^\[\d{1,3}:\d{2}/m.test(head)) return { kind: 'lyrics', text: body };
+  if (ext === 'json' || head.charAt(0) === '[' || head.charAt(0) === '{') {
+    let data = null;
+    try { data = JSON.parse(head); } catch (e) { return { kind: 'bad', reason: '这个 json 读不出来' }; }
+    const list = Array.isArray(data) ? data : (data && Array.isArray(data.tracks) ? data.tracks : null);
+    if (!list) return { kind: 'bad', reason: 'json 里没找到歌曲数组' };
+    const tracks = list.map(t => (typeof t === 'string' ? { url: t } : t)).filter(t => t && (t.url || t.name));
+    if (!tracks.length) return { kind: 'bad', reason: 'json 里没有能用的歌' };
+    return { kind: 'playlist', name: String((data && data.name) || '').slice(0, 80), creator: String((data && data.creator) || '').slice(0, 60), cover: String((data && data.cover) || '').slice(0, 300), tracks };
+  }
+  const tracks = parsePlaylist(body);
+  if (tracks.length) return { kind: 'tracks', tracks };
+  return { kind: 'bad', reason: '没找到能认的歌曲链接' };
+}
 function playlistNameFromInput(input) { const m = String(input || '').match(/(?:分享歌单|歌单)\s*[:：]?\s*([^\n]+?)\s+https?:\/\//i); return m ? m[1].replace(/[。．.、，,]+$/, '').trim().slice(0, 80) : ''; }
 function netEasePlaylistId(input) {
   const raw = String(input || '').trim();
@@ -4851,7 +4948,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, MUSIC_BGS, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, MUSIC_BGS, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, musicPlaylistSetTrack, matchLocalTrack, musicAdd, musicRemove, musicRemoveTracks, musicToggleFav, musicCreatePlaylist, musicListen, musicRecent, musicBroken, parseImportFile, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

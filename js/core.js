@@ -2806,6 +2806,8 @@ function normalizeTracks(raw) {
       id: String(t.id || ('tk-' + i)),
       name: String(t.name || '未命名').slice(0, NAME_MAX),
       artist: String(t.artist || '').slice(0, NAME_MAX),
+      album: String(t.album || '').slice(0, NAME_MAX),
+      cover: String(t.cover || '').slice(0, 300),
       url: String(t.url)
     }));
 }

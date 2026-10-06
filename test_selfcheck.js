@@ -2464,6 +2464,26 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
 
   ok('存档里只留 http(s) 链接的歌', App.normalizeTracks([{ name: 'x', url: 'ftp://a' }, { name: 'y', url: 'https://b' }]).length === 1);
 
+  /* ── 封面 ──
+     normalizeTracks 以前只留 id/name/artist/url，封面和专辑名一存盘就没了。 */
+  const withCover = App.normalizeTracks([{ name: 'x', url: 'https://a/b.mp3', album: '专辑A', cover: 'https://img/c.jpg' }])[0];
+  ok('存盘后封面和专辑名都还在', withCover.cover === 'https://img/c.jpg' && withCover.album === '专辑A',
+    JSON.stringify(withCover));
+  App.musicClear();
+  App.musicAdd([{ name: '有封面', artist: '谁', album: '专辑A', cover: 'https://img/c.jpg', url: 'https://a.test/c.mp3' }]);
+  App.musicSetNow(App.musicTracks()[0].id);
+  const cvApp = openFresh('music');
+  ok('迷你播放条用的是当前歌曲封面', walk(cvApp).some(n => n._class.has('np-art') && /c\.jpg/.test(String(n.style.backgroundImage))),
+    (walk(cvApp).find(n => n._class.has('np-art')) || {}).textContent);
+  ok('歌曲列表每行带封面缩略图', walk(cvApp).some(n => n._class.has('music-track-art') && /c\.jpg/.test(String(n.style.backgroundImage))));
+  App.musicAddPlaylist({ name: '封面歌单', cover: 'https://img/p.jpg', tracks: [{ name: '有封面', artist: '谁', cover: 'https://img/c.jpg', url: 'https://a.test/c.mp3' }] });
+  const plApp = openFresh('music');
+  const plTab = walk(plApp).find(n => n.textContent.trim() === '歌单' && n.tagName === 'BUTTON');
+  if (plTab) plTab.click();
+  const plCard = walk(plApp).find(n => n._class.has('music-playlist') && /封面歌单/.test(n.textContent));   // 别抓到上一轮测试留下的那张卡
+  if (plCard) plCard.click();
+  ok('歌单详情每行也带封面', walk(plApp).some(n => n._class.has('music-track-art') && /c\.jpg/.test(String(n.style.backgroundImage))));
+
   /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */
   App.musicClear();                    // 空态才有那个「粘贴歌单导入」按钮
   const muApp = openFresh('music');

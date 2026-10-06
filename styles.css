@@ -3293,6 +3293,7 @@ input.field[type="range"]::-webkit-slider-thumb {
   transition: color var(--dur-2) var(--ease-soft);
 }
 .np-art.on { color: var(--ink); }
+.np-art.has-art { background-position: center; background-size: cover; box-shadow: none; }
 .np-main { flex: 1 1 auto; min-width: 0; }
 .np-title { font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .np-sub { margin-top: 2px; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3312,6 +3313,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .music-track:hover, .music-track.on { background: color-mix(in srgb, var(--accent-solid) 12%, var(--card)); }
 .music-track:active { transform: scale(.985); }
 .music-track-no { width: 24px; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.music-track-art { display: grid; flex: 0 0 40px; height: 40px; place-items: center; overflow: hidden; border-radius: 12px; background: var(--bg-2) center/cover; color: var(--ink-3); }
 .music-track-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .music-track-title { overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .music-track-artist { overflow: hidden; color: var(--ink-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

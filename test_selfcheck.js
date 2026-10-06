@@ -2448,6 +2448,48 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   const musicGear = walk(playerApp).find(n => n.attrs && n.attrs.title === '设置'); if (musicGear) musicGear.click();
   ok('音乐设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('音乐设置')));
 
+  /* 网易云接口：公共实例服务端是通的，浏览器里挂在跨域上。
+     设置页要能自己判断填的地址对不对，别让用户靠猜。 */
+  const setApp = openFresh('music');
+  const gearBtn = walk(setApp).find(n => n.attrs && n.attrs.title === '设置');
+  if (gearBtn) gearBtn.click();
+  const addrIn = walk(setApp).find(n => n.attrs && n.attrs.placeholder && /meting/i.test(n.attrs.placeholder));
+  ok('音乐设置里能填网易云接口地址', !!addrIn);
+  if (addrIn) addrIn.value = 'https://my.test/meting/';
+  fetchImpl = () => Promise.resolve(mockRes(true, [{ name: '歌', artist: '人', url: 'https://a.test/b.mp3', pic: 'https://i.test/c.jpg' }]));
+  const testBtn = findBtn(setApp, '测试连接');
+  ok('设置页有「测试连接」', !!testBtn);
+  if (testBtn) testBtn.click();
+  await waitFor(() => testBtn && testBtn.textContent !== '测试连接' && testBtn.textContent !== '测试中…', 2000);
+  ok('测试连接会连一次并报成功', App.state.settings.netEaseApi === 'https://my.test/meting/' && /正常/.test(testBtn ? testBtn.textContent : ''),
+    (testBtn ? testBtn.textContent : '') + ' / ' + App.state.settings.netEaseApi);
+  fetchImpl = () => Promise.reject(new Error('Failed to fetch'));
+  if (testBtn) testBtn.click();
+  await waitFor(() => testBtn && testBtn.textContent === '测试连接', 2000);
+  ok('连不上时按钮回到可再试的状态', testBtn && testBtn.textContent === '测试连接' && testBtn.disabled !== true);
+
+  /* 兜底链：api.allorigins.win 已经挂了（520），靠它兜底等于没兜底。
+     同源 /api/netease（Cloudflare Pages Function）应该排在前面。 */
+  const tried = [];
+  fetchImpl = url => {
+    tried.push(url);
+    return url.startsWith('/api/') ? Promise.resolve(mockRes(true, [{ name: '歌', artist: '人', url: 'https://a.test/b.mp3' }]))
+      : Promise.reject(new Error('Failed to fetch'));
+  };
+  App.state.settings.netEaseApi = '';
+  let chainOut = { tracks: [] };
+  try { chainOut = await App.importNetEasePlaylist('3778678'); } catch (e) { chainOut = { tracks: [], err: e.message }; }
+  ok('直连失败会落到同源 /api/netease', tried.some(u => u.indexOf('/api/netease') === 0) && chainOut.tracks.length === 1, tried.join(' | '));
+  ok('同源接口排在最前面（部署了就自动用上）', tried[0].indexOf('/api/netease') === 0, tried.join(' | '));
+  ok('不再依赖已挂掉的 allorigins 代理', !tried.some(u => /allorigins/.test(u)), tried.join(' | '));
+  App.state.settings.netEaseApi = 'https://my.test/meting/';
+  fetchImpl = url => { tried.push(url); return Promise.reject(new Error('Failed to fetch')); };
+  tried.length = 0;
+  let chainErr = '';
+  try { await App.importNetEasePlaylist('3778678'); } catch (e) { chainErr = e.message; }
+  ok('全部失败时报的是可操作的原因', /同源|跨域/.test(chainErr), chainErr);
+  ok('自己填的地址仍然优先', /^https:\/\/my\.test\/meting\?server=netease&type=playlist/.test(tried[0] || ''), tried.join(' | '));
+
   /* 暂停键：以前 togglePlay 结尾调 listView()，点一下整个播放器就被重画掉，
      看着就是「暂停没用/跳回首页」。垫片补了 Audio 之后这条才真的跑得进来。 */
   const playApp2 = openFresh('music');

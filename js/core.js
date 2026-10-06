@@ -3444,13 +3444,17 @@ async function importNetEasePlaylist(input) {
   const id = netEasePlaylistId(input);
   if (!id) throw new Error('没认出网易云公开歌单链接');
   const custom = String(state.settings.netEaseApi || '').replace(/\/+$/, '');
-  const target = (custom || 'https://api.injahow.cn/meting') + '?server=netease&type=playlist&id=' + encodeURIComponent(id);
-  /* 浏览器直连常被 CORS 拦截；同源/自建代理优先，公共只读代理作为最后兜底。 */
-  const urls = [target, 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target)];
+  /* 按顺序试三个地址：
+     1) 自己填的地址（自建 Meting 等）
+     2) 同源 /api/netease —— Cloudflare Pages Function，部署了就自动用上，同源不受跨域限制
+     3) 公共 Meting 实例（服务端可用，但浏览器直连要看它给不给 CORS 头）
+     以前拿 api.allorigins.win 当兜底，实测它已经长期 520 挂掉，等于没兜底，去掉。 */
+  const query = '?server=netease&type=playlist&id=' + encodeURIComponent(id);
+  const bases = Array.from(new Set([custom, '/api/netease', 'https://api.injahow.cn/meting'].filter(Boolean)));
   let data = null, lastError = null;
-  for (const url of urls) {
+  for (const base of bases) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(base + query);
       if (!res.ok) { lastError = new Error('HTTP ' + res.status); continue; }
       data = await res.json(); break;
     } catch (e) { lastError = e; }

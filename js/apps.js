@@ -5707,7 +5707,36 @@ const APPS = [
           const syncPlayIcon=()=>{playIcon.innerHTML=svg(a&&!a.paused&&a.src?'pause':'play',24)}; const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]), playIcon=SJ.el('span',{html:svg('play',24)}), play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]), next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
           const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]); player.append(disc,lyricBox,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面切换歌词')); root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player); if(a&&a._trackId!==t.id) loadTrack(t); syncPlayIcon();
         }
-        function settingsView(){root.innerHTML='';const input=SJ.el('input',{class:'field',value:SJ.state.settings.netEaseApi||'',placeholder:'网易云代理地址（可选）'});root.append(navBar('音乐设置',{back:listView}),SJ.el('div',{class:'pad'},[SJ.el('label',{class:'field-wrap'},[SJ.el('span',{},'网易云代理地址'),input]),SJ.el('button',{class:'btn',onclick:()=>{SJ.state.settings.netEaseApi=input.value.trim();SJ.save();toast('音乐设置已保存')}},'保存')]));}
+        function settingsView() {
+          root.innerHTML = '';
+          const input = SJ.el('input', { class: 'field', value: SJ.state.settings.netEaseApi || '', placeholder: 'https://你的域名/meting/' });
+          const save = () => { SJ.state.settings.netEaseApi = input.value.trim(); SJ.save(); };
+          /* 一键诊断：连不上时用户只会看到一句「跨域或网络拦截」，分不清是地址写错、
+             域名没解析、还是没带 CORS 头。这里真去拉一次热歌榜，把原因报出来。 */
+          const test = SJ.el('button', {
+            class: 'btn ghost',
+            onclick: async () => {
+              save();
+              test.disabled = true; test.textContent = '测试中…';
+              try {
+                const out = await SJ.importNetEasePlaylist('3778678');
+                test.textContent = '连接正常';
+                toast('接口正常：热歌榜 ' + out.tracks.length + ' 首');
+              } catch (e) {
+                test.textContent = '测试连接';
+                toast('连不上：' + ((e && e.message) || '网络错误'));
+              }
+              test.disabled = false;
+            }
+          }, '测试连接');
+          const saveBtn = SJ.el('button', { class: 'btn', onclick: () => { save(); toast('音乐设置已保存'); listView(); } }, '保存');
+          root.append(navBar('音乐设置', { back: listView }), SJ.el('div', { class: 'pad' }, [
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '网易云接口地址（Meting 兼容，留空用公共实例）'), input]),
+            SJ.el('div', { class: 'hint' }, '浏览器直连网易云会被跨域拦掉。留空就行：会先试同源的 /api/netease（Cloudflare Pages 部署后自动生效），再试公共实例。要换自己的接口就填 Meting 的地址，例如 https://你的域名/meting/ （https 页面只能连 https 地址）。'),
+            SJ.el('div', { style: { display: 'grid', gap: '8px', marginTop: '4px' } }, [test, saveBtn])
+          ]));
+        }
+
         function loadTrack(t) {
         if (!a) { toast('这台设备不支持播放'); return; }
         a.src = SJ.imgSrc(t.url);

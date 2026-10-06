@@ -2413,8 +2413,14 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   const tk = App.musicTracks()[0];
   App.musicSetNow(tk.id);
   ok('能设为正在播放', !!App.musicNow() && App.musicNow().id === tk.id);
+
   App.musicRemove(tk.id);
   ok('删掉正在播的那首，now 也一起清掉', App.musicTracks().length === 2 && App.musicNow() === null);
+  const pid = App.musicAddPlaylist({ name: 'Memory', creator: '四日又山雨_', cover: 'https://img.test/c.jpg', tracks: [{ name: '夜航', artist: '某某', url: 'https://a.test/night.mp3' }] });
+  ok('歌单完整保存名称封面和歌曲', !!pid && App.musicPlaylists().some(p => p.name === 'Memory' && p.tracks.length === 1 && p.creator === '四日又山雨_'), JSON.stringify(App.musicPlaylists()));
+  const lrc = App.parseLRC('[00:01.20]第一句\n[00:03.00]第二句');
+  ok('LRC 歌词能解析时间和文本', lrc.length === 2 && lrc[0].time === 1.2 && lrc[1].text === '第二句', JSON.stringify(lrc));
+
   ok('存档里只留 http(s) 链接的歌', App.normalizeTracks([{ name: 'x', url: 'ftp://a' }, { name: 'y', url: 'https://b' }]).length === 1);
 
   /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */

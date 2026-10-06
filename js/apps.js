@@ -5582,10 +5582,16 @@ const APPS = [
 
       function listView() {
         root.innerHTML = '';
-        root.append(navBar('正在听', {
-          right: SJ.el('button', { class: 'nav-btn', title: '导入歌单', html: svg('link', 17), onclick: importView })
-        }));
-        const bar = nowCard(); if (bar) root.append(bar);
+        root.append(SJ.el('div', { class: 'ymusic-head' }, [
+           SJ.el('button', { class: 'nav-btn back ymusic-back', onclick: () => window.SHELL && window.SHELL.closeTop() }, '返回'),
+           SJ.el('div', { class: 'ymusic-brand' }, 'ymusic'),
+           SJ.el('div', { class: 'ymusic-search-row' }, [
+             SJ.el('label', { class: 'ymusic-search' }, [SJ.el('span', { html: svg('search', 17) }), SJ.el('input', { type: 'search', placeholder: '搜索歌曲、歌手、专辑' })]),
+             SJ.el('button', { class: 'ymusic-settings', title: '设置', onclick: () => window.SHELL && window.SHELL.openApp('settings') }, [SJ.el('span', { html: svg('gear', 18) })])
+           ])
+         ]));
+         const bar = nowCard(); if (bar) { bar.classList.add('music-mini-fixed'); bar.addEventListener('click', e => { if (!e.target.closest('button')) { const t = SJ.musicNow(); if (t) playerView(t.id); } }); root.append(bar); }
+        root.append(SJ.el('button', { class: 'music-fab', title: '导入', onclick: importView }, '+'));
         const tracks = SJ.musicTracks();
         if (!tracks.length) {
           root.append(emptyState('music', '你的音乐还没上车',
@@ -5661,10 +5667,45 @@ const APPS = [
       function svgNode(n, size) { return SJ.el('span', { class: 'music-icon', html: svg(n, size) }); }
        function musicShell() {
          root.append(SJ.el('div', { class: 'music-bottom' }, [
-           SJ.el('button', { class: 'music-tab on', onclick: listView }, [svgNode('music', 18), SJ.el('span', {}, '首页')]),
-           SJ.el('button', { class: 'music-tab', onclick: listView }, [svgNode('folder', 18), SJ.el('span', {}, '歌单')]),
+           SJ.el('button', { class: 'music-tab on', onclick: listView }, [svgNode('music', 18), SJ.el('span', {}, '音乐库')]),
+           SJ.el('button', { class: 'music-tab', onclick: playlistView }, [svgNode('folder', 18), SJ.el('span', {}, '歌单')]),
            SJ.el('button', { class: 'music-tab', onclick: importView }, [svgNode('person', 18), SJ.el('span', {}, '我的')])
          ]));
+       }
+
+       function playlistView() {
+         root.innerHTML = '';
+         root.append(navBar('歌单', { back: listView }));
+         const ps = SJ.musicPlaylists();
+         const box = SJ.el('div', { class: 'music-playlists' });
+         ps.forEach(p => box.append(SJ.el('button', { class: 'music-playlist', onclick: () => playlistDetail(p.id) }, [
+           SJ.el('div', { class: 'music-playlist-cover', style: { backgroundImage: p.cover ? `url(${p.cover})` : '' }, html: p.cover ? '' : svg('music', 28) }),
+           SJ.el('span', { class: 'music-playlist-main' }, [SJ.el('b', {}, p.name), SJ.el('small', {}, (p.creator || '本地歌单') + ' · ' + p.tracks.length + ' 首')]),
+           SJ.el('span', { class: 'music-playlist-arrow', html: svg('right', 16) })
+         ])));
+         if (!ps.length) box.append(emptyState('music', '还没有歌单', '导入网易云歌单后会出现在这里。', '去导入', importView));
+         root.append(box); musicShell();
+       }
+       function playlistDetail(pid) {
+         const p = SJ.musicPlaylist(pid); if (!p) return playlistView();
+         root.innerHTML = ''; root.append(navBar(p.name, { back: playlistView }));
+         root.append(SJ.el('div', { class: 'music-detail-hero', style: { backgroundImage: p.cover ? `linear-gradient(#0005,#000b),url(${p.cover})` : '' } }, [
+           SJ.el('div', { class: 'music-detail-cover', style: { backgroundImage: p.cover ? `url(${p.cover})` : '' }, html: p.cover ? '' : svg('music', 42) }),
+           SJ.el('div', { class: 'music-detail-copy' }, [SJ.el('h2', {}, p.name), SJ.el('p', {}, (p.creator || '本地歌单') + ' · ' + p.tracks.length + ' 首')])
+         ]));
+         const list = SJ.el('div', { class: 'music-list detail-list' });
+         p.tracks.map(id => SJ.musicTracks().find(t => t.id === id)).filter(Boolean).forEach((t,i) => list.append(SJ.el('button', { class: 'music-track', onclick: () => playerView(t.id) }, [SJ.el('span', { class:'music-track-no' }, String(i+1).padStart(2,'0')), SJ.el('span',{class:'music-track-main'},[SJ.el('span',{class:'music-track-title row-title'},t.name),SJ.el('span',{class:'music-track-artist'},t.artist||'未知歌手')]), SJ.el('span',{class:'music-track-play',html:svg('play',16)})])));
+         root.append(list); musicShell();
+       }
+       function playerView(trackId) {
+         const t = SJ.musicTracks().find(x => x.id === trackId) || SJ.musicNow(); if (!t) return listView();
+         SJ.musicSetNow(t.id); root.innerHTML = ''; let lyric = false;
+         const disc = SJ.el('button', { class: 'music-disc', onclick: () => { lyric = !lyric; render(); } }, [SJ.el('img', { src: t.cover || '', alt: '' })]);
+         const lyricBox = SJ.el('div', { class: 'music-lyrics' });
+         const render = () => { lyricBox.innerHTML=''; disc.classList.toggle('hide', lyric); lyricBox.classList.toggle('show', lyric); (SJ.parseLRC(t.lrc || '') || []).forEach((l,i)=>lyricBox.append(SJ.el('div',{class:'lyric-line', 'data-time':l.time},l.text))); };
+         const title = SJ.el('h2', {}, t.name), sub = SJ.el('p', {}, t.artist || '未知歌手');
+         const play = SJ.el('button', { class:'music-player-play', onclick: togglePlay }, [SJ.el('span',{html:svg('play',24)})]);
+         root.append(navBar('正在播放', { back: listView }), SJ.el('div',{class:'music-player',style:{backgroundImage:t.cover?`linear-gradient(#1118,#111e),url(${t.cover})`:''}}, [disc,lyricBox,title,sub,play])); render();
        }
 
        function playTrack(t) {
@@ -5703,9 +5744,9 @@ const APPS = [
           if (/music\.163\.com|y\.music\.163\.com/i.test(value) || /^\d+$/.test(value)) {
             try {
               const out = await SJ.importNetEasePlaylist(value);
-              const n = SJ.musicAdd(out.tracks);
-              toast('「' + out.name + '」导入 ' + n + ' 首');
-              if (n) listView();
+              const pid = SJ.musicAddPlaylist(out);
+              toast('「' + out.name + '」已导入完整歌单');
+              if (pid) listView();
             } catch (e) { toast(e.message || '网易云歌单导入失败'); }
             return;
           }

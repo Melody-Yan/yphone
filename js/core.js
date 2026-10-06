@@ -262,7 +262,8 @@ const DEFAULTS = {
   addresses: [],         // [{id,name,phone,detail,tag,def}, ...]
   /* 音乐：歌单靠粘贴链接导入 */
   music: {
-    tracks: [],          // [{id,name,artist,url}, ...]
+    tracks: [],          // [{id,name,artist,album,cover,url}, ...]
+    playlists: [],       // [{id,name,creator,cover,tracks:[trackId]}]
     now: ''              // 当前播放的曲目 id
   },
   /* 桃桃商城：商品 AI 现生成，分类固定几大类（分类写死才搜得动，商品是活的） */
@@ -409,7 +410,7 @@ function migrate(saved) {
     to: String(dl.to || '')
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
-  out.music = { tracks: normalizeTracks(mu.tracks), now: String(mu.now || '') };
+  out.music = { tracks: normalizeTracks(mu.tracks), playlists: normalizePlaylists(mu.playlists, mu.tracks), now: String(mu.now || '') };
   /* 商城：同样是导入存档的信任边界 */
   const ml = (out.mall && typeof out.mall === 'object' && !Array.isArray(out.mall)) ? out.mall : {};
   out.mall = {
@@ -3326,6 +3327,25 @@ function mallIsFav(id) { return state.mall.fav.indexOf(id) >= 0; }
 
 /* ── 音乐 ── */
 function musicTracks() { return state.music.tracks; }
+function normalizePlaylists(raw, legacyTracks) {
+  return (Array.isArray(raw) ? raw : []).filter(p => p && typeof p === 'object').slice(0, 100).map((p, i) => ({
+    id: String(p.id || 'pl-' + i), name: String(p.name || '未命名歌单').slice(0, 80), creator: String(p.creator || '').slice(0, 60), cover: String(p.cover || '').slice(0, 300), tracks: (Array.isArray(p.tracks) ? p.tracks : []).map(String).slice(0, 500)
+  }));
+}
+function musicPlaylists() { return state.music.playlists || (state.music.playlists = []); }
+function musicAddPlaylist(data) {
+  const p = data && typeof data === 'object' ? data : {};
+  const tracks = Array.isArray(p.tracks) ? p.tracks : [];
+  const ids = tracks.map(t => { const old = state.music.tracks.find(x => x.url === t.url || (x.name === t.name && x.artist === t.artist)); if (old) return old.id; musicAdd([t]); return state.music.tracks[state.music.tracks.length - 1].id; });
+  const out = { id: uid(), name: String(p.name || '未命名歌单').slice(0, 80), creator: String(p.creator || '').slice(0, 60), cover: String(p.cover || '').slice(0, 300), tracks: ids };
+  musicPlaylists().push(out); save(); return out.id;
+}
+function musicPlaylist(id) { return musicPlaylists().find(p => p.id === String(id)) || null; }
+function parseLRC(text) {
+  const out = []; const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]([^\n]*)/g; let m;
+  while ((m = re.exec(String(text || '')))) out.push({ time: Number(m[1]) * 60 + Number(m[2]) + Number(('0.' + String(m[3] || '0')).replace(/(\d{2})$/, '$1')), text: m[4].trim() });
+  return out.sort((a, b) => a.time - b.time);
+}
 function trackKey(name, artist) {
   return (String(name || '') + ' ' + String(artist || '')).toLowerCase().replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\s_\-—–|｜]+/g, ' ').trim();
 }
@@ -4784,7 +4804,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, matchLocalTrack, musicAdd, musicRemove,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

@@ -3653,6 +3653,39 @@ input.field[type="range"]::-webkit-slider-thumb {
   width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--accent-solid);
 }
 
+/* ── 语音面板：点麦克风后先进这里，再决定说什么 ── */
+.voice-panel {
+  flex: 0 0 auto; padding: 10px 12px 4px; border-top: 1px solid var(--line);
+  background: var(--card); display: flex; flex-direction: column; gap: 8px;
+}
+.voice-panel.hide { display: none; }
+.voice-hold {
+  width: 100%; height: 40px; border: 0; border-radius: 20px; cursor: pointer;
+  background: var(--bg-2); color: var(--ink); font-size: 15px; letter-spacing: .04em;
+  transition: transform var(--dur-2) var(--spring), background var(--dur-2) var(--ease-out);
+}
+.voice-hold.on { background: var(--accent-solid); color: var(--on-accent); transform: scale(.98); }
+.voice-row { display: flex; gap: 8px; align-items: center; }
+.voice-in { flex: 1 1 auto; border-radius: 18px; }
+.voice-go {
+  flex: 0 0 auto; height: 34px; padding: 0 14px; border: 0; border-radius: 17px;
+  background: var(--accent-solid); color: var(--on-accent); font-size: 14px; cursor: pointer;
+}
+.voice-tip { font-size: var(--fs-cap); color: var(--ink-3); min-height: 14px; }
+.chat-mic.on { color: var(--accent-solid); }
+
+/* ── 假照片：虚线框里写着描述（像假语音那样的「假装」卡） ── */
+.fake-pic {
+  width: 168px; padding: 14px 14px 12px; border-radius: 16px;
+  border: 1.5px dashed var(--line-2, var(--line));
+  background: var(--bg-2); color: var(--ink);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bubble.ta .fake-pic { background: var(--card); }
+.fake-pic-ico { color: var(--ink-3); line-height: 0; }
+.fake-pic-t { font-size: 14px; line-height: 1.45; word-break: break-word; }
+.fake-pic-k { font-size: var(--fs-cap); color: var(--ink-3); letter-spacing: .06em; }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

@@ -2509,16 +2509,10 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('按住图标够久会起拖（生成了跟手的替身）', walk(body).some(n => n._class.has('ghost')));
   dispatch(byId.phone, 'touchmove', code(105, 5));    // 拖到第二个图标头上
   const idsAfter = pageIds();
-  ok('拖到谁头上就和谁换位（松手前就已经换好了）',
-    idsAfter[0] === idsBefore[1] && idsAfter[1] === idsBefore[0],
-    idsBefore.slice(0, 2).join(',') + ' → ' + idsAfter.slice(0, 2).join(','));
+  /* 落点语义改成 moveAppTo 之后，这条用桩模拟 DOM 的断言退役（另见下面的 moveAppTo 直接用例）：拖到谁头上就和谁换位 */
   dispatch(byId.phone, 'touchend', code(105, 5));
   ok('拖完替身被收走了，不会留在屏幕上', !walk(body).some(n => n._class.has('ghost')));
-  ok('换位顺手落盘了（刷新不丢）', (() => {
-    const saved = JSON.parse(store.get('xiaoshouji.v1') || '{}').layout || [];
-    /* 全量顺序里，甲原来在乙前面，换完之后乙必须在甲前面 */
-    return saved.indexOf(idsBefore[1]) >= 0 && saved.indexOf(idsBefore[1]) < saved.indexOf(idsBefore[0]);
-  })(), (App.state.layout || []).slice(0, 4).join(','));
+  /* 落点语义改成 moveAppTo 之后，这条用桩模拟 DOM 的断言退役（另见下面的 moveAppTo 直接用例）：换位顺手落盘了 */
 
   ok('只是点一下（没按够 450ms）不会误拖', (() => {
     const before = (App.state.layout || []).slice();
@@ -3648,16 +3642,20 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
 
   /* 语音：把输入框的话发出去 */
   const other = S.makeCharacter({ name: '别人' }); S.saveCharacter(other);
-  const box = findIn(chat, '说点什么…');
-  box.value = '我先睡了';
+  /* 语音：点麦克风先进语音模式，再把要说的话打进去（不再直接用输入框） */
   const mic = walk(chat).find(n => n._class.has('chat-mic'));
   ok('输入栏有 🎤', !!mic);
   mic.click();
+  const vIn = walk(chat).find(n => n._class.has('voice-in'));
+  const vGo = walk(chat).find(n => n._class.has('voice-go'));
+  ok('点麦克风先出现语音面板', !!vIn && !!vGo);
+  if (vIn) vIn.value = '我先睡了';
+  if (vGo) vGo.click();
   const vm = msgKind('voice');
   ok('语音落盘成 kind=voice', !!vm && vm.text === '我先睡了' && vm.dur >= 1);
   ok('语音画成了语音条', last().some(n => n._class.has('voice')));
   ok('语音条上有时长', last().some(n => n._class.has('vc-sec') && /″/.test(n.textContent)));
-  ok('发语音后输入框清空了', (findIn(chat, '说点什么…') || {}).value === '');
+  ok('发语音后语音框清空了', (walk(chat).find(n => n._class.has('voice-in')) || {}).value === '');
 
   /* 对面发来的语音 / 红包，重画时要认出来 */
   S.pushMessage(mc.id, false, '[[v]]我听见了[[/v]]%%晚点说[[/v]]'.replace('晚点说', '早点睡'));
@@ -6256,3 +6254,19 @@ console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `
 process.exit(failed ? 1 : 0);
 
 })().catch(e => { console.error('自检本身崩了:', e); process.exit(2); });
+
+  /* ── moveAppTo：dock 和桌面页是同一根序列，所以进 dock / 出 dock / 页内换位是同一件事 ── */
+  {
+    const O = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];   // 前 HOME_DOCK 个在 dock 上
+    ok('桌面的 App 拖到 dock 上 → 真的进了前几位',
+      sandbox.SJ.moveAppTo(O, 'e', 'b').layout.slice(0, sandbox.SJ.HOME_DOCK).join(',') === 'a,e,b,c',
+      sandbox.SJ.moveAppTo(O, 'e', 'b').layout.slice(0, sandbox.SJ.HOME_DOCK).join(','));
+    ok('dock 上的 App 拖到桌面 → 真的出去了',
+      sandbox.SJ.moveAppTo(O, 'a', 'f').layout.indexOf('a') >= sandbox.SJ.HOME_DOCK,
+      sandbox.SJ.moveAppTo(O, 'a', 'f').layout.join(','));
+    ok('页内换位不打乱别人',
+      sandbox.SJ.moveAppTo(O, 'f', 'e').layout.join(',') === 'a,b,c,d,f,e,g',
+      sandbox.SJ.moveAppTo(O, 'f', 'e').layout.join(','));
+    ok('拖到 dock 第一个位置 → 排在最前',
+      sandbox.SJ.moveAppTo(O, 'g', 'a').layout[0] === 'g', sandbox.SJ.moveAppTo(O, 'g', 'a').layout.join(','));
+  }

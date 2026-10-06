@@ -2625,6 +2625,39 @@ function homeSplit(restN) {
 /* 把一个图标挪到第 page 页的第 at 位（at 省略=放到这页最后）。
    纯函数：不改 state，返回新的 {layout, split}，由调用方落盘。
    顺带把源页减一、目标页加一 —— 这是「这页只放三个」唯一被写下来的地方。 */
+/* ── 拖到某个图标的位置上（dock 和桌面页都能拖）──
+   dock 不是另一个容器，它就是整根顺序的前 HOME_DOCK 个。
+   所以「拖进 dock」「拖出 dock」「页内换位」其实是同一件事：
+   把 App 挪到「被压住的那个图标」原来的位置。
+   页数（split）只在跨过 dock 分界线时才需要动一下：
+   进 dock → 挤出来的那个落到第一页（+1）；出 dock → 落点那页多一个（+1）。 */
+function moveAppTo(full, appId, beforeId, splitIn) {
+  const list = Array.isArray(full) ? full.slice() : [];
+  const id = String(appId || '');
+  const wasDock = list.indexOf(id) >= 0 && list.indexOf(id) < HOME_DOCK;
+  const layout = list.filter(x => x !== id);
+  let at = layout.indexOf(String(beforeId || ''));
+  if (at < 0) at = layout.length;
+  layout.splice(at, 0, id);
+  const nowDock = layout.indexOf(id) < HOME_DOCK;
+  const split = (Array.isArray(splitIn) && splitIn.length
+    ? splitIn.slice()
+    : homeSplit(Math.max(0, list.length - HOME_DOCK)));
+  if (!wasDock && nowDock) {
+    split[0] = (split[0] || 0) + 1;
+  } else if (wasDock && !nowDock) {
+    const rf = layout.indexOf(id) - HOME_DOCK;
+    let acc = 0, pg = 0;
+    for (let i = 0; i < split.length; i++) {
+      if (rf < acc + split[i]) { pg = i; break; }
+      acc += split[i];
+      pg = i;
+    }
+    split[pg] = (split[pg] || 0) + 1;
+  }
+  return { layout, split };
+}
+
 function reflowLayout(full, appId, page, at) {
   const rest = full.slice(HOME_DOCK);
   const split = homeSplit(rest.length);
@@ -4626,6 +4659,7 @@ window.SJ = {
   widgetSizeOf, setWidgetSize, moveWidget, moveWidgetPage,
   unreadOf, bumpUnread, clearUnread, clearAllUnread, unreadTotal,
   HOME_PER_PAGE, HOME_DOCK, homeSplit, reflowLayout,
+  moveAppTo,
   /* 外卖 + 音乐 */
   ORDER_STAGES, ORDER_STEP_MS, orderStage, normalizeShops, setShops, addToCart,
   cartCount, cartTotal, cartAdd, clearCart, placeOrder,

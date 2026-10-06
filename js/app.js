@@ -650,17 +650,18 @@ function onDragMove(e) {
   }
 
   // 落点：手指下面的那个图标
-  const over = SJ.$$('.page .icon', phone).find(n => {
+  /* 落点里**包含 dock 的图标** —— 以前只找 .page .icon，
+     所以拖到 dock 上永远不算，也就进不去、出不来。 */
+  const over = SJ.$$('.page .icon, #dock .icon', phone).find(n => {
     if (n === dragging.node) return false;
     const b = n.getBoundingClientRect();
     return t.clientX > b.left && t.clientX < b.right && t.clientY > b.top && t.clientY < b.bottom;
   });
   if (!over) return;
   const id = dragging.node.dataset.appId;
-  const dstPage = homePages().indexOf(over.parentNode);
-  const col = iconsOfPage(dstPage).indexOf(over);
-  if (dstPage < 0 || col < 0 || id === over.dataset.appId) return;
-  const r = SJ.reflowLayout(dragging.order, id, dstPage, col);
+  if (id === over.dataset.appId) return;
+  /* 一条路管所有情况：挪到被压住那个图标的位置（dock 内外都是它） */
+  const r = SJ.moveAppTo(dragging.order, id, over.dataset.appId, SJ.state.split);
   if (r.layout.join() === dragging.order.join() &&
       r.split.join() === (SJ.state.split || []).join()) return;   // 没真的变，别白重绘
   dragging.order = r.layout;
@@ -669,7 +670,7 @@ function onDragMove(e) {
   renderHome();
   // renderHome 会把图标全换成新节点，这里把 dragging.node 指向「还是我」的那个，
   // 否则拖到第二次交换时 .dragging 就挂在一个已经脱离文档的旧节点上了
-  const again = SJ.$$('.page .icon', phone).find(n => n.dataset.appId === id);
+  const again = SJ.$$('.page .icon, #dock .icon', phone).find(n => n.dataset.appId === id);
   if (again) { dragging.node = again; again.classList.add('dragging'); }
 }
 

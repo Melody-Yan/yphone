@@ -2256,7 +2256,17 @@ const APPS = [
            它跟输入框一样是正常排布的一块，所以压不到消息、压不到底栏、也压不到输入框
            —— 以前它是挂在手机壳上的浮层，一开就把整条底部页签盖住。 */
         const dbgHostEl = SJ.el('div', { class: 'dbg-host' });
-        root.append(list, quoteBar, dbgHostEl, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+        /* ── 语音面板 ──
+             点麦克风**先进入语音模式**，再决定说什么：按住说话（能听写的设备由系统转成
+             文字，出现在框里、可以改），或者直接把话打进去；最后按「发语音」才真的发出去。
+             以前是「先在输入框写字 → 点麦克风 → 直接变成语音」，没有代入感。 */
+          const vPanel = SJ.el('div', { class: 'voice-panel hide' });
+          const vBtn = SJ.el('button', { class: 'voice-hold' }, '按住说话');
+          const vTa = SJ.el('input', { class: 'voice-in', placeholder: '要说的话会出现在这儿，可以改' });
+          const vGo = SJ.el('button', { class: 'voice-go' }, '发语音');
+          const vTip = SJ.el('div', { class: 'voice-tip' }, '');
+          vPanel.append(vBtn, SJ.el('div', { class: 'voice-row' }, [vTa, vGo]), vTip);
+        root.append(list, quoteBar, dbgHostEl, vPanel, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
         /* ⚠️ window.SHELL，不是 SJ.SHELL —— SHELL 只挂在 window 上（本文件其他地方也都这么写） */
         if (window.SHELL && window.SHELL.setDebugHost) window.SHELL.setDebugHost(dbgHostEl);
 
@@ -2555,6 +2565,31 @@ const APPS = [
         /* ── 语音条：点一下念出来 ──
            长度是真的念一遍才知道，但各浏览器 onend 时机不一，
            所以显示时长按字数估（SJ.voiceDur），跟气泡宽度是同一个数，看着自洽。 */
+        /* ── 假照片 ──
+           生图接口没通（或者你选了「只用假图」）时的那张卡：虚线框 + 一句描述。
+           跟真照片占同一个位置、同一套气泡，只是画的是字。
+           点它可以**现在真的画一张** —— 画成了就把这张卡换成真照片。 */
+        function fakeImgBubble(m, me) {
+          const desc = String(m.prompt || m.text || '一张照片');
+          const card = SJ.el('div', { class: 'fake-pic' }, [
+            SJ.el('div', { class: 'fake-pic-ico', html: svg('photo', 20) }),
+            SJ.el('div', { class: 'fake-pic-t' }, desc),
+            SJ.el('div', { class: 'fake-pic-k' }, '假装的照片')
+          ]);
+          const b = SJ.el('div', {
+            class: 'bubble ' + (me ? 'me' : 'ta') + ' media fake',
+            onclick: () => openImgView({
+              src: '', prompt: String(m.prompt || desc), who: me ? '我' : c.name,
+              onUse: async text => {
+                const src = await SJ.genImage(text);
+                if (src) { m.kind = 'img'; m.img = src; m.prompt = text; m.text = '[照片]' + text; SJ.save(); redraw(); }
+                return src;
+              }
+            })
+          }, [card]);
+          row(b, me, m);
+        }
+
         function voiceBubble(m, me, auto) {
           const secs = m.dur || SJ.voiceDur(m.text);
           const bars = SJ.el('div', { class: 'vc-wave' },
@@ -2691,6 +2726,8 @@ const APPS = [
         function renderMsg(m) {
           curWho = m.who || '';
           curTs = Number(m.ts) || 0;
+          /* 假照片（生图画不出来时那张描述卡）走自己的渲染 */
+          if (m.kind === 'imgFake') return fakeImgBubble(m, m.me);
           if (m.kind === 'img') return imgBubble(m);
           if (m.kind === 'video') return videoBubble(m);
           if (m.kind === 'transfer') return transferBubble(m);
@@ -2902,10 +2939,15 @@ const APPS = [
                 try {
                   if (tip) tip.textContent = '在画一张图…';
                   const pro = await SJ.imgPromptPro(c, how, SJ.messages(id));
-                  const src = await SJ.genImage(pro);
+                  /* 「只用假照片」：提示词照样写（点开能看到），但不调生图接口 */
+                  const src = SJ.state.settings.imgFake === 'always' ? '' : await SJ.genImage(pro);
                   if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src, prompt: pro || how } });
                 } catch (e) {
                   toast('图没画出来：' + (e.message || '生图接口没通'));
+                  /* 画不出来 ≠ 没有照片：按设置发一张「假照片」，点它还能现在真的画一张 */
+                  if (SJ.state.settings.imgFake !== 'never') {
+                    imgParts.push({ who: '', text: how, img: { kind: 'imgFake', text: how, prompt: pro || how } });
+                  }
                 }
               }
             }
@@ -3126,18 +3168,66 @@ const APPS = [
 
         /* 发语音：把输入框里的话包成语音条。
            浏览器 TTS 念的就是这段文字，所以「用打字模仿说话」这件事天然成立。 */
-        function sendVoice() {
-          const t = input.value.trim();
-          if (!t) { toast('先在输入框写下要说什么，再点麦克风'); input.focus(); return; }
-          if (!SJ.hasSpeech()) toast('这台设备的浏览器不支持朗读，语音条还能看，但不会出声');
-          sendMedia({ kind: 'voice', text: t, dur: SJ.voiceDur(t), speak: true });
-          input.value = '';
-          input.focus();
-          const last = SJ.messages(id).slice(-1)[0];
-          if (last && last.speak && SJ.state.settings.voiceAuto !== false) {
-            setTimeout(() => SJ.speak(t), 200);
+        /* 真的发出去（面板里按「发语音」才走这儿） */
+          function sendVoiceText(t) {
+            const s = String(t || '').trim();
+            if (!s) { toast('先说要说的话'); vTa.focus(); return; }
+            if (!SJ.hasSpeech()) toast('这台设备的浏览器不支持朗读，语音条还能看，但不会出声');
+            sendMedia({ kind: 'voice', text: s, dur: SJ.voiceDur(s), speak: true });
+            vTa.value = '';
+            closeVoice();
+            vTip.textContent = '';
+            const last = SJ.messages(id).slice(-1)[0];
+            if (last && last.speak && SJ.state.settings.voiceAuto !== false) {
+              setTimeout(() => SJ.speak(s), 200);
+            }
           }
-        }
+          /* 系统听写：有就用，没有就打字 —— 不假装能用 */
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          let rec = null;
+          function listenStart() {
+            if (!SR) { vTip.textContent = '这台设备不能听写 —— 把要说的话打进来'; vTa.focus(); return; }
+            try {
+              rec = new SR();
+              rec.lang = 'zh-CN';
+              rec.interimResults = true;
+              rec.continuous = false;
+              rec.onresult = e => {
+                let s = '';
+                for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript;
+                vTa.value = s;
+              };
+              rec.onerror = () => { vBtn.classList.remove('on'); vTip.textContent = '没听清，把话打进来吧'; };
+              rec.onend = () => { vBtn.classList.remove('on'); };
+              rec.start();
+              vBtn.classList.add('on');
+              vTip.textContent = '在听……松手就停';
+            } catch (err) { vTip.textContent = '这台设备不能听写 —— 把要说的话打进来'; vTa.focus(); }
+          }
+          function listenStop() {
+            try { if (rec) rec.stop(); } catch (e) {}
+            vBtn.classList.remove('on');
+            if (!vTa.value.trim()) vTip.textContent = '没听到 —— 也可以直接把话打进去';
+            else vTip.textContent = '听着是这个，不对就改改，再按「发语音」';
+          }
+          function closeVoice() {
+            vPanel.classList.add('hide');
+            mic.classList.remove('on');
+          }
+          function toggleVoice() {
+            if (!vPanel.classList.contains('hide')) { closeVoice(); return; }
+            vPanel.classList.remove('hide');
+            mic.classList.add('on');
+            vTip.textContent = SR ? '按住左边的键说话，或者直接把话打进去'
+              : '这台设备不能听写 —— 把要说的话打进来';
+            try { vTa.focus(); } catch (e) {}
+          }
+          vBtn.addEventListener('pointerdown', e => { if (e.preventDefault) e.preventDefault(); listenStart(); });
+          vBtn.addEventListener('pointerup', listenStop);
+          vBtn.addEventListener('pointercancel', listenStop);
+          vBtn.addEventListener('pointerleave', () => { if (vBtn.classList.contains('on')) listenStop(); });
+          vGo.addEventListener('click', () => sendVoiceText(vTa.value));
+          vTa.addEventListener('keydown', e => { if (e.key === 'Enter') sendVoiceText(vTa.value); })
 
         /* 视频：字节直接进图片仓（localStorage 存不下这个）。20MB 是上限 ——
            再大导存档时 base64 会把内存顶爆，宁可当场说清楚。 */
@@ -3234,7 +3324,7 @@ const APPS = [
           { svg: 'book', label: '读到的世界书', hint: '世界书到底生效没有', run: showWbRead },
           { svg: 'image', label: '表情 / 图片', hint: '表情库 / 相册', run: pickImage },
           { svg: 'video', label: '发视频', hint: '20MB 以内', run: pickVideo },
-          { svg: 'mic', label: '发语音', hint: '把输入框的话说出去', run: sendVoice },
+          { svg: 'mic', label: '发语音', hint: '点开语音条，按住说话或打进去', run: toggleVoice },
           { svg: 'ticket', label: '发红包', run: askPacket },
           { svg: 'yuan', label: '转账', run: askTransfer },
           { svg: 'bowl', label: '给 TA 点外卖', hint: '去外卖里自己挑，结算时算 TA 的', run: giftFood },
@@ -3251,7 +3341,7 @@ const APPS = [
           if (pendingCount()) askAndShow();
         });
         input.addEventListener('input', syncSend);
-        mic.addEventListener('click', sendVoice);
+        mic.addEventListener('click', toggleVoice);   /* 点麦克风 = 进/出语音模式，不再是「把输入框的字变成语音」 */
         input.addEventListener('keydown', e => { if (e.key === 'Enter') { const t = input.value.trim(); if (t) sendText(t); } });
         syncSend();
       }
@@ -6330,9 +6420,17 @@ const APPS = [
               /* 同一个人的、间隔 3 分钟以内的，算「一串」：间距收紧，尾巴只留最后一条 */
               const same = prev && prev.me === m.me && (Number(m.ts) - Number(prev.ts) < 180000);
               const nextSame = false;   // 下一轮循环再回填
-              const b = m.kind === 'img'
-                ? SJ.el('div', { class: 'ym-b pic ' + (m.me ? 'me' : 'ta') + (same ? ' run' : ' tail') }, [imgNode(m)])
-                : SJ.el('div', { class: 'ym-b ' + (m.me ? 'me' : 'ta') + (same ? ' run' : ' tail') }, m.text || '');
+              const cls = 'ym-b ' + (m.me ? 'me' : 'ta') + (same ? ' run' : ' tail');
+              let b;
+              if (m.kind === 'img') b = SJ.el('div', { class: cls + ' pic' }, [imgNode(m)]);
+              else if (m.kind === 'imgFake') b = SJ.el('div', { class: cls + ' fake' }, [
+                SJ.el('div', { class: 'fake-pic' }, [
+                  SJ.el('div', { class: 'fake-pic-ico', html: svg('photo', 20) }),
+                  SJ.el('div', { class: 'fake-pic-t' }, String(m.prompt || m.text || '一张照片')),
+                  SJ.el('div', { class: 'fake-pic-k' }, '假装的照片')
+                ])
+              ]);
+              else b = SJ.el('div', { class: cls }, m.text || '');
               let hold = null;
               const go = () => {
                 clearTimeout(hold);
@@ -6413,7 +6511,12 @@ const APPS = [
                   const pro2 = await SJ.imgPromptPro(c, how, SJ.smsList(id));
                   const src = await SJ.genImage(pro2);
                   if (src) staged.push({ text: '[照片]' + how, extra: { kind: 'img', img: src, prompt: pro || how } });
-                } catch (e) { toast('图没画出来：' + (e.message || '生图接口没通')); }
+                } catch (e) {
+                  toast('图没画出来：' + (e.message || '生图接口没通'));
+                  if (SJ.state.settings.imgFake !== 'never') {
+                    staged.push({ text: how, extra: { kind: 'imgFake', prompt: pro2 || how } });
+                  }
+                }
               }
               SJ.splitReply(out).forEach(t => staged.push({ text: t, extra: {} }));
               if (!staged.length) staged.push({ text: out || '（她没说什么）', extra: {} });
@@ -6804,6 +6907,24 @@ const APPS = [
           field('生图 API Key', 'imgKey', 'sk-…', 'password'),
           field('生图模型', 'imgModel', 'gpt-image-1 / gemini-2.5-flash-image'),
     field('生图提示词', 'imgPrompt', SJ.IMG_PROMPT_DEFAULT),
+    /* 生图画不出来时的举止：默认发一张描述卡（跟假语音一个脾气） */
+    (() => {
+      const opts = [['auto', '发一张假照片', '生图失败时发一张写着描述的卡 —— 点它还能现在真的画一张'],
+                    ['always', '只用假照片', '根本不调生图接口，全部发描述卡（省额度）'],
+                    ['never', '什么都不发', '生图失败就只弹一句提示']];
+      const cur = SJ.state.settings.imgFake || 'auto';
+      const hit = opts.find(o => o[0] === cur) || opts[0];
+      return SJ.el('div', { class: 'row', onclick: () => window.popover(opts.map(o => ({
+        label: o[1], hint: o[0] === cur ? '当前' : '',
+        run: () => { SJ.state.settings.imgFake = o[0]; SJ.save(); toast('生图失败时：' + o[1]); }
+      })), { head: '生图失败时' }) }, [
+        SJ.el('div', { class: 'row-main' }, [
+          SJ.el('div', { class: 'row-title' }, '生图失败时'),
+          SJ.el('div', { class: 'row-sub' }, hit[2])
+        ]),
+        SJ.el('div', { class: 'row-time' }, hit[1] + ' ›')
+      ]);
+    })(),
     SJ.el('div', { class: 'hint' },
       '角色发照片时用它。可用占位符：{角色} 名字、{场景} 它写的描述、{人设} 角色卡的人设、{外形} 外形描述。留空就用上面那句默认的。'),
     /* 拉取：走生图那套接口的 /models，点开卡片挑一个 —— 省得手打模型名 */

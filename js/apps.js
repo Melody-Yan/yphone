@@ -2712,9 +2712,23 @@ const APPS = [
           return b;
         }
 
+        function thoughtBubble(m) {
+          const text = SJ.normalizeThought(m.thought);
+          const body = text || '该模型未提供思考内容';
+          const card = SJ.el('details', { class: 'thought-card' }, [
+            SJ.el('summary', { class: 'thought-head' }, '思考中'),
+            SJ.el('div', { class: 'thought-body' }, body)
+          ]);
+          list.append(card);
+          return card;
+        }
+
         /* 一条存档消息 → 屏幕上的一坨气泡（对面的长回复会被拆成好几条） */
         function renderMsg(m) {
           curWho = m.who || '';
+          const hist = SJ.messages(id);
+          const firstOfTurn = !m.me && (curIndex === 0 || !!(hist[curIndex - 1] && hist[curIndex - 1].me));
+          if (firstOfTurn) thoughtBubble(m);
           curTs = Number(m.ts) || 0;
           /* 假照片（生图画不出来时那张描述卡）走自己的渲染 */
           if (m.kind === 'imgFake') return fakeImgBubble(m, m.me);
@@ -2876,8 +2890,11 @@ const APPS = [
           }
           const tip = bubble('…', false);
           tip.classList.add('typing');
-          let answer;
-          try { answer = await SJ.askCharacter(c, redo ? h.slice(0, -1) : h); }
+          let answer, thought = '';
+          try {
+            answer = await SJ.askCharacter(c, redo ? h.slice(0, -1) : h);
+            thought = SJ.thoughtLast();
+          }
           catch (e) { answer = '（连接失败）' + e.message; }
           /* TA 可能顺手把关系改了（[[rel:…]]），先把标记摘掉再落盘。群里没有「关系」这回事 */
           answer = G ? answer : SJ.applySelfMarks(c, answer);
@@ -2943,14 +2960,21 @@ const APPS = [
             }
           }
           imgParts.forEach(ip => parts.push(ip));
+          /* 每轮只把思考挂在第一条角色消息上；没有思考也保留卡片，明确告诉用户模型没提供。 */
+          if (parts.length) {
+            parts[0].thought = thought;
+            parts[0].thoughtReady = true;
+          }
           /* 重新生成：不新增一条，把这次的回法追加成这个气泡的「另一版」。
              旧版留着，随时能翻回去 —— 换回法本来就是比哪个更对味。 */
           const isRedo = !!redo && SJ.messages(id).slice(-1)[0] === redo;
           if (isRedo) { SJ.addAlt(redo, answer); regen = null; }
           else {
             regen = null;
-            parts.forEach(p => SJ.pushMessage(id, false, p.text, Object.assign(
-              p.who ? { who: p.who } : {}, p.gift || {}, p.img || {})));
+            parts.forEach((p, i) => SJ.pushMessage(id, false, p.text, Object.assign(
+              p.who ? { who: p.who } : {},
+              i === 0 ? { thought: thought, thoughtReady: true } : {},
+              p.gift || {}, p.img || {})));
           }
           tip.remove();
           markRead();       // 她开口了 = 读过我那条了
@@ -2965,7 +2989,8 @@ const APPS = [
              （stripMarks 不认 %%），非得刷新一次、走 renderMsg 才断成几条 ——
              用户看到的就是「每次都要刷新才能换行，不然一直带着 %」。
              存储仍然是一整段：重新生成的「‹ 1/2 ›」翻页器是挂在一条消息上的。 */
-          const shown = [];
+          thoughtBubble({ me: false, thought: thought });
+           const shown = [];
           parts.forEach(p => {
             if (p.gift) { shown.push(p); return; }
             SJ.splitReply(p.text).forEach(t => shown.push({ who: p.who, text: t }));

@@ -3693,6 +3693,19 @@ input.field[type="range"]::-webkit-slider-thumb {
 .voice-go { background: var(--accent-solid); color: var(--on-accent); }
 .chat-mic.on { color: var(--accent-solid); }
 
+/* 思考卡：每轮角色首条消息上方，默认收起、可键盘展开 */
+.thought-card {
+  width: min(86%, 360px); margin: 0 0 7px; border: 1px solid var(--line);
+  border-radius: 14px; background: var(--bg-2); color: var(--ink-2);
+  font-size: 12px; overflow: hidden;
+}
+.thought-head { padding: 8px 11px; cursor: pointer; color: var(--ink-3); list-style: none; }
+.thought-head::-webkit-details-marker { display: none; }
+.thought-head::before { content: '›'; display: inline-block; margin-right: 7px; transition: transform .18s ease; }
+.thought-card[open] .thought-head::before { transform: rotate(90deg); }
+.thought-body { padding: 0 11px 10px; white-space: pre-wrap; line-height: 1.55; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .thought-head::before { transition: none; } }
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

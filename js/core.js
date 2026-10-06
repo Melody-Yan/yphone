@@ -1136,10 +1136,25 @@ function messages(id) {
   if (!state.chats[id]) state.chats[id] = [];
   return state.chats[id];
 }
+function normalizeThought(value) {
+  if (typeof value === 'string') return value.trim().slice(0, TEXT_MAX);
+  if (!value || typeof value !== 'object') return '';
+  const v = value.reasoning_content != null ? value.reasoning_content
+    : value.reasoning != null ? value.reasoning
+    : value.thinking != null ? value.thinking
+    : value.thought != null ? value.thought : '';
+  return typeof v === 'string' ? v.trim().slice(0, TEXT_MAX) : '';
+}
+function thoughtLabel(value) { return normalizeThought(value) || '该模型未提供思考内容'; }
+function thoughtForTurn(list, index) {
+  const m = Array.isArray(list) ? list[index] : null;
+  if (!m || m.me || (index > 0 && list[index - 1] && !list[index - 1].me)) return '';
+  return normalizeThought(m.thought);
+}
 function pushMessage(id, me, text, extra) {
   const list = messages(id);
-  // extra 用来带 kind/img/amount（图片、转账那几种气泡）
-  list.push(Object.assign({ me: !!me, text: String(text), ts: Date.now() }, extra || {}));
+  // extra 用来带 kind/img/amount/thought（图片、转账、思考内容）
+  list.push(Object.assign({ me: !!me, text: String(text), ts: Date.now(), thought: '' }, extra || {}));
   state.chats[id] = list.slice(-CHAT_KEEP);
   // 我说话 = 最后一次互动。主动找你的判定靠它，也和 proactiveAt 一起防刷屏
   if (me) {
@@ -4381,27 +4396,30 @@ async function askGroup(g, history) {
 }
 
 /* 让角色回一句话。没配 API 就走本地演示，保证离线也能玩。 */
-async function askCharacter(char, history) {
-  if (char && char.id && isGroup(char.id)) return askGroup(groupOf(char.id), history);
+async function askCharacterResult(char, history) {
+  if (char && char.id && isGroup(char.id)) return { text: await askGroup(groupOf(char.id), history), thought: '' };
   const s = state.settings;
   const all = history || [];
   if (!apiRoot() || !s.apiKey) {
     const last = all.filter(m => m.me).pop();
-    return `（本地演示）我收到了：「${last ? last.text : ''}」。去「设置」里填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`;
+    return { text: `（本地演示）我收到了：「${last ? last.text : ''}」。去「设置」里填上接口地址和 Key，我就会真的用「${char.name}」的身份回你。`, thought: '' };
   }
   if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
-  /* 只带最近 keep 条原文，更早的内容靠记忆卡片顶上。
-     世界书扫描仍然吃全部历史 —— 不然刚滚出窗口的关键词就触发不了了。 */
   const keep = Math.max(2, Number(char.historyKeep) || Number(s.historyKeep) || 40);
   const recent = all.slice(-keep);
-  /* kind:'gift' 的消息 text 存的是给模型看的白描（「给你点了一份红烧牛肉面」），
-     界面上画的是礼物卡 —— 这里照发 text，她才知道你送过东西。
-     ponytail: 只带文字，不带卡片本身的结构；模型看不到订单号也不需要看。 */
   const data = await chatPost([
     { role: 'system', content: buildSystem(char, all) },
     ...recent.map(m => ({ role: m.me ? 'user' : 'assistant', content: m.text }))
   ], '聊天');
-  return ((data.choices || [])[0] || {}).message?.content || '（模型没有返回内容）';
+  const msg = ((data.choices || [])[0] || {}).message || {};
+  return { text: String(msg.content || '（模型没有返回内容）'), thought: normalizeThought(msg) };
+}
+let lastThought = '';
+function thoughtLast() { return lastThought; }
+async function askCharacter(char, history) {
+  const result = await askCharacterResult(char, history);
+  lastThought = result.thought || '';
+  return result.text;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -4637,7 +4655,7 @@ window.SJ = {
   GROUP_MAX, GROUP_MEMBER_MAX,
   proactiveCheck, proactiveCandidates, proactiveSay, idleMinutes, lastTalkAt, fmtIdle,
   idleNeedOf, proactiveAllowed, PROACTIVE_MAX,
-  apiRoot, fetchModels, askCharacter, testApi,
+  apiRoot, fetchModels, askCharacter, askCharacterResult, normalizeThought, thoughtLabel, thoughtForTurn, thoughtLast, testApi,
   SPLIT_MARK, splitReply, buildSystem, applySelfMarks,
   /* 语音（浏览器自带 TTS） */
   voiceOn, hasSpeech, voiceOf, redpacketOf, stripMarks, voiceDur, voiceList, speak, stopSpeak, putBlob,

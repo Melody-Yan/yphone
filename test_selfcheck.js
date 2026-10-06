@@ -566,6 +566,22 @@ ok('askCharacter 取回模型正文', ans === '好呀～', ans);
 ok('人设作为 system 消息发出去', sent.messages[0].role === 'system' && sent.messages[0].content.includes('小美'),
   JSON.stringify(sent.messages[0]));
 ok('请求体带 model、最后一条是 user', sent.model === 'gpt-4o-mini' && sent.messages[sent.messages.length - 1].content === '在吗');
+
+/* 思维内容：只认接口明确返回的字段，不把正文冒充思考。 */
+const thoughtMock = { choices: [{ message: {
+  content: '好呀～', reasoning_content: '先判断语气，再给一个自然的短回复。'
+} }] };
+fetchImpl = () => Promise.resolve(mockRes(true, thoughtMock));
+const thoughtAns = await sandbox.SJ.askCharacterResult(xm, [{ me: true, text: '在吗' }]);
+ok('模型返回 reasoning_content 会进入 thought', thoughtAns.text === '好呀～' && thoughtAns.thought === '先判断语气，再给一个自然的短回复。', JSON.stringify(thoughtAns));
+ok('普通正文不会被当成 thought', sandbox.SJ.normalizeThought({ content: '普通回复' }) === '', sandbox.SJ.normalizeThought({ content: '普通回复' }));
+const turn = [
+  { me: true, text: '在吗' },
+  { me: false, text: '第一条', thought: '这一轮的思考' },
+  { me: false, text: '第二条', thought: '不应重复' }
+];
+ok('每轮只有第一条角色消息带思考', sandbox.SJ.thoughtForTurn(turn, 1) === '这一轮的思考' && sandbox.SJ.thoughtForTurn(turn, 2) === '', JSON.stringify(turn));
+ok('没有思考内容时使用指定兜底文案', sandbox.SJ.thoughtLabel('') === '该模型未提供思考内容', sandbox.SJ.thoughtLabel(''));
 fetchImpl = null;
 
 /* 13. 存档导出 / 导入（导入是信任边界） */

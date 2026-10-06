@@ -5587,7 +5587,7 @@ const APPS = [
            SJ.el('div', { class: 'ymusic-brand' }, 'ymusic'),
            SJ.el('div', { class: 'ymusic-search-row' }, [
              SJ.el('label', { class: 'ymusic-search' }, [SJ.el('span', { html: svg('search', 17) }), SJ.el('input', { type: 'search', placeholder: '搜索歌曲、歌手、专辑' })]),
-             SJ.el('button', { class: 'ymusic-settings', title: '设置', onclick: () => window.SHELL && window.SHELL.openApp('settings') }, [SJ.el('span', { html: svg('gear', 18) })])
+             SJ.el('button', { class: 'ymusic-settings', title: '设置', onclick: settingsView }, [SJ.el('span', { html: svg('gear', 18) })])
            ])
          ]));
          const bar = nowCard(); if (bar) { bar.classList.add('music-mini-fixed'); bar.addEventListener('click', e => { if (!e.target.closest('button')) { const t = SJ.musicNow(); if (t) playerView(t.id); } }); root.append(bar); }
@@ -5603,7 +5603,7 @@ const APPS = [
         const list = SJ.el('div', { class: 'music-list' });
         tracks.forEach((t, index) => {
           const on = SJ.state.music.now === t.id;
-          list.append(SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playTrack(t) }, [
+          list.append(SJ.el('button', { class: 'music-track' + (on ? ' on' : ''), onclick: () => playerView(t.id) }, [
             SJ.el('span', { class: 'music-track-no' }, String(index + 1).padStart(2, '0')),
             SJ.el('span', { class: 'music-track-main' }, [
               SJ.el('span', { class: 'music-track-title row-title' }, t.name),
@@ -5698,17 +5698,16 @@ const APPS = [
          root.append(list); musicShell();
        }
        function playerView(trackId) {
-         const t = SJ.musicTracks().find(x => x.id === trackId) || SJ.musicNow(); if (!t) return listView();
-         SJ.musicSetNow(t.id); root.innerHTML = ''; let lyric = false;
-         const disc = SJ.el('button', { class: 'music-disc', onclick: () => { lyric = !lyric; render(); } }, [SJ.el('img', { src: t.cover || '', alt: '' })]);
-         const lyricBox = SJ.el('div', { class: 'music-lyrics' });
-         const render = () => { lyricBox.innerHTML=''; disc.classList.toggle('hide', lyric); lyricBox.classList.toggle('show', lyric); (SJ.parseLRC(t.lrc || '') || []).forEach((l,i)=>lyricBox.append(SJ.el('div',{class:'lyric-line', 'data-time':l.time},l.text))); };
-         const title = SJ.el('h2', {}, t.name), sub = SJ.el('p', {}, t.artist || '未知歌手');
-         const play = SJ.el('button', { class:'music-player-play', onclick: togglePlay }, [SJ.el('span',{html:svg('play',24)})]);
-         root.append(navBar('正在播放', { back: listView }), SJ.el('div',{class:'music-player',style:{backgroundImage:t.cover?`linear-gradient(#1118,#111e),url(${t.cover})`:''}}, [disc,lyricBox,title,sub,play])); render();
-       }
-
-       function playTrack(t) {
+          const tracks = SJ.musicTracks(), index = Math.max(0, tracks.findIndex(x => x.id === trackId)); const t = tracks[index] || SJ.musicNow(); if (!t) return listView(); SJ.musicSetNow(t.id); root.innerHTML = ''; let lyric = false;
+          const player = SJ.el('div', { class: 'music-player', style: { backgroundImage: t.cover ? `linear-gradient(#1118,#111e),url(${t.cover})` : '' } });
+          const lyricBox = SJ.el('div', { class: 'music-lyrics' }); const disc = SJ.el('button', { class: 'music-disc', title: '点击切换歌词', onclick: () => { lyric = !lyric; lyricBox.classList.toggle('show', lyric); disc.classList.toggle('hide', lyric); } }, [SJ.el('img', { src: t.cover || '', alt: '' })]);
+          SJ.parseLRC(t.lrc || '').forEach(l => lyricBox.append(SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text)));
+          const progress = SJ.el('input', { class:'music-progress', type:'range', min:0, max:100, value:0 }); const times = SJ.el('div',{class:'music-times'},[SJ.el('span',{},'0:00'),SJ.el('span',{},'0:00')]); const fmt=n=>{n=Math.floor(Number(n)||0);return Math.floor(n/60)+':'+String(n%60).padStart(2,'0')}; const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration)}; if(a){a.addEventListener('timeupdate',update);a.addEventListener('loadedmetadata',update)} progress.addEventListener('input',()=>{if(a&&isFinite(a.duration))a.currentTime=Number(progress.value)});
+          const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]), play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:togglePlay},[SJ.el('span',{html:svg('play',24)})]), next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
+          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]); player.append(disc,lyricBox,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面切换歌词')); root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player);
+        }
+        function settingsView(){root.innerHTML='';const input=SJ.el('input',{class:'field',value:SJ.state.settings.netEaseApi||'',placeholder:'网易云代理地址（可选）'});root.append(navBar('音乐设置',{back:listView}),SJ.el('div',{class:'pad'},[SJ.el('label',{class:'field-wrap'},[SJ.el('span',{},'网易云代理地址'),input]),SJ.el('button',{class:'btn',onclick:()=>{SJ.state.settings.netEaseApi=input.value.trim();SJ.save();toast('音乐设置已保存')}},'保存')]));}
+        function playTrack(t) {
         SJ.musicSetNow(t.id);
         if (a) {
           a.src = SJ.imgSrc(t.url);

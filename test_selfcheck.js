@@ -2420,6 +2420,15 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('歌单完整保存名称封面和歌曲', !!pid && App.musicPlaylists().some(p => p.name === 'Memory' && p.tracks.length === 1 && p.creator === '四日又山雨_'), JSON.stringify(App.musicPlaylists()));
   const lrc = App.parseLRC('[00:01.20]第一句\n[00:03.00]第二句');
   ok('LRC 歌词能解析时间和文本', lrc.length === 2 && lrc[0].time === 1.2 && lrc[1].text === '第二句', JSON.stringify(lrc));
+  App.musicSetNow(App.musicTracks()[0].id);
+  const playerApp = openFresh('music');
+  const playerTrack = walk(playerApp).find(n => n._class.has('music-track'));
+  if (playerTrack) playerTrack.click();
+  ok('全屏播放器有上一曲和下一曲按钮', walk(playerApp).some(n => n.attrs && n.attrs.title === '上一曲') && walk(playerApp).some(n => n.attrs && n.attrs.title === '下一曲'));
+  ok('全屏播放器播放按钮不是返回按钮', walk(playerApp).some(n => n._class.has('music-player-play')) && !walk(playerApp).some(n => n._class.has('music-player-play') && n.attrs && n.attrs.title === '返回'));
+  const musicGear = walk(playerApp).find(n => n.attrs && n.attrs.title === '设置'); if (musicGear) musicGear.click();
+  ok('音乐设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('音乐设置')));
+
 
   ok('存档里只留 http(s) 链接的歌', App.normalizeTracks([{ name: 'x', url: 'ftp://a' }, { name: 'y', url: 'https://b' }]).length === 1);
 

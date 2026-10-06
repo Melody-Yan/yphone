@@ -3416,6 +3416,7 @@ function parsePlaylist(text) {
   return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
 }
 
+function playlistNameFromInput(input) { const m = String(input || '').match(/(?:分享歌单|歌单)\s*[:：]?\s*([^\n]+?)\s+https?:\/\//i); return m ? m[1].replace(/[。．.、，,]+$/, '').trim().slice(0, 80) : ''; }
 function netEasePlaylistId(input) {
   const raw = String(input || '').trim();
   if (/^\d+$/.test(raw)) return raw;
@@ -4804,7 +4805,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

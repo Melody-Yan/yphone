@@ -777,7 +777,7 @@ function onTime(fn) { timeListeners.add(fn); return () => timeListeners.delete(f
 
 function makeCharacter(patch = {}) {
   return Object.assign({
-    id: uid(), name: '新角色', avatar: '🙂', avatarImg: '', color: '#9cb9c2',
+    id: uid(), name: '新角色', gender: '', age: '', occupation: '', avatar: '🙂', avatarImg: '', color: '#9cb9c2',
     desc: '', persona: '', greeting: '',
     alias: '', relation: '', myRelation: '', allowRelation: false,  // 昵称 / TA认为的关系 / 我认为的关系 / 允许TA自己改
     wbRead: true, // 读不读世界书。关掉 = 这套设定对他不成立（穿越来的、不知情的角色）
@@ -1074,6 +1074,9 @@ function normalizeCharacter(c, i) {
   return {
     id: String(c.id || ('c' + i)),
     name: String(c.name || '新角色').slice(0, NAME_MAX),
+    gender: String(c.gender || '').slice(0, 20),
+    age: String(c.age || '').slice(0, 20),
+    occupation: String(c.occupation || '').slice(0, 60),
     avatar: String(c.avatar || '🙂').slice(0, 4),
     avatarImg: avatarSrc(c.avatarImg),
     color: String(c.color || '#9cb9c2').slice(0, 60),
@@ -2257,8 +2260,9 @@ function cardFromJson(text) {
   if (!name && !persona) return null;
   return {
     name: (name || '导入的角色').slice(0, NAME_MAX),
-    desc: str(v.creator_notes).split('\n')[0].slice(0, 60),
-    persona,
+    gender: str(v.gender || v.sex), age: str(v.age), occupation: str(v.occupation || v.job),
+    desc: str(v.desc || v.creator_notes || v.description).split('\n')[0].slice(0, 200),
+    persona: [persona, str(v.persona)].filter(Boolean).join('\n\n'),
     greeting: str(v.first_mes || v.greeting)
   };
 }
@@ -2278,24 +2282,53 @@ function cardFromText(text) {
   /* 去掉 markdown / 大纲符号再比，不然「# 名字：小雨」这种就漏了 */
   const head = l => String(l).replace(/^[\s#*\-–—>•]+/, '').trim();
   const NAME_RE = /^(?:名字|姓名|名称|角色名|称呼|name|char_name)\s*[:：]\s*(.+)$/i;
+  const FIELD_RE = {
+    gender: /^(?:性别|gender|sex)\s*[:：]\s*(.+)$/i,
+    age: /^(?:年龄|岁数|age)\s*[:：]\s*(.+)$/i,
+    occupation: /^(?:职业|工作|occupation|job)\s*[:：]\s*(.+)$/i,
+    desc: /^(?:简介|描述|description|desc)\s*[:：]\s*(.+)$/i,
+    persona: /^(?:人设|性格|persona|personality)\s*[:：]\s*(.+)$/i
+  };
   const GREET_RE = /^(?:开场白|问候语|初次见面|第一句话|first_mes|greeting)\s*[:：]?\s*$/i;
-  let name = '', gAt = -1;
+  let name = '', gender = '', age = '', occupation = '', desc = '', persona = '', inlineGreeting = '', gAt = -1;
   lines.forEach((l, i) => {
     if (!name) {
       const m = head(l).match(NAME_RE);
       if (m) { name = m[1].trim().slice(0, NAME_MAX); return; }
     }
-    if (gAt < 0 && GREET_RE.test(head(l))) gAt = i;
+    const h = head(l);
+    Object.keys(FIELD_RE).forEach(k => {
+      const m = h.match(FIELD_RE[k]);
+      if (!m) return;
+      if (k === 'gender' && !gender) gender = m[1].trim();
+      if (k === 'age' && !age) age = m[1].trim();
+      if (k === 'occupation' && !occupation) occupation = m[1].trim();
+      if (k === 'desc' && !desc) desc = m[1].trim();
+      if (k === 'persona' && !persona) persona = m[1].trim();
+    });
+    if (gAt < 0) {
+      const gm = h.match(/^(?:开场白|问候语|初次见面|第一句话|first_mes|greeting)\s*[:：]\s*(.*)$/i);
+      if (gm) { gAt = i; inlineGreeting = gm[1].trim(); if (inlineGreeting) lines[i] = ''; }
+      else if (GREET_RE.test(h)) gAt = i;
+    }
   });
-  const before = (gAt < 0 ? lines : lines.slice(0, gAt)).join('\n').trim();
-  const greet = gAt < 0 ? '' : lines.slice(gAt + 1).join('\n').trim();
+  const before = (gAt < 0 ? lines : lines.slice(0, gAt)).filter(l => {
+    const h = head(l); return !NAME_RE.test(h) && !Object.keys(FIELD_RE).some(k => FIELD_RE[k].test(h));
+  }).join('\n').trim();
+  const greet = inlineGreeting || (gAt < 0 ? '' : lines.slice(gAt + 1).join('\n').trim());
   /* 连名字行都没写：拿第一行当名字，但那一行仍然留在人设里 —— 宁可重复，不可丢 */
   if (!name) {
     const first = head(lines.find(l => String(l).trim()) || '');
     if (first && first.length <= NAME_MAX && !/[。！？!?]$/.test(first)) name = first;
   }
   if (!before && !greet) return null;
-  return { name: name || '导入的角色', desc: '', persona: before, greeting: greet };
+  return { name: name || '导入的角色', gender, age, occupation, desc, persona: [persona, before].filter(Boolean).join('\n\n'), greeting: greet };
+}
+
+function parseCharacterCard(input, filename) {
+  const name = String(filename || '').toLowerCase();
+  const character = /\.json$/.test(name) ? cardFromJson(input) : cardFromText(input);
+  return { character: character || makeCharacter(), sourceText: String(input || ''), warnings: character ? [] : ['未识别到角色字段'] };
 }
 
 function wbGuessCat(text) {
@@ -4707,7 +4740,7 @@ window.SJ = {
   makeEntry, saveEntry, deleteEntry, activeEntries, wbBlock, wbGroups: wbGroupsFrom, wbGroupsFrom, wbSorted,
   moveEntry, wbResolve, wbPreview, wbCat, wbCatIndex, matchSecondary, keyWarn, keysWarn,
   wbSections, wbTitleFrom, wbTitleFromFile, wbGuessCat, wbFromJson, wbToJson, saveText,
-  cardFromJson, cardFromPng, cardFromText, pngCardText,
+  cardFromJson, cardFromPng, cardFromText, parseCharacterCard, pngCardText,
   docxText, decodeText, xmlToText,
   WB_TEXT_MAX,
   WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,

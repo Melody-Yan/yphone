@@ -999,6 +999,9 @@ const APPS = [
         });
 
         const name = SJ.el('input', { class: 'field', placeholder: '名字', value: c.name });
+        const gender = SJ.el('input', { class: 'field', placeholder: '性别（可留空）', value: c.gender || '' });
+        const age = SJ.el('input', { class: 'field', placeholder: '年龄（可留空）', value: c.age || '' });
+        const occupation = SJ.el('input', { class: 'field', placeholder: '职业（可留空）', value: c.occupation || '' });
         const desc = SJ.el('input', { class: 'field', placeholder: '一句话简介（可留空）', value: c.desc });
         /* 正文用 .value 属性回填，别靠文本子节点：自检的 DOM 垫片里两者是分开的，
            靠子节点会读回 undefined，一保存就把人设抹了（世界书那边同一个坑）。 */
@@ -1046,7 +1049,8 @@ const APPS = [
 
         function saveIt() {
           c.avatar = (av.value.trim() || '🙂').slice(0, 4);
-          c.desc = desc.value; c.persona = persona.value; c.greeting = greet.value;
+          c.gender = gender.value; c.age = age.value; c.occupation = occupation.value;
+           c.desc = desc.value; c.persona = persona.value; c.greeting = greet.value;
           c.name = name.value;
           if (isNew && !c.name.trim() && !c.desc.trim() && !c.persona.trim()) return listView();  // 空表单当没建
           SJ.saveCharacter(c);
@@ -1080,6 +1084,9 @@ const APPS = [
 
         root.append(SJ.el('div', { class: 'pad' }, [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '名字'), name]),
+           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '性别'), gender]),
+           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '年龄'), age]),
+           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '职业'), occupation]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '头像'), av]),
           emojiRow,
           avBox,

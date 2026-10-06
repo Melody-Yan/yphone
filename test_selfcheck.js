@@ -3363,6 +3363,11 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('dock 上那几个不参与翻页', App.reflowLayout(full, 'b', 1, 0).layout.join(',') === full.join(','));
   App.state.split = [];
 
+  const richCard = App.parseCharacterCard('姓名：林小满\n性别：女\n年龄：24岁\n职业：编辑\n简介：住在城南\n人设：慢热，嘴硬心软\n开场白：你来啦', 'rich.txt');
+  ok('角色卡自动识别姓名性别年龄职业', richCard.character.name === '林小满' && richCard.character.gender === '女' && richCard.character.age === '24岁' && richCard.character.occupation === '编辑', JSON.stringify(richCard));
+  ok('角色卡自动识别简介人设开场白', richCard.character.desc === '住在城南' && richCard.character.persona === '慢热，嘴硬心软' && richCard.character.greeting === '你来啦', JSON.stringify(richCard));
+  const richJson = App.parseCharacterCard(JSON.stringify({ name: '周野', gender: '男', age: 28, occupation: '摄影师', description: '住在海边', personality: '寡言', first_mes: '晚上好' }), 'rich.json');
+  ok('JSON 角色卡字段自动归类', richJson.character.name === '周野' && richJson.character.occupation === '摄影师' && richJson.character.persona.includes('寡言'), JSON.stringify(richJson));
   /* ── 新插件：月历 / 朋友圈 / 音乐 ── */
   App.state.widgets = [[], [], []];
   ['month', 'moments', 'music'].forEach(t => App.addWidget(0, t));

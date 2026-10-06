@@ -3343,7 +3343,11 @@ input.field[type="range"]::-webkit-slider-thumb {
 .music-detail-cover { flex-basis: 112px; height: 112px; background-size: cover; }
 .music-detail-copy h2 { margin: 0 0 6px; font-size: 22px; }
 .music-detail-copy p { margin: 0; opacity: .8; }
-.music-player { position: relative; isolation: isolate; display: flex; min-height: 640px; overflow: hidden; padding: 34px 22px 80px; flex-direction: column; align-items: center; justify-content: center; background: center/cover; color: white; text-align: center; }
+.music-player { position: relative; isolation: isolate; display: flex; min-height: 0; overflow: hidden; padding: 34px 22px 80px; flex: 1 1 auto; flex-direction: column; align-items: center; background: center/cover; color: white; text-align: center; }
+/* 矮屏上播放页内容比屏幕高（320x568 实测控制条会被顶出屏幕），所以里面这层要能滚。
+   背景留在不滚的外层，否则一滚模糊背景就跟着跑了。
+   safe center：装得下就居中，装不下就从头排 —— 普通 center 在溢出时会把顶部切掉。 */
+.music-body { display: flex; width: 100%; min-height: 0; flex: 1 1 auto; overflow-y: auto; flex-direction: column; align-items: center; justify-content: safe center; }
 /* 可点的是整个舞台：黑胶藏起来之后，歌词这块也能点回封面 */
 .music-stage { display: flex; width: 100%; flex-direction: column; align-items: center; cursor: pointer; }
 .music-empty { padding: 34px 10px; color: var(--ink-3); font-size: 14px; text-align: center; }

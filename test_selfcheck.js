@@ -2581,7 +2581,7 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
      无头 DOM 没有布局引擎量不出来，所以直接守住样式本身。 */
   const cssText = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
   const cssRule = sel => { const i = cssText.indexOf(sel + ' {'); return i < 0 ? '' : cssText.slice(i, cssText.indexOf('}', i)); };
-  ['.music-list', '.music-playlists'].forEach(sel => {
+  ['.music-list', '.music-playlists', '.music-body'].forEach(sel => {
     const r = cssRule(sel);
     ok(sel + ' 带齐滚动三件套', /flex:\s*1/.test(r) && /min-height:\s*0/.test(r) && /overflow-y:\s*auto/.test(r),
       r.replace(/\s+/g, ' ').slice(0, 80));

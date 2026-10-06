@@ -5814,7 +5814,14 @@ const APPS = [
           const play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]);
           const next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
           const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]);
-          player.append(stage,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面或歌词切换'));
+          /* 内容包一层：矮屏上要能滚，但模糊背景不能跟着滚走，所以滚的是里面这层 */
+          player.append(SJ.el('div', { class: 'music-body' }, [
+            stage,
+            SJ.el('h2',{class:'music-player-title'},t.name),
+            SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),
+            progress, times, controls,
+            SJ.el('div',{class:'music-flip-tip'},'点击封面或歌词切换')
+          ]));
           root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player);
           if(a&&a._trackId!==t.id) loadTrack(t);
           syncPlayIcon();

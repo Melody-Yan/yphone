@@ -7031,7 +7031,7 @@ const APPS = [
         box.append(SJ.el('div', { class: 'pad' }, [
           field('接口地址', 'apiBase', 'https://api.deepseek.com/v1'),
           field('API Key', 'apiKey', 'sk-…', 'password'),
-          field('网易云代理地址（可选）', 'netEaseApi', '同源代理，例如 /netease-api'),
+          field('网易云代理地址（可选）', 'netEaseApi', '留空即用同源 /api/netease'),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '模型'), modelSel]),
           pullBtn,
           testBtn,

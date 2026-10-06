@@ -2561,10 +2561,41 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   await waitFor(() => walk(lrcApp).some(n => n.textContent === '第一句'), 2000);   // 别被「歌词加载中…」那行占位骗了
   ok('点封面会去取歌词并渲染出来', walk(lrcApp).filter(n => n._class.has('lyric-line')).length === 2,
     walk(lrcApp).filter(n => n._class.has('lyric-line')).length + ' 行');
+  /* 滚歌词时手指要拖动，抬手浏览器会补一个 click —— 那个不能算「切回封面」 */
+  const stageDrag = walk(lrcApp).find(n => n._class.has('music-stage'));
+  if (stageDrag) {
+    dispatch(stageDrag, 'pointerdown', { clientX: 10, clientY: 10 });
+    dispatch(stageDrag, 'pointermove', { clientX: 10, clientY: 90 });
+    dispatch(stageDrag, 'click', {});
+  }
+  ok('拖过之后再抬手，不会被误判成点击切回封面',
+    walk(lrcApp).some(n => n._class.has('music-lyrics') && n._class.has('show')), '被切回封面了');
+  if (lastAudio) { lastAudio.currentTime = 5.5; dispatch(lastAudio, 'timeupdate', {}); }
+  const actLine = walk(lrcApp).find(n => n._class.has('lyric-line') && n._class.has('active'));
+  ok('唱到哪句就高亮哪句', !!actLine && actLine.textContent === '第二句', actLine && actLine.textContent);
+  ok('内置播放页背景文件都在', App.MUSIC_BGS.length >= 4 && App.MUSIC_BGS.every(b => fs.existsSync(path.join(DIR, b.img))),
+    App.MUSIC_BGS.map(b => b.img).join(','));
   const stage2 = walk(lrcApp).find(n => n._class.has('music-stage'));
   if (stage2) stage2.click();
   ok('再点一下能切回封面', !!walk(lrcApp).find(n => n._class.has('music-disc'))
     && !walk(lrcApp).some(n => n._class.has('music-lyrics') && n._class.has('show')));
+  App.state.settings.musicBg = 'img/musicbg-rain.webp';
+  const bgApp = openFresh('music');
+  (walk(bgApp).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  const pv = walk(bgApp).find(n => n._class.has('music-player'));
+  ok('选了内置背景，播放页就用它', !!pv && /musicbg-rain/.test(String(pv.style.backgroundImage)), pv && String(pv.style.backgroundImage));
+  App.state.settings.musicBg = '';
+  App.musicClear();
+  App.musicAdd([{ name: '带封面', artist: '谁', cover: 'https://img/c.jpg', url: 'https://a.test/c2.mp3' }]);
+  const bgApp2 = openFresh('music');
+  (walk(bgApp2).find(n => n._class.has('music-track')) || { click: function(){} }).click();
+  const pv2 = walk(bgApp2).find(n => n._class.has('music-player'));
+  ok('没选背景时跟随歌曲封面', !!pv2 && /c\.jpg/.test(String(pv2.style.backgroundImage)), pv2 && String(pv2.style.backgroundImage));
+  ok('音乐设置里有背景选择器', (() => {
+    const s2 = openFresh('music');
+    (walk(s2).find(n => n.attrs && n.attrs.title === '设置') || { click: function(){} }).click();
+    return walk(s2).filter(n => n._class.has('music-bg')).length >= 5;
+  })());
   fetchImpl = null;
 
   /* ── 歌单名：接口给的原名不能被「网易云歌单」这个占位盖掉 ── */
@@ -2594,7 +2625,18 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('长按歌单卡片弹出确认', walk(byId.phone).some(x => x._class.has('confirm')));
   confirmYes();
   ok('确认后歌单真的没了', App.musicPlaylists().length === 0, String(App.musicPlaylists().length));
-  ok('删歌单不删歌', App.musicTracks().length === 1, String(App.musicTracks().length));
+  ok('删歌单连里面的歌一起删', App.musicTracks().length === 0, String(App.musicTracks().length));
+
+  /* 同一首歌挂在两个歌单上时，删一个不能把另一个也掏空 */
+  App.musicClear();
+  App.musicAdd([{ name: '共享', artist: '人', url: 'https://a.test/s.mp3' }]);
+  App.musicAddPlaylist({ name: 'A', tracks: [{ name: '共享', artist: '人', url: 'https://a.test/s.mp3' }, { name: '独有', artist: '人', url: 'https://a.test/only.mp3' }] });
+  App.musicAddPlaylist({ name: 'B', tracks: [{ name: '共享', artist: '人', url: 'https://a.test/s.mp3' }] });
+  App.musicRemovePlaylist((App.musicPlaylists().find(p => p.name === 'A') || {}).id);
+  ok('独有的歌跟着走，共享的留下', App.musicTracks().length === 1 && App.musicTracks()[0].name === '共享',
+    JSON.stringify(App.musicTracks().map(t => t.name)));
+  App.musicClear();
+  App.musicPlaylists().length = 0;
   fetchImpl = null;
 
   /* ── 音乐 App 界面：粘贴 → 导入 → 列表 ── */

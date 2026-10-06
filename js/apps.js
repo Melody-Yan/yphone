@@ -5735,19 +5735,58 @@ const APPS = [
           const t = tracks[index] || SJ.musicNow(); if (!t) return listView();
           SJ.musicSetNow(t.id); root.innerHTML = '';
           let lyric = false, lyricText = null;
-          const player = SJ.el('div', { class: 'music-player', style: { backgroundImage: t.cover ? `linear-gradient(#1118,#111e),url(${t.cover})` : '' } });
+          /* 背景：设置里挑过就用挑的那张，没挑就跟随封面 */
+          const bgRef = String(SJ.state.settings.musicBg || '');
+          const bgImg = bgRef ? SJ.imgSrc(bgRef) : (t.cover || '');
+          const player = SJ.el('div', { class: 'music-player', style: { backgroundImage: bgImg ? `url(${bgImg})` : '' } });
           const disc = SJ.el('div', { class: 'music-disc' }, [t.cover ? SJ.el('img', { src: t.cover, alt: '' }) : svgNode('music', 42)]);
           const lyricBox = SJ.el('div', { class: 'music-lyrics' });
           /* 可点的是整个舞台，不是黑胶本身 —— 以前黑胶一切到歌词就 display:none 了，
              于是屏幕上没有任何东西可以点回去。舞台一直在，歌词这块也能点回封面。 */
-          const stage = SJ.el('div', { class: 'music-stage', title: '点击切换歌词', onclick: () => { lyric = !lyric; applyStage(); } }, [disc, lyricBox]);
+          /* 拖一下（滚动歌词）不算点击 —— 否则一划就被切回封面，等于歌词没法滚。
+             位移超过 8px 就当作拖动，和桌面图标那套拖拽判断同一思路。 */
+          let downX = 0, downY = 0, dragged = false;
+          const stage = SJ.el('div', { class: 'music-stage', title: '点击切换歌词', onclick: () => {
+            if (dragged) { dragged = false; return; }
+            lyric = !lyric; applyStage();
+          } }, [disc, lyricBox]);
+          stage.addEventListener('pointerdown', e => { downX = e.clientX || 0; downY = e.clientY || 0; dragged = false; });
+          stage.addEventListener('pointermove', e => {
+            if (Math.abs((e.clientX || 0) - downX) > 8 || Math.abs((e.clientY || 0) - downY) > 8) dragged = true;
+          });
           const CREDIT = /^(作词|作曲|编曲|制作|制作人|混音|母带|录音|吉他|贝斯|鼓|和声|出品|监制|OP|SP|词|曲|演唱)\s*[:：]/;
+          let lyricLines = [], activeLine = -1, holdScroll = 0, progScroll = false;
           const paint = text => {
             lyricBox.innerHTML = '';
+            lyricLines = []; activeLine = -1;
             const lines = SJ.parseLRC(text || '').filter(l => !CREDIT.test(l.text));
             if (!lines.length) { lyricBox.append(SJ.el('div', { class: 'lyric-line empty' }, '这首歌没有歌词')); return; }
-            lines.forEach(l => lyricBox.append(SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text)));
+            lines.forEach(l => {
+              const el = SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text);
+              lyricLines.push({ time: l.time, el });
+              lyricBox.append(el);
+            });
+            syncLyric();
           };
+          /* 当前这句高亮并滚到屏幕中间。timeupdate 每秒来一次，走的是同一段逻辑。 */
+          const syncLyric = () => {
+            if (!lyricLines.length) return;
+            const cur = (a && Number(a.currentTime)) || 0;
+            let k = -1;
+            for (let i = 0; i < lyricLines.length; i++) { if (lyricLines[i].time <= cur + 0.2) k = i; else break; }
+            if (k === activeLine) return;
+            activeLine = k;
+            lyricLines.forEach((l, i) => l.el.classList.toggle('active', i === k));
+            /* 用户自己划的时候先别抢：停手 3 秒后再恢复自动滚动 */
+            if (k < 0 || Date.now() < holdScroll) return;
+            const el = lyricLines[k].el;
+            if (!el.scrollIntoView) return;
+            progScroll = true;
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { el.scrollIntoView(); }
+            setTimeout(() => { progScroll = false; }, 500);
+          };
+          /* 只把「用户自己滚的」算作手动：程序滚出来的 scroll 事件要忽略，否则会把自己锁住 */
+          lyricBox.addEventListener('scroll', () => { if (!progScroll) holdScroll = Date.now() + 3000; });
           const loadLyrics = async () => {
             if (lyricText !== null) return paint(lyricText);
             if (!t.lrc) { lyricText = ''; return paint(''); }
@@ -5766,7 +5805,7 @@ const APPS = [
           const progress = SJ.el('input', { class:'music-progress', type:'range', min:0, max:100, value:0 });
           const times = SJ.el('div',{class:'music-times'},[SJ.el('span',{},'00:00'),SJ.el('span',{},'00:00')]);
           const fmt=n=>{n=Math.floor(Number(n)||0);return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')};
-          const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration)};
+          const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration);syncLyric()};
           if(a){a.addEventListener('timeupdate',update);a.addEventListener('loadedmetadata',update)}
           progress.addEventListener('input',()=>{if(a&&isFinite(a.duration))a.currentTime=Number(progress.value)});
           const playIcon=SJ.el('span',{html:svg('play',24)});
@@ -5803,7 +5842,34 @@ const APPS = [
             }
           }, '测试连接');
           const saveBtn = SJ.el('button', { class: 'btn', onclick: () => { save(); toast('音乐设置已保存'); listView(); } }, '保存');
+          /* 播放页背景：跟随封面 / 内置几张 / 自己传一张。上传复用聊天背景那套 pickToStore。 */
+          const strip = SJ.el('div', { class: 'music-bgs' });
+          const drawBgs = () => {
+            strip.innerHTML = '';
+            const cur = String(SJ.state.settings.musicBg || '');
+            strip.append(SJ.el('button', {
+              class: 'music-bg' + (cur ? '' : ' on'), title: '跟随当前歌曲封面',
+              onclick: () => { SJ.state.settings.musicBg = ''; SJ.save(); drawBgs(); }
+            }, '封面'));
+            SJ.MUSIC_BGS.forEach(b => strip.append(SJ.el('button', {
+              class: 'music-bg' + (cur === b.img ? ' on' : ''), title: b.name,
+              style: { backgroundImage: `url(${b.img})` },
+              onclick: () => { SJ.state.settings.musicBg = b.img; SJ.save(); drawBgs(); }
+            })));
+            const mine = /^idb:/.test(cur) ? cur : '';
+            strip.append(SJ.el('button', {
+              class: 'music-bg up' + (mine ? ' on' : ''), title: '从手机选一张',
+              style: { backgroundImage: mine ? `url(${SJ.imgSrc(mine)})` : '' },
+              onclick: async () => {
+                const ref = await pickToStore(1280, 0.8);
+                if (!ref) return;
+                SJ.state.settings.musicBg = ref; SJ.save(); drawBgs();
+              }
+            }, mine ? '' : '+'));
+          };
+          drawBgs();
           root.append(navBar('音乐设置', { back: listView }), SJ.el('div', { class: 'pad' }, [
+            SJ.el('div', { class: 'field-wrap' }, [SJ.el('span', {}, '播放页背景'), strip]),
             SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '网易云接口地址（Meting 兼容，留空用公共实例）'), input]),
             SJ.el('div', { class: 'hint' }, '浏览器直连网易云会被跨域拦掉。留空就行：会先试同源的 /api/netease（Cloudflare Pages 部署后自动生效），再试公共实例。要换自己的接口就填 Meting 的地址，例如 https://你的域名/meting/ （https 页面只能连 https 地址）。'),
             SJ.el('div', { style: { display: 'grid', gap: '8px', marginTop: '4px' } }, [test, saveBtn])

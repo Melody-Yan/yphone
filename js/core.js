@@ -221,6 +221,8 @@ const DEFAULTS = {
     readIgnore: true,    // 允许 TA 已读不回（偶尔真的不接话，比每次必回更像人）
     /* 聊天增强 */
     chatBg: '',          // 聊天背景（图片仓引用），空 = 默认纸色；角色自己的 c.chatBg 优先
+    /* 播放页背景：'' = 跟随歌曲封面；'img/...' = 内置；'idb:xxx' = 自己传的 */
+    musicBg: '',
     readReceipt: true,   // 我的消息下面显示「已读 / 未读」
     /* 支付密码：4 位数字，空 = 不验（老用户和新用户默认都是空，
        不塞默认值 —— 突然弹一个谁都不知道的密码等于把钱锁死）。 */
@@ -468,6 +470,8 @@ function migrate(saved) {
   /* 聊天背景：只认图片仓引用 / data URI / http，其它一律当没设 */
   const bgOk = v => /^(idb:[\w-]+|data:image\/|https?:)/.test(String(v || '')) ? String(v) : '';
   out.settings.chatBg = bgOk(out.settings.chatBg);
+  /* 播放页背景多认一种：内置素材是相对路径（img/...），bgOk 会把它当垃圾丢掉 */
+  out.settings.musicBg = /^(idb:[\w-]+|data:image\/|https?:|img\/)/.test(String(out.settings.musicBg || '')) ? String(out.settings.musicBg) : '';
 
   /* 支付密码：只认 4 位数字，其它（含 null/对象）一律当没设。
      用字面量 4 —— 这里是 migrate 链路，绝不能引用文件后面声明的 const（TDZ 会把整个存档清空）。 */
@@ -3329,6 +3333,14 @@ function mallFav(id) {
 function mallIsFav(id) { return state.mall.fav.indexOf(id) >= 0; }
 
 /* ── 音乐 ── */
+/* 播放页的内置背景。都是从 图片素材/ 里挑出来转成 webp 的，加了新图往这里加一行就行。 */
+const MUSIC_BGS = [
+  { name: '雨窗', img: 'img/musicbg-rain.webp' },
+  { name: '枯枝', img: 'img/musicbg-branch.webp' },
+  { name: '双猫', img: 'img/musicbg-cats.webp' },
+  { name: '水彩', img: 'img/musicbg-water.webp' },
+  { name: '车窗外', img: 'img/musicbg-window.webp' }
+];
 function musicTracks() { return state.music.tracks; }
 function normalizePlaylists(raw, legacyTracks) {
   return (Array.isArray(raw) ? raw : []).filter(p => p && typeof p === 'object').slice(0, 100).map((p, i) => ({
@@ -3354,11 +3366,19 @@ function musicAddPlaylist(data) {
   musicPlaylists().push(out); save(); return out.id;
 }
 function musicPlaylist(id) { return musicPlaylists().find(p => p.id === String(id)) || null; }
+/* 删歌单 = 连里面的歌一起删（不然音乐库只进不出）。
+   但同一首歌可能还挂在别的歌单上 —— 那种留着，别把别的歌单掏空。 */
 function musicRemovePlaylist(id) {
-  const before = musicPlaylists().length;
+  const pl = musicPlaylist(id);
+  if (!pl) return 0;
   state.music.playlists = musicPlaylists().filter(p => p.id !== String(id));
-  if (state.music.playlists.length !== before) save();
-  return before - state.music.playlists.length;
+  const keep = new Set();
+  state.music.playlists.forEach(p => p.tracks.forEach(t => keep.add(t)));
+  const gone = new Set(pl.tracks.filter(t => !keep.has(t)));
+  state.music.tracks = state.music.tracks.filter(t => !gone.has(t.id));
+  if (gone.has(state.music.now)) state.music.now = '';
+  save();
+  return 1;
 }
 function parseLRC(text) {
   const out = []; const re = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]([^\n]*)/g; let m;
@@ -4831,7 +4851,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, MUSIC_BGS, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, matchLocalTrack, musicAdd, musicRemove, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

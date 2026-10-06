@@ -3308,7 +3308,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 .ymusic-search { display: flex; align-items: center; gap: 8px; flex: 1; padding: 11px 13px; border-radius: 18px; background: var(--bg-2); color: var(--ink-3); }
 .ymusic-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 15px; }
 .ymusic-settings { display: grid; width: 42px; height: 42px; place-items: center; border: 0; border-radius: 15px; background: var(--bg-2); color: var(--ink-2); cursor: pointer; }
-.music-list { display: grid; gap: 8px; padding: 10px 14px 110px; }
+.music-list { display: grid; gap: 8px; padding: 10px 14px 110px;
+  /* .app-view 是 flex 列容器：子元素不带 flex:1 + min-height:0 + overflow-y 就根本滚不动 */
+  flex: 1; min-height: 0; overflow-y: auto; }
 .music-track { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 12px; border: 0; border-radius: 18px; background: color-mix(in srgb, var(--card) 82%, transparent); color: var(--ink); text-align: left; cursor: pointer; transition: transform .18s ease, background .18s ease; }
 .music-track:hover, .music-track.on { background: color-mix(in srgb, var(--accent-solid) 12%, var(--card)); }
 .music-track:active { transform: scale(.985); }
@@ -3326,7 +3328,12 @@ input.field[type="range"]::-webkit-slider-thumb {
 .music-mini-fixed { position: fixed; left: 50%; bottom: 74px; z-index: 19; width: calc(100% - 28px); max-width: 360px; transform: translateX(-50%); margin: 0; border-radius: 20px; background: color-mix(in srgb, var(--card) 84%, transparent); box-shadow: 0 10px 30px rgba(44,40,36,.16); backdrop-filter: blur(18px); }
 .music-fab { position: fixed; right: 22px; bottom: 142px; z-index: 21; width: 52px; height: 52px; border: 0; border-radius: 50%; background: var(--ink); color: var(--card); font-size: 30px; line-height: 1; box-shadow: 0 12px 25px rgba(44,40,36,.22); cursor: pointer; transition: transform .2s ease; }
 .music-fab:active { transform: scale(.92); }
-.music-playlists { display: grid; gap: 10px; padding: 14px 14px 100px; }
+.music-playlists { display: grid; gap: 10px; padding: 14px 14px 100px; flex: 1; min-height: 0; overflow-y: auto; }
+/* 播放页背景选择：跟随封面 / 内置 / 自传 */
+.music-bgs { display: flex; flex-wrap: wrap; gap: 8px; }
+.music-bg { display: grid; width: 58px; height: 58px; padding: 0; place-items: center; overflow: hidden; border: 2px solid transparent; border-radius: 14px; background: var(--bg-2) center/cover; color: var(--ink-3); font-size: 12px; cursor: pointer; }
+.music-bg.on { border-color: var(--accent-solid); }
+.music-bg.up { font-size: 22px; }
 .music-playlist { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; border: 0; border-radius: 20px; background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
 .music-playlist-cover, .music-detail-cover { display: grid; flex: 0 0 58px; height: 58px; place-items: center; border-radius: 16px; background: var(--bg-2) center/cover; color: var(--ink-3); }
 .music-playlist-main { display: grid; flex: 1; gap: 5px; }

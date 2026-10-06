@@ -3421,16 +3421,18 @@ async function importNetEasePlaylist(input) {
   const id = netEasePlaylistId(input);
   if (!id) throw new Error('没认出网易云公开歌单链接');
   const custom = String(state.settings.netEaseApi || '').replace(/\/+$/, '');
-  const bases = [custom, 'https://api.injahow.cn/meting', 'https://api-meting.fuyiran.link'].filter(Boolean);
+  const target = (custom || 'https://api.injahow.cn/meting') + '?server=netease&type=playlist&id=' + encodeURIComponent(id);
+  /* 浏览器直连常被 CORS 拦截；同源/自建代理优先，公共只读代理作为最后兜底。 */
+  const urls = [target, 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target)];
   let data = null, lastError = null;
-  for (const base of bases) {
+  for (const url of urls) {
     try {
-      const res = await fetch(base + '?server=netease&type=playlist&id=' + encodeURIComponent(id));
+      const res = await fetch(url);
       if (!res.ok) { lastError = new Error('HTTP ' + res.status); continue; }
       data = await res.json(); break;
     } catch (e) { lastError = e; }
   }
-  if (!data) throw new Error('网易云歌单接口连不上：' + ((lastError && lastError.message) || '网络错误'));
+  if (!data) throw new Error('网易云歌单接口连不上：浏览器跨域或网络拦截（' + ((lastError && lastError.message) || '网络错误') + '）。请在设置里配置同源网易云代理地址');
   const out = normalizeNetEasePlaylist(data);
   if (!out.tracks.length) throw new Error('歌单为空或不是公开歌单');
   return Object.assign(out, { source: 'netease', playlistId: id });

@@ -917,7 +917,7 @@ wb.pushMessage(uiC.id, true, '在吗');
 const cv4 = openFresh('chat', uiC.id);
 const gear = walk(cv4).find(n => n._class.has('nav-btn') && n.attrs && n.attrs.title === '聊天设置');
 ok('聊天页左上角有「聊天设置」齿轮', !!gear);
-ok('齿轮挨着返回键（在标题左边）', !!gear && walk(cv4).indexOf(gear) < walk(cv4).findIndex(n => n._class.has('nav-title')));
+ok('设置按钮跟通话都在标题右边', !!gear && walk(cv4).indexOf(gear) > walk(cv4).findIndex(n => n._class.has('nav-title')));
 gear.click();
 ok('点齿轮进去的是聊天设置，不是退回上一层', walk(cv4).some(n => n.textContent === '聊天设置'));
 ok('能改昵称', !!findIn(cv4, 'TA 该怎么叫你（留空＝用「设置」里的默认）'));
@@ -3607,7 +3607,12 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
 
   ok('聊天页 TA 的头像可以点', !!av);
   av.click();
-  ok('点头像进的是聊天设置', walk(chat).some(n => n.textContent === '聊天设置'));
+  ok('点头像看的是角色心声', walk(chat).some(n => n.textContent === '角色心声'));
+  /* 头像看的是心声（页是「替换」出来的，聊天的齿轮已经不在 DOM 里）——
+     先按返回回到聊天，再按电话旁边的齿轮进设置 */
+  (findBtn(byId.phone, '返回') || { click: function(){} }).click();
+  const setGear = walk(byId.phone).find(n => n._class.has('nav-btn') && n.attrs && n.attrs.title === '聊天设置');
+  if (setGear) setGear.click();
   ok('聊天设置里有「允许 TA 自己改关系」开关',
     walk(chat).some(n => n.textContent === '允许 TA 自己改关系'));
   (findBtn(chat, '返回') || { click: function(){} }).click();
@@ -3706,7 +3711,9 @@ console.log('\n[32] 已读不回 / 字体 / 状态栏 / 消息音效');
   let chat = openFresh('chat', c.id);
   const avTap = walk(chat).find(n => n._class.has('av-tap'));
   ok('点头像能进聊天设置（再确认一次）', !!avTap);
-  avTap.click();
+  /* 头像是看心声了 —— 进设置改按齿轮 */
+const g2 = walk(byId.phone).find(n => n._class.has('nav-btn') && n.attrs && n.attrs.title === '聊天设置');
+if (g2) g2.click(); else avTap.click();
   const tapR = t => {
     const r = walk(chat).find(n => n._class.has('row') && n.textContent.includes(t));
     if (r) r.click();

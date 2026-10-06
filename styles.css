@@ -3619,6 +3619,40 @@ input.field[type="range"]::-webkit-slider-thumb {
 .imgv-acts { display: flex; gap: 8px; margin-top: 12px; }
 .imgv-acts .btn { flex: 1 1 auto; }
 
+/* ── 角色心声：四行内心（心情 / 状态 / 在想 / 对你）── */
+.heart-hint { margin: 2px 20px 10px; }
+.heart-card {
+  margin: 0 16px; padding: 4px 16px 8px;
+  background: var(--card); border-radius: var(--r-m); box-shadow: var(--el-1);
+}
+.heart-row { padding: 11px 0; border-bottom: 1px solid var(--line); }
+.heart-row:last-child { border-bottom: 0; }
+.heart-k {
+  font-size: var(--fs-cap); color: var(--ink-3); letter-spacing: .08em; margin-bottom: 4px;
+}
+.heart-v { font-size: var(--fs-base); color: var(--ink); line-height: 1.55; }
+.heart-wait { padding: 22px 0; text-align: center; color: var(--ink-3); letter-spacing: .3em; }
+
+/* 上下文深度拉条：跟其它控件同一套观感 */
+.seg-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.seg-row .row-time { flex: 0 0 auto; min-width: 54px; text-align: right; }
+.heart-range {
+  flex: 1 1 auto; width: auto; padding: 0; border: 0; background: none;
+  -webkit-appearance: none; appearance: none; height: 22px;
+}
+.heart-range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px; background: var(--bg-2);
+}
+.heart-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; margin-top: -8px; border-radius: 50%;
+  background: var(--accent-solid); box-shadow: var(--el-1);
+}
+.heart-range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--bg-2); }
+.heart-range::-moz-range-thumb {
+  width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--accent-solid);
+}
+
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }
 #phone *::-webkit-scrollbar { width: 0; height: 0; }

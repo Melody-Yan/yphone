@@ -121,6 +121,10 @@ const WIDGET_SIZES = [
    被 load() 的 catch 吃掉 → 整台手机看起来像被清空（角色、聊天、备忘录全没了）。 */
 const NAME_MAX = 24, TEXT_MAX = 4000, CHAT_KEEP = 200;
 const SMS_KEEP = 300;   // 短信每个会话最多留多少条
+/* 记忆分层：短期攒到 10 条合成一条长期；长期每次都要携带。
+   这两个常量必须在 migrate 之前（migrate 里要用），所以放这儿不放 MEM_KEEP 旁边。 */
+const MEM_SHORT_MAX = 10;
+const MEM_LONG_KEEP = 200;
 /* 世界书卡自己的上限，比 TEXT_MAX 宽得多：一张卡就是一整节设定，
    导一份进来就被静默砍到 4000 字是不能接受的。
    （聊天消息、人设那些还是 4000，那边的上限是为了提示词不爆，不是同一回事。） */
@@ -228,7 +232,8 @@ const DEFAULTS = {
   characters: [],        // 通讯录：[{id,name,avatar,avatarImg,color,desc,persona,greeting,alias,relation,myRelation,memUpTo,ts}, ...]
   chats: {},             // 会话：{ 角色id: [{me,text,ts}, ...] }
   worldbook: [],         // 世界书（关键词触发的设定卡）：[{id,title,keys,content,order,constant,enabled}, ...]
-  memories: {},          // 记忆卡片：{ 角色id: [{id,text,ts}, ...] }
+  memories: {},          // 短期记忆卡片：{ 角色id: [{id,text,ts}, ...] }
+  longMem: {},           // 长期记忆卡片：每 10 条短期合成一条，每次对话都携带
   events: [],            // 日历：[{id,date,time,title,done}, ...]
   widgets: [[{ id: 'wg-clock', type: 'clock' }], [], []], // 桌面插件：每页一组 [{id,type}, ...]
   unread: {},            // 未读消息数：{角色id: 条数}。打开那个聊天就清零
@@ -283,7 +288,7 @@ const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
-  personas: 'array', personaId: 'string', sms: 'object',
+  personas: 'array', personaId: 'string', sms: 'object', longMem: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
   mall: 'object', wallet: 'object', addresses: 'array'
 };
@@ -545,6 +550,24 @@ function migrate(saved) {
       const pid = pk(c.personaId);
       if (pid && !out.personas.some(p => p.id === pid)) c.personaId = '';
     });
+  }
+
+  /* 长期记忆：跟短期同构（{id,text,ts}） */
+  {
+    const raw = (out.longMem && typeof out.longMem === 'object' && !Array.isArray(out.longMem)) ? out.longMem : {};
+    const clean = {};
+    Object.keys(raw).slice(0, 200).forEach(k => {
+      const arr = Array.isArray(raw[k]) ? raw[k] : [];
+      clean[k] = arr.filter(x => x && typeof x === 'object' && !Array.isArray(x))
+        .slice(-MEM_LONG_KEEP)
+        .map((x, i) => ({
+          id: String(x.id || ('lm-' + i)),
+          text: String(x.text == null ? '' : x.text).slice(0, 500),
+          ts: Number(x.ts) || 0
+        }))
+        .filter(x => x.text);
+    });
+    out.longMem = clean;
   }
 
   /* 短信（YMessage）：跟 chats 同构，单独归一一次 —— 也是导入存档的信任边界 */
@@ -1432,7 +1455,7 @@ const WB_CAT_SUB = {
   '其他': '没归类的都先放这儿'
 };
 const KEY_MAX = 40;    // 单张卡最多几个关键词
-const MEM_KEEP = 300;  // 单个角色最多留多少条记忆卡片
+const MEM_KEEP = 300;  // 单个角色最多留多少条短期记忆卡片
 /* 一轮注入的世界书字数上限。卡写到几十张，总有一天一条消息同时命中十几张，
    把聊天记录整个顶出上下文 —— 那时表现是「她突然失忆 + 接口报 400」，
    是最难查的一类故障。超出的从尾部（优先级最低那头）砍掉，界面上会直说。 */
@@ -3376,7 +3399,7 @@ async function generateMoment(char) {
   const hist = (state.chats[char.id] || []).slice(-12)
     .filter(m => !m.img)
     .map(m => (m.me ? '我：' : (char.name + '：')) + m.text).join('\n');
-  const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  const mem = memoryBlock(char.id);
   /* 朋友圈也是「她此刻的生活」，同样要认得这个世界 */
   const wbTxt = wbBlock(state.chats[char.id] || [], char);
   const usr =
@@ -3469,7 +3492,7 @@ async function proactiveSay(char) {
   const hist = (state.chats[char.id] || []).slice(-12)
     .filter(m => !m.img && m.text)
     .map(m => (m.me ? (char.alias || '他') + '：' : char.name + '：') + m.text).join('\n');
-  const mem = memories(char.id).slice(-5).map(x => '- ' + x.text).join('\n');
+  const mem = memoryBlock(char.id);
   /* 主动找你时也必须认得这个世界 —— 否则她会说出跟设定矛盾的话 */
   const wbTxt = wbBlock(state.chats[char.id] || [], char);
   const usr =
@@ -4354,6 +4377,101 @@ async function summarize(char, msgs) {
     .filter(Boolean).slice(0, 8);
 }
 
+/* ── 角色心声 ──
+   点头像看的是「此刻的内心」：不是什么总结，是他现在这一秒在想什么。
+   刻意要求四行固定格式，好摆成一个像样的界面（乱段落没法排版）。 */
+function heartAsk(char, history) {
+  const lines = [
+    '你现在就是「' + (char.name || '他') + '」本人。',
+    '不要复述对话、不要总结、不要旁白、不要解释。',
+    '用第一人称写下你**此刻**的内心，就写现在这一刻。四行，每行一行，不要多写：',
+    '心情：<此刻的情绪，一句话>',
+    '状态：<身体怎么样、在哪儿、正在做什么，一句话>',
+    '在想：<脑子里正转着的念头，一到两句>',
+    '对你：<对你这个人的感觉和态度，一句话>'
+  ];
+  const mem = memoryBlock(char.id);
+  if (mem) lines.push('', '# 你记得的事（别复述，只用来决定你的态度）', mem);
+  const sys = lines.join('\n');
+  const recent = (history || []).slice(-12)
+    .map(m => (m.me ? '对方：' : '你：') + String(m.text || '').slice(0, 120));
+  return chatPost([
+    { role: 'system', content: sys },
+    { role: 'user', content: recent.join('\n') || '（刚认识）' }
+  ], '角色心声').then(data => String((((data.choices || [])[0] || {}).message || {}).content || ''));
+}
+/* 「心情：…」这种四行 → [{k,v}]。认不出格式就整段原样给你 */
+function parseHeart(text) {
+  const out = [];
+  String(text || '').split('\n').forEach(l => {
+    const m = /^\s*(?:[-*•]\s*)?(心情|状态|在想|对你)\s*[:：]\s*(.+)$/.exec(l);
+    if (m) out.push({ k: m[1], v: m[2].trim() });
+  });
+  return out;
+}
+
+/* ── 长期记忆：短期攒够 10 条，合成一条，之后每次都携带 ──
+   为什么要长期：短期只带最近几条，久了人设就淡了。
+   长期是「浓缩过的事实」（称呼、约定、喜好、雷区），全程在场，人设不容易漂。 */
+function longMemories(id) {
+  const k = String(id || '');
+  if (!k) return [];
+  if (!Array.isArray(state.longMem[k])) state.longMem[k] = [];
+  return state.longMem[k];
+}
+function addLongMemory(id, text) {
+  const t = String(text || '').trim().slice(0, 500);
+  if (!t) return false;
+  const list = longMemories(id);
+  if (list.some(x => x.text === t)) return false;      // 合过的别再合一遍
+  list.push({ id: uid(), text: t, ts: Date.now() });
+  state.longMem[id] = list.slice(-MEM_LONG_KEEP);
+  save();
+  return true;
+}
+function removeLongMemory(id, memId) {
+  const k = String(id || '');
+  state.longMem[k] = longMemories(k).filter(x => x.id !== String(memId));
+  save();
+}
+/* 提示词里的记忆块：**全部长期** + 最近的短期 */
+function memoryBlock(id) {
+  const lo = longMemories(id).map(x => '- ' + x.text);
+  const sh = memories(id).slice(-MEM_SHORT_MAX).map(x => '- ' + x.text);
+  const out = [];
+  if (lo.length) out.push('【长期记住的（一直有效）】', ...lo);
+  if (sh.length) out.push(lo.length ? '' : null, '【最近发生的事】', ...sh);
+  return out.filter(x => x !== null).join('\n');
+}
+/* 短期到 10 条就合成一条长期（模型没通就攒着，下次再合） */
+async function mergeMemories(char) {
+  const list = memories(char.id);
+  if (list.length < MEM_SHORT_MAX) return 0;
+  const batch = list.slice(0, MEM_SHORT_MAX);
+  const api = apiRoot();
+  if (!api || !state.settings.apiKey) return 0;        // 没接口就等下次
+  try {
+    const data = await chatPost([
+      { role: 'system', content:
+        '你在帮一个角色扮演应用整理长期记忆。下面是一批短期记忆卡片。' +
+        '把它们合并成**一条**更凝练的长期记忆：只留以后还用得上的事实（称呼、约定、喜好、' +
+        '雷区、关系变化），丢掉一次性的对话细节。用第三人称陈述，一句话，' +
+        '不要序号、不要引号、不要解释。' },
+      { role: 'user', content: batch.map(x => '- ' + x.text).join('\n') }
+    ], '长期记忆');
+    const one = String((((data.choices || [])[0] || {}).message || {}).content || '')
+      .replace(/^\s*(?:[-*•·]|\d+[.、)])\s*/, '').trim().split('\n')[0];
+    if (!one) return 0;
+    addLongMemory(char.id, one);
+    state.memories[char.id] = memories(char.id).slice(MEM_SHORT_MAX);
+    save();
+    return 1;
+  } catch (e) {
+    console.warn('[core] 长期记忆合并失败，先攒着', e && e.message);
+    return 0;
+  }
+}
+
 /* 手动总结：把还没总结过的对话蒸馏成记忆卡片。返回真正新增的条数。 */
 async function memorizeNow(char) {
   const list = messages(char.id);
@@ -4381,7 +4499,11 @@ async function autoMemorize(char) {
   lines.forEach(t => { if (addMemory(char.id, t)) n++; });
   char.memUpTo = list.length;
   save();
-  return n;
+      /* 短期攒够了就合一条长期 —— 失败不吵（下次再合） */
+    if (memories(char.id).length >= MEM_SHORT_MAX) {
+      try { await mergeMemories(char); } catch (e) {}
+    }
+return n;
 }
 
 /* ══════════════════════════════════════════════════════
@@ -4456,6 +4578,8 @@ window.SJ = {
   WB_TEXT_MAX,
   WB_CATS, WB_CAT_SUB, WB_LOGIC, WB_LOGIC_SUB,
   memories, addMemory, deleteMemory, clearMemories,
+  longMemories, addLongMemory, removeLongMemory, memoryBlock, mergeMemories, MEM_SHORT_MAX,
+  heartAsk, parseHeart,
   summarize, memorizeNow, autoMemorize,
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   /* 桌面插件 */

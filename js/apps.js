@@ -1944,6 +1944,51 @@ const APPS = [
         );
       }
 
+        /* ── 角色心声：点头像看 TA 此刻在想什么 ──
+           不是复述对话，是「现在这一刻」的内心（心情 / 状态 / 在想 / 对你）。
+           刻意不落盘：每次打开现算，才不会看到过期的心事。 */
+        function heartView(cid) {
+          const ch = SJ.state.characters.find(x => x.id === cid);
+          if (!ch) return;
+          const pad = subPage('角色心声', () => chatView(cid));
+          const card = SJ.el('div', { class: 'heart-card' });
+          const again = SJ.el('button', { class: 'btn ghost', onclick: () => load() }, '再想一次');
+          again.disabled = true;
+          pad.append(
+            SJ.el('div', { class: 'who' }, [avatarNode(ch), SJ.el('div', { class: 'who-name' }, ch.name)]),
+            SJ.el('div', { class: 'hint heart-hint' }, '她此刻的心里话 —— 每次打开都是现问的'),
+            card,
+            SJ.el('div', { class: 'pad' }, [again])
+          );
+          async function load() {
+            again.disabled = true;
+            again.textContent = '她在想…';
+            card.innerHTML = '';
+            card.append(SJ.el('div', { class: 'heart-wait' }, '···'));
+            try {
+              const raw = await SJ.heartAsk(ch, SJ.messages(cid));
+              const rows = SJ.parseHeart(raw);
+              card.innerHTML = '';
+              if (rows.length) {
+                rows.forEach(r => card.append(SJ.el('div', { class: 'heart-row' }, [
+                  SJ.el('div', { class: 'heart-k' }, r.k),
+                  SJ.el('div', { class: 'heart-v' }, r.v)
+                ])));
+              } else {
+                card.append(SJ.el('div', { class: 'heart-row' }, [
+                  SJ.el('div', { class: 'heart-v' }, String(raw || '（她没说话）'))
+                ]));
+              }
+            } catch (e) {
+              card.innerHTML = '';
+              card.append(SJ.el('div', { class: 'hint' }, '没问出来：' + (e.message || '接口没通')));
+            }
+            again.disabled = false;
+            again.textContent = '再想一次';
+          }
+          load();
+        }
+
       function chatSettings(id) {
         const c = SJ.state.characters.find(x => x.id === id);
         if (!c) return SJ.isGroup(id) ? groupSettings(id) : listView();
@@ -1966,27 +2011,34 @@ const APPS = [
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '昵称'), alias]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, 'TA 认为的关系'), relation]),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '我认为的关系'), myRel]),
-          /* 上下文深度：这个角色每次发过去带多少条原话。预设几档就够，不用让人算 token。 */
-          SJ.el('div', { class: 'row', onclick: () => {
+                    /* 上下文深度：拉条自由调（2 – 400）。条数多带的多、token 也多；
+             更早的事靠长期记忆顶上，所以不用无限拉。 */
+          (() => {
             const g = Math.max(2, Number(SJ.state.settings.historyKeep) || 40);
-            const cur = Number(c.historyKeep) || 0;
-            window.popover([0, 10, 20, 40, 80, 120].map(n => ({
-              label: n ? '最近 ' + n + ' 条' : '跟随全局（' + g + ' 条）',
-              hint: (n || g) === (cur || g) ? '当前' : '',
-              run: () => {
-                c.historyKeep = n;
-                SJ.saveCharacter(c);
-                toast(n ? '只带最近 ' + n + ' 条原话' : '改回跟随全局');
-                chatSettings(id);
-              }
-            })), { head: '对话上下文深度' });
-          } }, [
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, '上下文深度'),
-              SJ.el('div', { class: 'row-sub' }, '每次发给她时带最近几条原话；更早的靠记忆卡顶上')
-            ]),
-            SJ.el('div', { class: 'row-time' }, (c.historyKeep ? c.historyKeep + ' 条 ›' : '跟随全局 ›'))
-          ]),
+            const cur = Math.max(2, Number(c.historyKeep) || g);
+            const lab = SJ.el('div', { class: 'row-time' }, c.historyKeep ? cur + ' 条' : '跟随全局 ' + g);
+            const rng = SJ.el('input', { class: 'field heart-range', type: 'range', min: '2', max: '400', step: '2', value: String(cur) });
+            rng.addEventListener('input', () => { lab.textContent = rng.value + ' 条'; });
+            rng.addEventListener('change', () => {
+              c.historyKeep = Number(rng.value) || g;
+              SJ.saveCharacter(c);
+              toast('上下文深度：' + c.historyKeep + ' 条');
+            });
+            /* ⚠️ 必须**返回一个节点** —— 这段是塞在 pad.append(...) 的一个参数位上的，
+               自己再去 append 又返回 undefined 的话，append(undefined) 直接抛，
+               整个设置页就打不开了。 */
+            return SJ.el('div', {}, [
+              SJ.el('div', { class: 'prow' }, [
+                SJ.el('div', { class: 'prow-t' }, '上下文深度'),
+                SJ.el('div', { class: 'prow-s' }, '每次发给她时带最近几条原话（2 – 400）；更早的靠长期记忆顶上'),
+                SJ.el('div', { class: 'seg-row' }, [rng, lab])
+              ]),
+              SJ.el('div', { class: 'pad' }, [SJ.el('button', {
+                class: 'btn ghost',
+                onclick: () => { c.historyKeep = 0; SJ.saveCharacter(c); toast('改回跟随全局（' + g + ' 条）'); chatSettings(id); }
+              }, '跟随全局')])
+            ]);
+          })(),
           rowToggle('允许 TA 自己改关系', '剧情走到那儿时，TA 可以主动改掉上面那一栏', c.allowRelation === true,
             () => { c.allowRelation = c.allowRelation !== true; SJ.saveCharacter(c); chatSettings(id); }),
 
@@ -2179,11 +2231,11 @@ const APPS = [
         root.innerHTML = '';
         root.append(navBar(c.name, {
           back: listView,
-          // 左上角齿轮：昵称 / 关系 / 记忆卡片 / 总结，都归它管
-          left: SJ.el('button', { class: 'nav-btn', title: '聊天设置', html: svg('gear', 17), onclick: () => chatSettings(id) }),
           right: SJ.el('div', { class: 'nav-right' }, [
+            SJ.el('button', { class: 'nav-btn', title: '聊天设置', onclick: () => chatSettings(id) },
+              SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) })),
             G ? null : SJ.el('button', { class: 'nav-btn', title: '语音通话', onclick: () => callView(id) },
-            SJ.el('span', { class: 'nav-ico', html: svg('phone', 19) })),
+              SJ.el('span', { class: 'nav-ico', html: svg('phone', 19) })),
           ])
         }));
         const list = SJ.el('div', { class: 'chat-list' });
@@ -2322,7 +2374,7 @@ const APPS = [
           /* 群里的每条消息都挂 grp（包括我自己发的）—— 「这是群聊」是整条会话的属性，
              不只在「有人插话」时才成立。只有 TA 那条才套 .msg-box 装名字。 */
           const r = SJ.el('div', { class: 'msg ' + (me ? 'me' : 'ta') + (G ? ' grp' : '') }, [
-            me ? null : SJ.el('div', { class: 'av-tap', onclick: () => chatSettings(speaker ? speaker.id : id) }, [avatarNode(face)]),
+            me ? null : SJ.el('div', { class: 'av-tap', onclick: () => heartView(speaker ? speaker.id : id) }, [avatarNode(face)]),
             speaker ? SJ.el('div', { class: 'msg-box' }, [SJ.el('div', { class: 'msg-who' }, face.name), inner]) : inner,
             me ? myAvatarNode() : null
             ]);

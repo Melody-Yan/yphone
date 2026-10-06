@@ -5703,28 +5703,31 @@ const APPS = [
           const lyricBox = SJ.el('div', { class: 'music-lyrics' }); const disc = SJ.el('button', { class: 'music-disc', title: '点击切换歌词', onclick: () => { lyric = !lyric; lyricBox.classList.toggle('show', lyric); disc.classList.toggle('hide', lyric); } }, [SJ.el('img', { src: t.cover || '', alt: '' })]);
           SJ.parseLRC(t.lrc || '').forEach(l => lyricBox.append(SJ.el('div', { class: 'lyric-line', 'data-time': l.time }, l.text)));
           const progress = SJ.el('input', { class:'music-progress', type:'range', min:0, max:100, value:0 }); const times = SJ.el('div',{class:'music-times'},[SJ.el('span',{},'00:00'),SJ.el('span',{},'00:00')]); const fmt=n=>{n=Math.floor(Number(n)||0);return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')}; const update=()=>{if(!a)return;progress.max=Number(a.duration)||100;progress.value=a.currentTime||0;times.children[0].textContent=fmt(a.currentTime);times.children[1].textContent=fmt(a.duration)}; if(a){a.addEventListener('timeupdate',update);a.addEventListener('loadedmetadata',update)} progress.addEventListener('input',()=>{if(a&&isFinite(a.duration))a.currentTime=Number(progress.value)});
-          const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]), play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:togglePlay},[SJ.el('span',{html:svg('play',24)})]), next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
-          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]); player.append(disc,lyricBox,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面切换歌词')); root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player);
+          const syncPlayIcon=()=>{playIcon.innerHTML=svg(a&&!a.paused&&a.src?'pause':'play',24)}; const prev=SJ.el('button',{class:'music-control',title:'上一曲',onclick:()=>tracks[index-1]&&playerView(tracks[index-1].id)},[svgNode('left',20)]), playIcon=SJ.el('span',{html:svg('play',24)}), play=SJ.el('button',{class:'music-player-play',title:'播放/暂停',onclick:()=>togglePlay(syncPlayIcon)},[playIcon]), next=SJ.el('button',{class:'music-control',title:'下一曲',onclick:()=>tracks[index+1]&&playerView(tracks[index+1].id)},[svgNode('right',20)]);
+          const controls=SJ.el('div',{class:'music-controls'},[SJ.el('button',{class:'music-control',title:'循环模式',onclick:()=>toast('循环播放')},[svgNode('shuffle',18)]),prev,play,next,SJ.el('button',{class:'music-control',title:'播放列表',onclick:listView},[svgNode('folder',18)])]); player.append(disc,lyricBox,SJ.el('h2',{class:'music-player-title'},t.name),SJ.el('p',{class:'music-player-sub'},t.artist||'未知歌手'),progress,times,controls,SJ.el('div',{class:'music-flip-tip'},'点击封面切换歌词')); root.append(navBar('正在播放',{back:listView, right: SJ.el('button',{class:'nav-btn',title:'设置',onclick:settingsView},[svgNode('gear',18)])}),player); if(a&&a._trackId!==t.id) loadTrack(t); syncPlayIcon();
         }
         function settingsView(){root.innerHTML='';const input=SJ.el('input',{class:'field',value:SJ.state.settings.netEaseApi||'',placeholder:'网易云代理地址（可选）'});root.append(navBar('音乐设置',{back:listView}),SJ.el('div',{class:'pad'},[SJ.el('label',{class:'field-wrap'},[SJ.el('span',{},'网易云代理地址'),input]),SJ.el('button',{class:'btn',onclick:()=>{SJ.state.settings.netEaseApi=input.value.trim();SJ.save();toast('音乐设置已保存')}},'保存')]));}
-        function playTrack(t) {
+        function loadTrack(t) {
+        if (!a) { toast('这台设备不支持播放'); return; }
+        a.src = SJ.imgSrc(t.url);
+        a._trackId = t.id;                       // 记住这首已经装进去了，再进播放器不用从头重放
+        const p = a.play();
+        if (p && p.catch) p.catch(() => toast('这首放不出来：链接可能失效，或者对方不允许跨域播放'));
+      }
+
+      function playTrack(t) {
         SJ.musicSetNow(t.id);
-        if (a) {
-          a.src = SJ.imgSrc(t.url);
-          const p = a.play();
-          if (p && p.catch) p.catch(() => toast('这首放不出来：链接可能失效，或者对方不允许跨域播放'));
-        } else {
-          toast('这台设备不支持播放');
-        }
+        loadTrack(t);
         listView();
       }
 
-      function togglePlay() {
+      function togglePlay(after) {
         const t = SJ.musicNow();
         if (!a || !t) return;
         if (a.paused) { if (!a.src) a.src = SJ.imgSrc(t.url); a.play().catch(() => {}); }
         else a.pause();
-        listView();
+        /* 谁在用它就重画谁。写死 listView() 的话，全屏播放器里点暂停会被踢回列表 */
+        (after || listView)();
       }
 
       function importView() {

@@ -161,6 +161,7 @@ function makeSandbox() {
       removeItem: k => store.delete(k)
     },
     document: body,
+    Audio: FakeAudio,
     /* core.js 里 decodeText / docxText 用的是浏览器自带件。node 24 全都有，
        给沙箱补上，导入那一套才能在自检里真的跑一遍解压。 */
     TextDecoder, TextEncoder, Response, DecompressionStream, atob, btoa
@@ -168,6 +169,22 @@ function makeSandbox() {
   s.window = s; s.globalThis = s;
   return s;
 }
+/* 假 Audio：垫片里原本没有它，getPlayer() 就恒为 null，
+   togglePlay/playTrack 全在 `if (!a) return` 处提前返回 —— 播放这条路等于没测过。
+   只实现源码真正用到的那几个成员，多一个都不加。 */
+let lastAudio = null;
+function FakeAudio() {
+  this.src = ''; this.paused = true; this.currentTime = 0; this.duration = 0;
+  this.playCalls = 0; this.pauseCalls = 0;
+  this._listeners = Object.create(null);
+  lastAudio = this;
+}
+FakeAudio.prototype.play = function () { this.playCalls++; this.paused = false; return Promise.resolve(); };
+FakeAudio.prototype.pause = function () { this.pauseCalls++; this.paused = true; };
+FakeAudio.prototype.load = function () {};
+FakeAudio.prototype.addEventListener = function (k, fn) { (this._listeners[k] = this._listeners[k] || []).push(fn); };
+FakeAudio.prototype.removeEventListener = function () {};
+
 let sandbox = null;
 let sandboxCtx = null;
 let _bootN = 0;
@@ -2430,6 +2447,19 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   ok('点击全屏播放按钮仍停留在播放器', walk(playerApp).some(n => n._class.has('music-player')));
   const musicGear = walk(playerApp).find(n => n.attrs && n.attrs.title === '设置'); if (musicGear) musicGear.click();
   ok('音乐设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('音乐设置')));
+
+  /* 暂停键：以前 togglePlay 结尾调 listView()，点一下整个播放器就被重画掉，
+     看着就是「暂停没用/跳回首页」。垫片补了 Audio 之后这条才真的跑得进来。 */
+  const playApp2 = openFresh('music');
+  const rowT = walk(playApp2).find(n => n._class.has('music-track'));
+  if (rowT) rowT.click();
+  ok('点歌先落在全屏播放器里', walk(playApp2).some(n => n._class.has('music-player')));
+  if (lastAudio) { lastAudio.playCalls = 0; lastAudio.pauseCalls = 0; lastAudio.paused = false; }   // 假装这首正在放
+  const pb2 = walk(playApp2).find(n => n._class.has('music-player-play'));
+  if (pb2) pb2.click();
+  ok('暂停键真的调用了 audio.pause()', !!lastAudio && lastAudio.pauseCalls === 1,
+    lastAudio ? 'pauseCalls=' + lastAudio.pauseCalls : '没拿到 audio');
+  ok('暂停后还停在播放器，不会被踢回列表', walk(playApp2).some(n => n._class.has('music-player')));
 
 
   ok('存档里只留 http(s) 链接的歌', App.normalizeTracks([{ name: 'x', url: 'ftp://a' }, { name: 'y', url: 'https://b' }]).length === 1);

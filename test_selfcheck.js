@@ -1787,7 +1787,7 @@ const wbApp = () => {
 
   /* 这一段开过弹层，走之前清干净 —— 留着会一路挡到后面聊天页的用例 */
   walk(byId.phone).filter(n => n._class.has('mask')).forEach(m => {
-    if (m.parentNode && m.parentNode.removeChild) m.parentNode.removeChild(m);
+    if (m.remove) m.remove();
   });
   S.closeTop(true);
 }
@@ -3990,7 +3990,7 @@ console.log('\n[33] 聊天背景 / 通话记录 / 主动找你 / 引用回复');
   try { clickSheet('复制这条'); } catch (e) { copyOk = false; }
   /* 前面世界书的用例开过弹层，走之前清干净 —— 留着会挡住下面的聊天页面板 */
   walk(byId.phone).filter(n => n._class.has('mask')).forEach(m => {
-    if (m.parentNode && m.parentNode.removeChild) m.parentNode.removeChild(m);
+    if (m.remove) m.remove();
   });
 
   ok('「复制这条」没有剪贴板也不崩，点完面板收起',

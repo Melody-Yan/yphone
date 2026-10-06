@@ -3646,16 +3646,16 @@ console.log('\n[31] 语音条 · 通话 · 微信补全');
   const mic = walk(chat).find(n => n._class.has('chat-mic'));
   ok('输入栏有 🎤', !!mic);
   mic.click();
-  const vIn = walk(chat).find(n => n._class.has('voice-in'));
-  const vGo = walk(chat).find(n => n._class.has('voice-go'));
-  ok('点麦克风先出现语音面板', !!vIn && !!vGo);
+  const vIn = walk(body).find(n => n._class.has('voice-in'));
+  const vGo = walk(body).find(n => n._class.has('voice-go'));
+  ok('点麦克风弹出中间的语音卡片', !!vIn && !!vGo && walk(body).some(n => n._class.has('voice-card')));
   if (vIn) vIn.value = '我先睡了';
   if (vGo) vGo.click();
   const vm = msgKind('voice');
   ok('语音落盘成 kind=voice', !!vm && vm.text === '我先睡了' && vm.dur >= 1);
   ok('语音画成了语音条', last().some(n => n._class.has('voice')));
   ok('语音条上有时长', last().some(n => n._class.has('vc-sec') && /″/.test(n.textContent)));
-  ok('发语音后语音框清空了', (walk(chat).find(n => n._class.has('voice-in')) || {}).value === '');
+  ok('发语音后卡片收起、语音框清空', !walk(body).some(n => n._class.has('voice-card')));
 
   /* 对面发来的语音 / 红包，重画时要认出来 */
   S.pushMessage(mc.id, false, '[[v]]我听见了[[/v]]%%晚点说[[/v]]'.replace('晚点说', '早点睡'));

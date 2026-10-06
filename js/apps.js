@@ -2256,17 +2256,7 @@ const APPS = [
            它跟输入框一样是正常排布的一块，所以压不到消息、压不到底栏、也压不到输入框
            —— 以前它是挂在手机壳上的浮层，一开就把整条底部页签盖住。 */
         const dbgHostEl = SJ.el('div', { class: 'dbg-host' });
-        /* ── 语音面板 ──
-             点麦克风**先进入语音模式**，再决定说什么：按住说话（能听写的设备由系统转成
-             文字，出现在框里、可以改），或者直接把话打进去；最后按「发语音」才真的发出去。
-             以前是「先在输入框写字 → 点麦克风 → 直接变成语音」，没有代入感。 */
-          const vPanel = SJ.el('div', { class: 'voice-panel hide' });
-          const vBtn = SJ.el('button', { class: 'voice-hold' }, '按住说话');
-          const vTa = SJ.el('input', { class: 'voice-in', placeholder: '要说的话会出现在这儿，可以改' });
-          const vGo = SJ.el('button', { class: 'voice-go' }, '发语音');
-          const vTip = SJ.el('div', { class: 'voice-tip' }, '');
-          vPanel.append(vBtn, SJ.el('div', { class: 'voice-row' }, [vTa, vGo]), vTip);
-        root.append(list, quoteBar, dbgHostEl, vPanel, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
+        root.append(list, quoteBar, dbgHostEl, SJ.el('div', { class: 'chat-bar' }, [plus, input, mic, send]));
         /* ⚠️ window.SHELL，不是 SJ.SHELL —— SHELL 只挂在 window 上（本文件其他地方也都这么写） */
         if (window.SHELL && window.SHELL.setDebugHost) window.SHELL.setDebugHost(dbgHostEl);
 
@@ -3168,23 +3158,62 @@ const APPS = [
 
         /* 发语音：把输入框里的话包成语音条。
            浏览器 TTS 念的就是这段文字，所以「用打字模仿说话」这件事天然成立。 */
-        /* 真的发出去（面板里按「发语音」才走这儿） */
+          /* ── 语音：点麦克风 → **屏幕中间弹出一张卡**（微信那个脾气）──
+             按住说话：能听写的设备由系统转成文字，出现在卡上、可以改；
+             不能听写的设备直接把话打进去。「发送」才发出去，「取消」什么都不发。 */
+          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+          let rec = null, vCard = null, vTime = null, vTimer = null, vSec = 0;
+          let vBtn = null, vTa = null, vGo = null, vTip = null, vWave = null;
+
+          function voiceCard() {
+            if (vCard) return vCard;
+            vBtn = SJ.el('button', { class: 'voice-hold', html: svg('mic', 28) });
+            vWave = SJ.el('div', { class: 'voice-wave' },
+              Array.from({ length: 5 }, () => SJ.el('i', {})));
+            vTime = SJ.el('div', { class: 'voice-time' }, '00:00');
+            vTa = SJ.el('input', { class: 'voice-in', placeholder: '要说的话会出现在这儿，可以改' });
+            vGo = SJ.el('button', { class: 'voice-go' }, '发送');
+            const vNo = SJ.el('button', { class: 'voice-no' }, '取消');
+            vTip = SJ.el('div', { class: 'voice-tip' }, '');
+            const card = SJ.el('div', { class: 'voice-card' }, [
+              SJ.el('div', { class: 'voice-ttl' }, '发语音给 ' + ((c && c.name) || 'TA')),
+              SJ.el('div', { class: 'voice-stage' }, [vTime, vBtn, vWave]),
+              vTa, vTip,
+              SJ.el('div', { class: 'voice-acts' }, [vNo, vGo])
+            ]);
+            vCard = SJ.el('div', {
+              class: 'mask voice-mask',
+              onclick: e => { if (e.target === vCard) closeVoice(); }   // 点卡片外面 = 取消
+            }, [card]);
+            const host = document.getElementById('phone') || document.body;
+            host.append(vCard);
+            vBtn.addEventListener('pointerdown', e => { if (e.preventDefault) e.preventDefault(); listenStart(); });
+            vBtn.addEventListener('pointerup', listenStop);
+            vBtn.addEventListener('pointercancel', listenStop);
+            vBtn.addEventListener('pointerleave', () => { if (vBtn.classList.contains('on')) listenStop(); });
+            vGo.addEventListener('click', () => sendVoiceText(vTa.value));
+            vNo.addEventListener('click', closeVoice);
+            vTa.addEventListener('keydown', e => { if (e.key === 'Enter') sendVoiceText(vTa.value); });
+            return vCard;
+          }
+
           function sendVoiceText(t) {
             const s = String(t || '').trim();
-            if (!s) { toast('先说要说的话'); vTa.focus(); return; }
+            if (!s) { toast('先说要说的话'); if (vTa) vTa.focus(); return; }
             if (!SJ.hasSpeech()) toast('这台设备的浏览器不支持朗读，语音条还能看，但不会出声');
             sendMedia({ kind: 'voice', text: s, dur: SJ.voiceDur(s), speak: true });
-            vTa.value = '';
-            closeVoice();
-            vTip.textContent = '';
             const last = SJ.messages(id).slice(-1)[0];
             if (last && last.speak && SJ.state.settings.voiceAuto !== false) {
               setTimeout(() => SJ.speak(s), 200);
             }
+            closeVoice();
           }
-          /* 系统听写：有就用，没有就打字 —— 不假装能用 */
-          const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-          let rec = null;
+
+          function vTick() {
+            vSec++;
+            if (vTime) vTime.textContent = '00:' + String(vSec).padStart(2, '0');
+          }
+
           function listenStart() {
             if (!SR) { vTip.textContent = '这台设备不能听写 —— 把要说的话打进来'; vTa.focus(); return; }
             try {
@@ -3197,37 +3226,48 @@ const APPS = [
                 for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript;
                 vTa.value = s;
               };
-              rec.onerror = () => { vBtn.classList.remove('on'); vTip.textContent = '没听清，把话打进来吧'; };
-              rec.onend = () => { vBtn.classList.remove('on'); };
+              rec.onerror = () => { stopLook(); vTip.textContent = '没听清，把话打进来吧'; };
+              rec.onend = () => stopLook();
               rec.start();
-              vBtn.classList.add('on');
+              startLook();
               vTip.textContent = '在听……松手就停';
             } catch (err) { vTip.textContent = '这台设备不能听写 —— 把要说的话打进来'; vTa.focus(); }
           }
+          function startLook() {
+            if (vBtn) vBtn.classList.add('on');
+            if (vCard) vCard.classList.add('live');
+            clearInterval(vTimer);
+            vTimer = setInterval(vTick, 1000);
+          }
+          function stopLook() {
+            if (vBtn) vBtn.classList.remove('on');
+            if (vCard) vCard.classList.remove('live');
+            clearInterval(vTimer);
+            vTimer = null;
+          }
           function listenStop() {
             try { if (rec) rec.stop(); } catch (e) {}
-            vBtn.classList.remove('on');
+            stopLook();
             if (!vTa.value.trim()) vTip.textContent = '没听到 —— 也可以直接把话打进去';
-            else vTip.textContent = '听着是这个，不对就改改，再按「发语音」';
+            else vTip.textContent = '听着是这个，不对就改改，再按「发送」';
           }
           function closeVoice() {
-            vPanel.classList.add('hide');
+            stopLook();
+            try { if (rec) rec.stop(); } catch (e) {}
+            rec = null;
+            if (vCard && vCard.remove) vCard.remove();
+            vCard = null; vTime = null;
             mic.classList.remove('on');
           }
           function toggleVoice() {
-            if (!vPanel.classList.contains('hide')) { closeVoice(); return; }
-            vPanel.classList.remove('hide');
+            if (vCard) { closeVoice(); return; }
+            vSec = 0;
+            voiceCard();
             mic.classList.add('on');
-            vTip.textContent = SR ? '按住左边的键说话，或者直接把话打进去'
+            vTip.textContent = SR ? '按住中间的话筒说话；也可以直接把话打进去'
               : '这台设备不能听写 —— 把要说的话打进来';
             try { vTa.focus(); } catch (e) {}
           }
-          vBtn.addEventListener('pointerdown', e => { if (e.preventDefault) e.preventDefault(); listenStart(); });
-          vBtn.addEventListener('pointerup', listenStop);
-          vBtn.addEventListener('pointercancel', listenStop);
-          vBtn.addEventListener('pointerleave', () => { if (vBtn.classList.contains('on')) listenStop(); });
-          vGo.addEventListener('click', () => sendVoiceText(vTa.value));
-          vTa.addEventListener('keydown', e => { if (e.key === 'Enter') sendVoiceText(vTa.value); })
 
         /* 视频：字节直接进图片仓（localStorage 存不下这个）。20MB 是上限 ——
            再大导存档时 base64 会把内存顶爆，宁可当场说清楚。 */

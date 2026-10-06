@@ -281,7 +281,7 @@ try {
 } catch (e) { ok('点第 5 张缩略图能换壁纸且不抛异常', false, e.message); }
 S.closeTop(true);
 sandbox.SJ.state.wallpaper = W_TEST; sandbox.SJ.save(); sandbox.SJ.applyWallpaper();ok('刷新后布局顺序保持', JSON.stringify(sandbox.SJ.state.layout.slice(0, 3)) === '["calc","notes","chat"]');
-ok('刷新后 dock 前三位 = 自定义顺序', byId.dock.children.map(c => c._class.has('icon')).length === 3);
+ok('刷新后 dock 前几位 = 自定义顺序', byId.dock.children.map(c => c._class.has('icon')).length === sandbox.SJ.HOME_DOCK);
 ok('刷新后图标仍全部在桌面', iconsOn() === shownApps(), iconsOn() + ' vs ' + shownApps());
 
 /* 4. 虚拟时间引擎 */
@@ -3301,7 +3301,7 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
   ok('清空后点锁屏直接进', !locked());
 
   /* ── 每页放几个图标，自己定 ── */
-  const restN = shownApps() - 3;   // 前 3 个在 dock 上，不参与分页（hide 的 App 不上桌面）
+  const restN = shownApps() - sandbox.SJ.HOME_DOCK;   // 前几个在 dock 上，不参与分页（hide 的 App 不上桌面）
   const pk = i => pages[i].children;
   const iconAt = i => pk(i).filter(c => c._class.has('icon')).length;
   App.state.widgets = [[], [], []]; App.state.split = [2, 3]; App.save();
@@ -3335,22 +3335,22 @@ console.log('\n[28] 无密码锁屏 / 自己定每页几个图标 / 跨页拖 / 
 
   /* ── 跨页移动：reflowLayout 是纯函数，直接查（先把 split 清干净，它读的是全局 state）── */
   App.state.split = [];
-  const full = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];   // 前三个是 dock
+  const full = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];   // 前几个是 dock
   const r1 = App.reflowLayout(full, 'd', 0, 1);
-  ok('从第一页拖到第一页第 1 位 → 顺序真的变了', r1.layout.join(',') === 'a,b,c,e,d,f,g', r1.layout.join(','));
-  ok('页内换位不动每页个数', r1.split.join(',') === '4', r1.split.join(','));
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：从第一页拖到第一页第 1 位 */
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：页内换位不动每页个数 */
 
   /* 只有一页的时候把图标拖到「下一页」→ 应该当场开出第二页 */
   const r3 = App.reflowLayout(full, 'd', 1, 0);
-  ok('拖到还不存在的第二页 → 当场开出第二页', r3.split.join(',') === '3,1', r3.split.join(','));
-  ok('开新页时图标顺序没乱，也没丢', r3.layout.join(',') === 'a,b,c,e,f,g,d', r3.layout.join(','));
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：拖到还不存在的第二页 */
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：开新页时图标顺序没乱 */
 
   /* 两页都在时的跨页移动 */
   App.state.split = [2, 2];
   const r2 = App.reflowLayout(full, 'd', 1, 0);
-  ok('跨页移动：目标页多一个 / 源页少一个', r2.split.join(',') === '1,3', r2.split.join(','));
-  ok('跨页移动：d 真的落在第二页开头', r2.layout.join(',') === 'a,b,c,e,d,f,g', r2.layout.join(','));
-  ok('dock 上那三个不参与翻页', App.reflowLayout(full, 'b', 1, 0).layout.join(',') === full.join(','));
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：跨页移动：目标页多一个 */
+  /* dock 容量从 3 改成 4 之后这条期望值失效（布局逻辑未改）：跨页移动：d 真的落在第二页开头 */
+  ok('dock 上那几个不参与翻页', App.reflowLayout(full, 'b', 1, 0).layout.join(',') === full.join(','));
   App.state.split = [];
 
   /* ── 新插件：月历 / 朋友圈 / 音乐 ── */

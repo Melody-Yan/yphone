@@ -2901,8 +2901,9 @@ const APPS = [
               for (const how of said.slice(0, 1)) {
                 try {
                   if (tip) tip.textContent = '在画一张图…';
-                  const src = await SJ.genImage(SJ.imgPromptFor(c, how));
-                  if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src, prompt: how } });
+                  const pro = await SJ.imgPromptPro(c, how, SJ.messages(id));
+                  const src = await SJ.genImage(pro);
+                  if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src, prompt: pro || how } });
                 } catch (e) {
                   toast('图没画出来：' + (e.message || '生图接口没通'));
                 }
@@ -6409,8 +6410,9 @@ const APPS = [
               const staged = [];
               for (const how of hows.slice(0, 1)) {
                 try {
-                  const src = await SJ.genImage(SJ.imgPromptFor(c, how));
-                  if (src) staged.push({ text: '[照片]' + how, extra: { kind: 'img', img: src, prompt: how } });
+                  const pro2 = await SJ.imgPromptPro(c, how, SJ.smsList(id));
+                  const src = await SJ.genImage(pro2);
+                  if (src) staged.push({ text: '[照片]' + how, extra: { kind: 'img', img: src, prompt: pro || how } });
                 } catch (e) { toast('图没画出来：' + (e.message || '生图接口没通')); }
               }
               SJ.splitReply(out).forEach(t => staged.push({ text: t, extra: {} }));

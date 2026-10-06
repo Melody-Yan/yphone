@@ -2596,7 +2596,7 @@ function latestImage() {
    顺序归顺序、翻页归翻页，一个变了不会带着另一个一起乱。
    返回值一定是长度 ≥1、和 restN 对得上的数组 —— 宁可修，不要清空用户的排布。
    ══════════════════════════════════════════════════════ */
-const HOME_PER_PAGE = 24, HOME_DOCK = 3;   // 没分页信息时的老规矩：每页 24 个 = 4 列 6 行；dock 占前 3 个
+const HOME_PER_PAGE = 24, HOME_DOCK = 4;   // 没分页信息时的老规矩：每页 24 个 = 4 列 6 行；dock 占前 4 个
 
 function homeSplit(restN) {
   const raw = Array.isArray(state.split) ? state.split.map(n => Math.max(0, n | 0)) : [];
@@ -3940,6 +3940,45 @@ function imgPromptFor(c, how) {
     .replace(/\{外形\}/g, 外形);
 }
 
+/* ── 两段式生图：先让聊天模型写一条专业提示词，再交给生图接口 ──
+   角色回复里写的「[[img:窗外的雨]]」太短，直接丢给生图模型只会得到平庸的图。
+   中间加一层「提示词工程师」：把角色是谁（人设 + 长期记忆）、要拍的画面、
+   刚才聊了什么、以及你在设置里写的风格，揉成一条像样的提示词。
+   这一层失败就退回模板 —— 绝不因为写提示词失败而不出图。 */
+async function imgPromptPro(char, scene, history) {
+  const s = state.settings;
+  const style = String(s.imgPrompt || '').trim() || IMG_PROMPT_DEFAULT;
+  const ch = char || {};
+  const recent = (history || []).slice(-6)
+    .map(m => (m.me ? '对方：' : (ch.name || '她') + '：') + String(m.text || '').slice(0, 80))
+    .filter(x => x.length > 4).join('\n');
+  const mem = memoryBlock(ch.id);
+  if (!apiRoot() || !s.apiKey) return imgPromptFor(ch, scene);
+  try {
+    const data = await chatPost([
+      { role: 'system', content:
+        '你是资深的 AI 绘画提示词工程师。根据给定的人物、场景与上下文，写一条**专业的图像生成提示词**。\n' +
+        '要求：只写一条，不要分点、不要引号、不要解释；写清楚主体（长相/穿着/神态）、' +
+        '动作、环境、光线、镜头与构图、材质与整体风格；' +
+        '默认像真实生活里随手拍的照片，不要文字、不要水印、不要拼图。' },
+      { role: 'user', content:
+        '人物：' + (ch.name || '她') + '\n' +
+        (ch.persona ? '人设：' + String(ch.persona).slice(0, 300) + '\n' : '') +
+        (ch.desc ? '简介：' + String(ch.desc).slice(0, 120) + '\n' : '') +
+        (mem ? '记忆：\n' + mem + '\n' : '') +
+        '要拍的画面：' + String(scene || '日常随手一拍') + '\n' +
+        (recent ? '刚才的对话：\n' + recent + '\n' : '') +
+        '风格要求：' + style }
+    ], '生图提示词');
+    const one = String((((data.choices || [])[0] || {}).message || {}).content || '')
+      .replace(/\s+/g, ' ').trim();
+    if (one) return one.slice(0, 800);
+  } catch (e) {
+    console.warn('[core] 生图提示词没写出来，退回模板', e && e.message);
+  }
+  return imgPromptFor(ch, scene);
+}
+
 async function genImage(prompt, ref) {
   const text = String(prompt || '').trim();
   if (!text) throw new Error('先用一句话说说想画什么');
@@ -4622,6 +4661,7 @@ window.SJ = {
   /* 生图 */
   imgRoot, imgKey, imgModel, imgSize, genImage, testImage, pickImage, imgToData, fetchImgModels,
   imgPromptFor, IMG_PROMPT_DEFAULT,
+  imgPromptPro,
   /* 朋友圈 */
   MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
   generateMoment, autoMoment,

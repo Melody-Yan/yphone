@@ -543,8 +543,8 @@ function openWidgetEdit(pageIndex, id) {
 
 function renderHome() {
   const order = appOrder();
-  const dockIds = order.slice(0, 3);
-  const rest = order.slice(3);
+  const dockIds = order.slice(0, SJ.HOME_DOCK);
+  const rest = order.slice(SJ.HOME_DOCK);
   const pagesEls = SJ.$$('.page');
 
   // 插件和图标抢同一块地方：桌面大约放得下 6 行图标，一个插件平均吃掉 2 行。
@@ -584,7 +584,14 @@ function renderHome() {
   dock.innerHTML = '';
   dockIds.forEach(id => {
     const app = window.APPS.find(a => a.id === id);
-    if (app) dock.append(iconNode(app, { small: true }));
+    if (!app) return;
+    const node = iconNode(app, { small: true });
+    /* dock 上的图标原来没接拖拽 —— 拖不动、也换不了。
+       接上之后至少能把它拖到桌面页面上（拖出去 = 换掉 dock 里的这个）。 */
+    node.dataset.appId = id;
+    node.dataset.page = '0';
+    bindDrag(node);
+    dock.append(node);
   });
 
   const used = slice.filter((p, i) => p.length || SJ.widgetsOf(i).length).length || 1;

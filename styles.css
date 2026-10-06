@@ -788,7 +788,7 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .chat-plus:active { background: rgba(0, 0, 0, .12); }
 /* 有欠着的回复时变高亮 —— 这时候它才是主角 */
 .chat-send.urge {
-  background: linear-gradient(150deg, var(--ok), var(--accent-ink));
+  background: var(--accent-solid);
   animation: urgePulse 1.6s ease-in-out infinite;
 }
 @keyframes urgePulse { 50% { box-shadow: 0 3px 16px rgba(0, 0, 0, .55); } }

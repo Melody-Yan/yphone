@@ -4803,6 +4803,7 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   fetchImpl = () => Promise.resolve(mockRes(true, { name: '夜航精选', tracks: [{ name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'https://img.example/cover.jpg' }] }));
   const netResult = await App.importNetEasePlaylist('https://music.163.com/#/playlist?id=12345');
   ok('公开网易云歌单导入歌曲元数据', netResult.name === '夜航精选' && netResult.tracks[0].name === '晴天' && netResult.tracks[0].artist === '周杰伦' && netResult.tracks[0].album === '叶惠美' && netResult.tracks[0].cover, JSON.stringify(netResult));
+  ok('分享文案格式能提取 m/playlist ID', App.netEasePlaylistId('分享歌单: Memory. 四日又山雨_ https://music.163.com/m/playlist?id=9973881703&creatorId=1718417312') === '9973881703');
   ok('本地音频文件名能匹配歌单歌曲', !!App.matchLocalTrack({ name: '晴天', artist: '周杰伦' }, [{ name: '晴天 - 周杰伦.mp3' }]), '未匹配');
   fetchImpl = null;
 

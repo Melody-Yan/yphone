@@ -3403,28 +3403,33 @@ function netEasePlaylistId(input) {
 }
 function normalizeNetEasePlaylist(data) {
   const root = data && (data.playlist || data.result || data.data || data);
-  const tracks = Array.isArray(root && (root.tracks || root.songs)) ? (root.tracks || root.songs) : [];
+  const tracks = Array.isArray(root) ? root : (Array.isArray(root && (root.tracks || root.songs)) ? (root.tracks || root.songs) : []);
   return {
-    name: String((root && (root.name || root.title)) || '网易云歌单').slice(0, 80),
+    name: String((root && !Array.isArray(root) && (root.name || root.title)) || '网易云歌单').slice(0, 80),
     tracks: tracks.map((x, i) => {
       const song = x.song || x;
       const artists = Array.isArray(song.ar || song.artists) ? (song.ar || song.artists) : [];
       const album = song.al || song.album || {};
       const albumName = typeof album === 'string' ? album : album.name;
       const albumCover = typeof album === 'object' ? album.picUrl : '';
-      return { id: String(song.id || x.id || 'ne-' + i), name: String(song.name || x.name || '未命名').slice(0, NAME_MAX), artist: String(song.artist || artists.map(a => a.name).join('、')).slice(0, NAME_MAX), album: String(albumName || '').slice(0, NAME_MAX), cover: String(albumCover || song.cover || '').slice(0, 300), url: String(song.url || x.url || '') };
+      return { id: String(song.id || x.id || 'ne-' + i), name: String(song.name || x.name || '未命名').slice(0, NAME_MAX), artist: String(song.artist || (Array.isArray(song.artist) ? song.artist.join('、') : '') || artists.map(a => a.name || a).join('、')).slice(0, NAME_MAX), album: String(albumName || song.album || '').slice(0, NAME_MAX), cover: String(albumCover || song.pic || song.picUrl || song.cover || '').slice(0, 300), url: String(song.url || x.url || '') };
     }).filter(x => x.name && x.artist)
   };
 }
 async function importNetEasePlaylist(input) {
   const id = netEasePlaylistId(input);
   if (!id) throw new Error('没认出网易云公开歌单链接');
-  const base = String(state.settings.apiRoot || '').replace(/\/+$/, '');
-  const url = base + '/netease/playlist/detail?id=' + encodeURIComponent(id);
-  let res;
-  try { res = await fetch(url); } catch (e) { throw new Error('网易云歌单接口连不上：' + (e.message || '网络错误')); }
-  if (!res.ok) throw new Error('网易云歌单不可用（HTTP ' + res.status + '）');
-  const data = await res.json();
+  const custom = String(state.settings.netEaseApi || '').replace(/\/+$/, '');
+  const bases = [custom, 'https://api.injahow.cn/meting', 'https://api-meting.fuyiran.link'].filter(Boolean);
+  let data = null, lastError = null;
+  for (const base of bases) {
+    try {
+      const res = await fetch(base + '?server=netease&type=playlist&id=' + encodeURIComponent(id));
+      if (!res.ok) { lastError = new Error('HTTP ' + res.status); continue; }
+      data = await res.json(); break;
+    } catch (e) { lastError = e; }
+  }
+  if (!data) throw new Error('网易云歌单接口连不上：' + ((lastError && lastError.message) || '网络错误'));
   const out = normalizeNetEasePlaylist(data);
   if (!out.tracks.length) throw new Error('歌单为空或不是公开歌单');
   return Object.assign(out, { source: 'netease', playlistId: id });

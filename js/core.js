@@ -2765,7 +2765,7 @@ function normalizeOrders(raw) {
 }
 function normalizeTracks(raw) {
   return (Array.isArray(raw) ? raw : [])
-    .filter(t => t && typeof t === 'object' && /^(https?:|idb:|data:audio\/)/i.test(String(t.url || '')))
+    .filter(t => t && typeof t === 'object' && (!t.url || /^(https?:|idb:|data:audio\/)/i.test(String(t.url))))
     .slice(0, 500)
     .map((t, i) => ({
       id: String(t.id || ('tk-' + i)),
@@ -3292,13 +3292,26 @@ function mallIsFav(id) { return state.mall.fav.indexOf(id) >= 0; }
 
 /* ── 音乐 ── */
 function musicTracks() { return state.music.tracks; }
+function trackKey(name, artist) {
+  return (String(name || '') + ' ' + String(artist || '')).toLowerCase().replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[\s_\-—–|｜]+/g, ' ').trim();
+}
+function matchLocalTrack(track, files) {
+  const key = trackKey(track && track.name, track && track.artist);
+  if (!key) return null;
+  return Array.from(files || []).find(f => {
+    const base = String(f && f.name || '').replace(/\.[^.]+$/, '');
+    return trackKey(base, '') === key || trackKey(base, '').includes(key) || key.includes(trackKey(base, ''));
+  }) || null;
+}
 function musicAdd(list) {
-  const have = new Set(state.music.tracks.map(t => t.url));
+  const have = new Set(state.music.tracks.map(t => t.url || String(t.name) + '\u0000' + String(t.artist || '')));
   let n = 0;
   (list || []).forEach(t => {
-    if (!t || !t.url || have.has(t.url)) return;   // 同一条链接只进一次
-    have.add(t.url);
-    state.music.tracks.push({ id: uid(), name: t.name, artist: t.artist || '', url: t.url });
+    if (!t || (!t.url && !t.name)) return;
+    const key = t.url || String(t.name) + '\u0000' + String(t.artist || '');
+    if (have.has(key)) return;   // 同一条链接或同名同歌手只进一次
+    have.add(key);
+    state.music.tracks.push({ id: uid(), name: String(t.name || '未命名').slice(0, NAME_MAX), artist: String(t.artist || '').slice(0, NAME_MAX), album: String(t.album || '').slice(0, NAME_MAX), cover: String(t.cover || '').slice(0, 300), url: String(t.url) });
     n++;
   });
   if (n) save();
@@ -3349,10 +3362,41 @@ function parsePlaylist(text) {
   return out.filter(t => (seen.has(t.url) ? false : (seen.add(t.url), true)));
 }
 
+function netEasePlaylistId(input) {
+  const raw = String(input || '').trim();
+  if (/^\d+$/.test(raw)) return raw;
+  const m = raw.match(/[?&#]id=(\d+)/i) || raw.match(/playlist\/(\d+)/i);
+  return m ? m[1] : '';
+}
+function normalizeNetEasePlaylist(data) {
+  const root = data && (data.playlist || data.result || data.data || data);
+  const tracks = Array.isArray(root && (root.tracks || root.songs)) ? (root.tracks || root.songs) : [];
+  return {
+    name: String((root && (root.name || root.title)) || '网易云歌单').slice(0, 80),
+    tracks: tracks.map((x, i) => {
+      const song = x.song || x;
+      const artists = Array.isArray(song.ar || song.artists) ? (song.ar || song.artists) : [];
+      const album = song.al || song.album || {};
+      const albumName = typeof album === 'string' ? album : album.name;
+      const albumCover = typeof album === 'object' ? album.picUrl : '';
+      return { id: String(song.id || x.id || 'ne-' + i), name: String(song.name || x.name || '未命名').slice(0, NAME_MAX), artist: String(song.artist || artists.map(a => a.name).join('、')).slice(0, NAME_MAX), album: String(albumName || '').slice(0, NAME_MAX), cover: String(albumCover || song.cover || '').slice(0, 300), url: String(song.url || x.url || '') };
+    }).filter(x => x.name && x.artist)
+  };
+}
+async function importNetEasePlaylist(input) {
+  const id = netEasePlaylistId(input);
+  if (!id) throw new Error('没认出网易云公开歌单链接');
+  const base = String(state.settings.apiRoot || '').replace(/\/+$/, '');
+  const url = base + '/netease/playlist/detail?id=' + encodeURIComponent(id);
+  let res;
+  try { res = await fetch(url); } catch (e) { throw new Error('网易云歌单接口连不上：' + (e.message || '网络错误')); }
+  if (!res.ok) throw new Error('网易云歌单不可用（HTTP ' + res.status + '）');
+  const data = await res.json();
+  const out = normalizeNetEasePlaylist(data);
+  if (!out.tracks.length) throw new Error('歌单为空或不是公开歌单');
+  return Object.assign(out, { source: 'netease', playlistId: id });
+}
 function parseNetEasePlaylist(text) {
-  /* 网易云的页面链接（song / playlist / album）在浏览器里根本放不出来：接口跨域、要登录，
-     官方那条 media/outer 外链也已经改成 302 到 /404 了（实测）。所以这里只留能播的
-     http(s) 直链，页面链接一律丢掉 —— 歌单里多一堆点了没反应的条目，比少几首更糟。 */
   return parsePlaylist(text).filter(t => !/music\.163\.com/i.test(t.url));
 }
 
@@ -4699,7 +4743,7 @@ window.SJ = {
   WALLET_LOG_MAX, normalizeMoney, walletBalance, walletLog, walletEntries,
   walletSet, walletIn, walletOut, walletEnough, walletPay,
   payPassOn, payPassSet, payPassCheck,
-  parsePlaylist, parseNetEasePlaylist, normalizeTracks, musicTracks, musicAdd, musicRemove,
+  parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, matchLocalTrack, musicAdd, musicRemove,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
   musicClear, musicNow, musicSetNow,

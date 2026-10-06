@@ -5677,9 +5677,19 @@ const APPS = [
           ta,
           SJ.el('button', { class: 'btn', onclick: doImport }, '导入')
         ]));
-        function doImport() {
-          const list = SJ.parseNetEasePlaylist(ta.value);
-          if (!list.length) return toast('没找到能用的链接');
+        async function doImport() {
+          const value = ta.value.trim();
+          if (/music\.163\.com|y\.music\.163\.com/i.test(value) || /^\d+$/.test(value)) {
+            try {
+              const out = await SJ.importNetEasePlaylist(value);
+              const n = SJ.musicAdd(out.tracks);
+              toast('「' + out.name + '」导入 ' + n + ' 首');
+              if (n) listView();
+            } catch (e) { toast(e.message || '网易云歌单导入失败'); }
+            return;
+          }
+          const list = SJ.parseNetEasePlaylist(value);
+          if (!list.length) return toast('没找到公开歌单链接或可用音频直链');
           const n = SJ.musicAdd(list);
           toast(n ? '导入了 ' + n + ' 首' : '这些歌都已经在列表里了');
           if (n) listView();

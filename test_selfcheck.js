@@ -4795,6 +4795,13 @@ console.log('\n[38] 消息时间、通话摘要、拉黑与网易云导入');
   ok('解除拉黑后回到会话列表', App.isBlocked(bk.id) === false && App.chatList().some(r => r.c.id === bk.id));
   ok('解除后聊天记录还在', App.messages(bk.id).length === 1);
 
+  fetchImpl = () => Promise.resolve(mockRes(true, { name: '夜航精选', tracks: [{ name: '晴天', artist: '周杰伦', album: '叶惠美', cover: 'https://img.example/cover.jpg' }] }));
+  const netResult = await App.importNetEasePlaylist('https://music.163.com/#/playlist?id=12345');
+  ok('公开网易云歌单导入歌曲元数据', netResult.name === '夜航精选' && netResult.tracks[0].name === '晴天' && netResult.tracks[0].artist === '周杰伦' && netResult.tracks[0].album === '叶惠美' && netResult.tracks[0].cover, JSON.stringify(netResult));
+  ok('本地音频文件名能匹配歌单歌曲', !!App.matchLocalTrack({ name: '晴天', artist: '周杰伦' }, [{ name: '晴天 - 周杰伦.mp3' }]), '未匹配');
+  fetchImpl = null;
+
+
   /* ── 4. 网易云：放不出来的页面链接不许进歌单 ── */
   const ne = App.parseNetEasePlaylist([
     '分享周杰伦的单曲《晴天》: https://music.163.com/song?id=186016 (来自@网易云音乐)',

@@ -2721,10 +2721,11 @@ const APPS = [
 
         function thoughtBubble(m) {
           const text = SJ.normalizeThought(m.thought);
-          const body = text || '该模型未提供思考内容';
+          if (!text) return null;
+          const body = SJ.el('div', { class: 'thought-body' }, text);
           const card = SJ.el('details', { class: 'thought-card' }, [
-            SJ.el('summary', { class: 'thought-head' }, '思考中'),
-            SJ.el('div', { class: 'thought-body' }, body)
+            SJ.el('summary', { class: 'thought-head' }, '思维链'),
+            body
           ]);
           list.append(card);
           return card;
@@ -2996,7 +2997,7 @@ const APPS = [
              （stripMarks 不认 %%），非得刷新一次、走 renderMsg 才断成几条 ——
              用户看到的就是「每次都要刷新才能换行，不然一直带着 %」。
              存储仍然是一整段：重新生成的「‹ 1/2 ›」翻页器是挂在一条消息上的。 */
-          thoughtBubble({ me: false, thought: thought });
+          if (thought) thoughtBubble({ thought });
            const shown = [];
           parts.forEach(p => {
             if (p.gift) { shown.push(p); return; }

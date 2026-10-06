@@ -3693,18 +3693,15 @@ input.field[type="range"]::-webkit-slider-thumb {
 .voice-go { background: var(--accent-solid); color: var(--on-accent); }
 .chat-mic.on { color: var(--accent-solid); }
 
-/* 思考卡：每轮角色首条消息上方，默认收起、可键盘展开 */
-.thought-card {
-  width: min(86%, 360px); margin: 0 0 7px; border: 1px solid var(--line);
-  border-radius: 14px; background: var(--bg-2); color: var(--ink-2);
-  font-size: 12px; overflow: hidden;
-}
-.thought-head { padding: 8px 11px; cursor: pointer; color: var(--ink-3); list-style: none; }
+/* 思维链：仅在接口返回非空 thought 时出现，默认折叠成胶囊 */
+.thought-card { width: min(86%, 360px); margin: 0 0 8px 42px; border: 0; font-size: 12px; overflow: hidden; }
+.thought-head { display: inline-flex; align-items: center; min-height: 28px; padding: 0 11px; border-radius: 999px; background: #f3f4f6; color: #6b7280; cursor: pointer; list-style: none; user-select: none; }
 .thought-head::-webkit-details-marker { display: none; }
-.thought-head::before { content: '›'; display: inline-block; margin-right: 7px; transition: transform .18s ease; }
+.thought-head::before { content: '▶'; margin-right: 7px; font-size: 9px; transition: transform .2s ease; }
 .thought-card[open] .thought-head::before { transform: rotate(90deg); }
-.thought-body { padding: 0 11px 10px; white-space: pre-wrap; line-height: 1.55; color: var(--ink-2); }
-@media (prefers-reduced-motion: reduce) { .thought-head::before { transition: none; } }
+.thought-body { max-height: 0; overflow: auto; padding: 0 11px; margin-top: 0; border-radius: 10px; background: #f7f7f8; color: #6b7280; line-height: 1.55; white-space: pre-wrap; transition: max-height .22s ease, padding .22s ease, margin-top .22s ease; }
+.thought-card[open] .thought-body { max-height: 240px; padding: 9px 11px; margin-top: 5px; }
+@media (prefers-reduced-motion: reduce) { .thought-head::before, .thought-body { transition: none; } }
 
 /* 手机里不该出现桌面滚动条 */
 #phone * { scrollbar-width: none; }

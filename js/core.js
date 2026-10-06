@@ -1145,6 +1145,7 @@ function normalizeThought(value) {
   const v = value.reasoning_content != null ? value.reasoning_content
     : value.reasoning != null ? value.reasoning
     : value.thinking != null ? value.thinking
+    : value.reasoningContent != null ? value.reasoningContent
     : value.thought != null ? value.thought : '';
   return typeof v === 'string' ? v.trim().slice(0, TEXT_MAX) : '';
 }

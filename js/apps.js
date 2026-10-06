@@ -485,6 +485,57 @@ function sheet(items, head) {
    消息页的「＋」在右上角，就得给 at: 'top'，否则卡片跑到底下去（用户报的就是这个）。 */
   /* at: 'bottom'（默认，从底下长出）/ 'top'（从顶上）/ 'point'（贴着某个位置，
      比如长按的那条消息）。point 要配 x / y（视口坐标），会夹在手机范围里。 */
+  /* ── 图片查看器：点开一张图，看它、改它的提示词、重新生成、保存 ──
+     微信和短信共用（所以放模块层，不进任何 App 的闭包）。
+     调用方给两样：这张图现在长什么样（src / prompt / 谁发的），
+     以及「拿新提示词重画」怎么做（onUse）—— 存回哪条消息只有调用方知道。 */
+  function openImgView(o) {
+    const opt = o || {};
+    let cur = String(opt.src || '');
+    const mask = SJ.el('div', { class: 'mask imgv-mask' });
+    const img = SJ.el('img', { class: 'imgv-pic', src: (window.SJ ? SJ.imgSrc(cur) : cur), alt: '图片' });
+    const ta = SJ.el('textarea', { class: 'field area imgv-ta', placeholder: '这张图的提示词（可以改了再重画）' },
+      String(opt.prompt || ''));
+    const tip = SJ.el('div', { class: 'hint imgv-tip' },
+      opt.prompt ? '改完点「重新生成」，这张图就换掉了' : '这张没存下提示词 —— 写一句你想要的，也能重画');
+    const panel = SJ.el('div', { class: 'imgv-panel' }, [
+      img,
+      SJ.el('div', { class: 'imgv-meta' }, [
+        SJ.el('span', { class: 'imgv-who' }, String(opt.who || '')),
+        SJ.el('span', { class: 'imgv-hint' }, '提示词')
+      ]),
+      ta,
+      tip
+    ]);
+
+    const close = () => { mask.classList.add('out'); setTimeout(() => mask.remove(), 180); };
+    const btn = (label, cls, fn) => SJ.el('button', { class: 'btn' + (cls ? ' ' + cls : ''), onclick: fn }, label);
+
+    const redo = btn('重新生成', '', async () => {
+      const text = String(ta.value || '').trim();
+      if (!text) { toast('先写一句提示词'); return; }
+      redo.disabled = true; redo.textContent = '画着呢…';
+      try {
+        const fresh = await (opt.onUse ? opt.onUse(text) : SJ.genImage(text));
+        if (fresh) { cur = fresh; img.src = SJ.imgSrc(cur); toast('换好了'); }
+      } catch (e) { toast('没画出来：' + (e.message || '生图接口没通')); }
+      redo.disabled = false; redo.textContent = '重新生成';
+    });
+    const save = btn('保存图片', 'ghost', () => {
+      try {
+        const url = SJ.imgSrc(cur);
+        const a = SJ.el('a', { href: url, download: 'yphone-' + Date.now() + '.png' });
+        document.body.append(a); a.click(); a.remove();
+        toast('存下来了');
+      } catch (e) { toast('这张存不下来'); }
+    });
+    panel.append(SJ.el('div', { class: 'imgv-acts' }, [redo, save, btn('关闭', 'ghost', close)]));
+
+    mask.append(panel);
+    mask.addEventListener('click', e => { if (e.target === mask) close(); });
+    document.getElementById('phone').append(mask);
+  }
+
 function popover(items, { head, bottom = 92, at = 'bottom', x, y } = {}) {
   const mask = SJ.el('div', {
     class: 'mask pop-mask' + (at === 'top' ? ' pop-top' : ''),
@@ -2421,7 +2472,19 @@ const APPS = [
           /* ⚠️ 不能写死 true：角色发来的图也是媒体气泡，方向跟 m.me ——
              写死就跑右边配我的头像，跟左边的文字错开。 */
           const mine = !!m.me;
-                    const b = SJ.el('div', { class: 'bubble ' + (mine ? 'me' : 'ta') + ' media' + (m.sticker ? ' as-sticker' : '') }, [inner]);
+                    const b = SJ.el('div', {
+                      class: 'bubble ' + (mine ? 'me' : 'ta') + ' media' + (m.sticker ? ' as-sticker' : ''),
+                      /* 点开看大图 / 改提示词重画 / 保存 */
+                      onclick: () => openImgView({
+                        src: m.img, prompt: m.prompt || '',
+                        who: mine ? (SJ.state.settings.userName || '我') : c.name,
+                        onUse: async text => {
+                          const fresh = await SJ.genImage(text);
+                          m.img = fresh; m.prompt = text; SJ.save(); redraw();
+                          return fresh;
+                        }
+                      })
+                    }, [inner]);
           row(b, mine, m);
           return b;
         }
@@ -2787,7 +2850,7 @@ const APPS = [
                 try {
                   if (tip) tip.textContent = '在画一张图…';
                   const src = await SJ.genImage(SJ.imgPromptFor(c, how));
-                  if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src } });
+                  if (src) imgParts.push({ who: '', text: '[照片]' + how, img: { kind: 'img', img: src, prompt: how } });
                 } catch (e) {
                   toast('图没画出来：' + (e.message || '生图接口没通'));
                 }
@@ -6040,9 +6103,11 @@ const APPS = [
     }
   },
     /* ── YMessage：像 iMessage 那样的短信 ──
-       同一个角色，微信一条流、短信另一条流（用户要的就是这个）。
-       配色还是我们的近黑/浅灰 —— 没有蓝色，近黑就是我们的强调色。
-       自己那侧深底白字，对面浅底深字；没有头像、没有名字，时间按天居中插一条。 */
+       同一个角色，微信一条流、短信另一条流。
+       配色守我们的基调（没有蓝，近黑就是强调色）；自己那侧深底白字，对面浅底深字。
+       这一版按 iMessage 的两个细节重做：连续几条把它「攒成一串」（间距收紧、
+       小尾巴只出现在最后一条），以及发送键会变身 ——
+       有字是 ↑，欠着回复时变成「回复 N」，点了立刻让她开口。 */
     {
       id: 'ymessage',
       name: 'YMessage',
@@ -6084,7 +6149,7 @@ const APPS = [
           th.forEach(t => {
             const c = faceOf(t.id);
             const n = SJ.smsUnread(t.id);
-            box.append(SJ.el('div', { class: 'row ym-row', onclick: () => chatView(t.id) }, [
+            box.append(SJ.el('div', { class: 'row ym-row' + (n ? ' unread' : ''), onclick: () => chatView(t.id) }, [
               avatarNode(c),
               SJ.el('div', { class: 'row-main' }, [
                 SJ.el('div', { class: 'row-title' }, c.name),
@@ -6092,7 +6157,7 @@ const APPS = [
                   (t.last.me ? '我：' : '') + String(t.last.text || '').slice(0, 30))
               ]),
               SJ.el('div', { class: 'ym-side' }, [
-                SJ.el('div', { class: 'row-time' }, shortTime(t.last.ts)),
+                SJ.el('div', { class: 'ym-time' }, shortTime(t.last.ts)),
                 n ? SJ.el('span', { class: 'ym-dot' }, n > 9 ? '9+' : String(n)) : null
               ].filter(Boolean))
             ]));
@@ -6136,36 +6201,85 @@ const APPS = [
               onclick: () => confirmBox('清空跟「' + c.name + '」的短信？', () => { SJ.smsClear(id); listView(); })
             })
           }));
+
           const view = SJ.el('div', { class: 'ym-view' });
+          /* 顶上一条细信息：说清这是另一条线（不然用户会以为跟微信串了） */
+          view.append(SJ.el('div', { class: 'ym-head' }, [
+            SJ.el('span', { class: 'ym-head-av' }, [avatarNode(c)]),
+            SJ.el('div', { class: 'ym-head-main' }, [
+              SJ.el('div', { class: 'ym-head-t' }, c.name),
+              SJ.el('div', { class: 'ym-head-s' }, '短信 · 与微信各一条线')
+            ])
+          ]));
           const msgs = SJ.el('div', { class: 'ym-msgs' });
-          view.append(msgs);
+          const stick = SJ.el('div', { class: 'ym-stick' }, [msgs]);
+          view.append(stick);
 
           const inp = SJ.el('input', { class: 'field ym-in', placeholder: '短信', autocomplete: 'off' });
           const sendBtn = SJ.el('button', { class: 'ym-send', disabled: 'true' }, '↑');
-          const syncSend = () => {
-            if (String(inp.value || '').trim()) sendBtn.removeAttribute('disabled');
-            else sendBtn.setAttribute('disabled', 'true');
-          };
-          inp.addEventListener('input', syncSend);
-          inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
-          sendBtn.addEventListener('click', doSend);
           view.append(SJ.el('div', { class: 'ym-bar' }, [inp, sendBtn]));
           root.append(view);
           setTimeout(() => { try { inp.focus(); } catch (e) {} }, 80);
 
           let busy = false;
+          /* 末尾连着几条我发的，就是几条没被回 —— 跟微信一个算法 */
+          function pendingCount() {
+            const h = SJ.smsList(id);
+            let n = 0;
+            for (let i = h.length - 1; i >= 0 && h[i].me; i--) n++;
+            return n;
+          }
+          /* 这个键会变身：有字 → ↑（先把话丢过去，可以连着发好几条）
+             空着但有欠着的 → 「回复 N」（点了她才开口）
+             空着又没欠的 → 灰掉的 ↑ */
+          function syncSend() {
+            const n = pendingCount();
+            if (busy) { sendBtn.textContent = '…'; sendBtn.className = 'ym-send off'; return; }
+            if (String(inp.value || '').trim()) {
+              sendBtn.textContent = '↑'; sendBtn.className = 'ym-send';
+              sendBtn.removeAttribute('disabled');
+            } else if (n) {
+              sendBtn.textContent = n > 1 ? '回复 ' + n : '回复';
+              sendBtn.className = 'ym-send urge';
+              sendBtn.removeAttribute('disabled');
+            } else {
+              sendBtn.textContent = '↑'; sendBtn.className = 'ym-send';
+              sendBtn.setAttribute('disabled', 'true');
+            }
+          }
+
+          function imgNode(m) {
+            const im = SJ.el('img', { class: 'ym-pic', src: SJ.imgSrc(m.img), alt: '图片' });
+            /* 点开看大图 / 改提示词重画 / 保存 */
+            im.addEventListener('click', () => openImgView({
+              src: m.img, prompt: m.prompt || '', who: c.name,
+              onUse: async text => {
+                const fresh = await SJ.genImage(text);
+                m.img = fresh; m.prompt = text; SJ.save(); paint();
+                return fresh;
+              }
+            }));
+            return im;
+          }
+
           function paint() {
             msgs.innerHTML = '';
             const list = SJ.smsList(id);
             let lastDay = '';
+            let prev = null;
             list.forEach(m => {
               const d = new Date(Number(m.ts) || Date.now());
               if (d.toDateString() !== lastDay) {
                 lastDay = d.toDateString();
                 msgs.append(SJ.el('div', { class: 'ym-day' }, dayLabel(d)));
+                prev = null;
               }
-              const b = SJ.el('div', { class: 'ym-b ' + (m.me ? 'me' : 'ta') }, m.text || '');
-              /* 长按删：按**这条对象**定位（跟聊天页踩过的坑一样 —— 别用下标） */
+              /* 同一个人的、间隔 3 分钟以内的，算「一串」：间距收紧，尾巴只留最后一条 */
+              const same = prev && prev.me === m.me && (Number(m.ts) - Number(prev.ts) < 180000);
+              const nextSame = false;   // 下一轮循环再回填
+              const b = m.kind === 'img'
+                ? SJ.el('div', { class: 'ym-b pic ' + (m.me ? 'me' : 'ta') + (same ? ' run' : ' tail') }, [imgNode(m)])
+                : SJ.el('div', { class: 'ym-b ' + (m.me ? 'me' : 'ta') + (same ? ' run' : ' tail') }, m.text || '');
               let hold = null;
               const go = () => {
                 clearTimeout(hold);
@@ -6186,39 +6300,94 @@ const APPS = [
               b.addEventListener('touchstart', go);
               ['mouseup', 'mouseleave', 'touchend', 'touchmove'].forEach(ev2 => b.addEventListener(ev2, stop));
               msgs.append(b);
+              prev = m;
+            });
+            /* 尾巴只留一串的最后一条：回头把前一串的 tail 改成 run */
+            Array.from(msgs.children).forEach((el, i, arr) => {
+              const self = el && el.classList;
+              if (!self || !self.contains('ym-b')) return;
+              let j = i + 1;
+              while (j < arr.length && !(arr[j].classList && arr[j].classList.contains('ym-b'))) j++;
+              const next = arr[j];
+              if (next && next.classList.contains('ym-b') && next.classList.contains('me') === self.contains('me')) {
+                self.remove('tail'); self.add('run');
+              }
             });
             if (list.length && list[list.length - 1].me) {
-              msgs.append(SJ.el('div', { class: 'ym-sent' }, '已送达'));
+              msgs.append(SJ.el('div', { class: 'ym-sent' }, busy ? '发送中…' : '已送达'));
             }
-            msgs.scrollTop = msgs.scrollHeight;
+            stick.scrollTop = stick.scrollHeight;
+          }
+
+          /* 只发不收 —— 对方一声不吭，等用户按「回复」（除非开了自动回复） */
+          function autoMaybe() {
+            if (SJ.state.settings.autoReply === true) setTimeout(() => doReply(), 400);
           }
 
           async function doSend() {
             const t = String(inp.value || '').trim();
-            if (!t || busy) return;
+            if (!t) { if (pendingCount()) doReply(); return; }
+            if (busy) return;
             inp.value = '';
             syncSend();
             SJ.smsPush(id, true, t);
             paint();
+            autoMaybe();
+          }
+
+          async function doReply() {
+            if (busy) return;
+            if (!pendingCount()) return;
             busy = true;
-            const tip = SJ.el('div', { class: 'ym-b ta typing' }, '…');
+            syncSend();
+            const tip = SJ.el('div', { class: 'ym-b ta typing tail' }, '…');
             msgs.append(tip);
-            msgs.scrollTop = msgs.scrollHeight;
+            stick.scrollTop = stick.scrollHeight;
             try {
               const h = SJ.smsList(id).map(m => ({ me: m.me, text: m.text }));
-              const reply = await SJ.askCharacter(c, h);
+              const raw = await SJ.askCharacter(c, h);
               if (tip.remove) tip.remove();
-              /* 我正在看着，就不算未读 */
-              SJ.smsPush(id, false, reply, { unread: false });
+              /* 跟微信同一套处理：先落定关系标记，再摘内部记号；图片标记现画 */
+              let out = SJ.stripMarks(SJ.applySelfMarks(c, raw));
+              const IMG = /\[\[img:([^\]\n]{2,200})\]\]/g;
+              const hows = [];
+              let mm2; IMG.lastIndex = 0;
+              while ((mm2 = IMG.exec(out))) hows.push(mm2[1].trim());
+              out = out.replace(IMG, '').trim();
+              const staged = [];
+              for (const how of hows.slice(0, 1)) {
+                try {
+                  const src = await SJ.genImage(SJ.imgPromptFor(c, how));
+                  if (src) staged.push({ text: '[照片]' + how, extra: { kind: 'img', img: src, prompt: how } });
+                } catch (e) { toast('图没画出来：' + (e.message || '生图接口没通')); }
+              }
+              SJ.splitReply(out).forEach(t => staged.push({ text: t, extra: {} }));
+              if (!staged.length) staged.push({ text: out || '（她没说什么）', extra: {} });
+              /* 一条一条地来（用户要的就是这个）；开了「一次全部发出」就一起落 */
+              const one = SJ.state.settings.allAtOnce === true;
+              staged.forEach((it, i) => setTimeout(() => {
+                SJ.smsPush(id, false, it.text, Object.assign({ unread: false }, it.extra));
+                paint();
+              }, one ? 0 : i * 700));
+              busy = false;
+              syncSend();
             } catch (e) {
               if (tip.remove) tip.remove();
               SJ.smsPush(id, false, '（没发出去：' + (e.message || '接口没通') + '）', { unread: false });
+              busy = false;
+              syncSend();
+              paint();
             }
-            busy = false;
-            paint();
           }
 
+          inp.addEventListener('input', syncSend);
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+          sendBtn.addEventListener('click', () => {
+            if (String(inp.value || '').trim()) doSend(); else doReply();
+          });
+
           paint();
+          syncSend();
         }
 
         listView();

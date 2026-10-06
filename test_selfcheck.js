@@ -2426,6 +2426,8 @@ console.log('\n[25] 外卖、音乐与桌面图标拖动');
   if (playerTrack) playerTrack.click();
   ok('全屏播放器有上一曲和下一曲按钮', walk(playerApp).some(n => n.attrs && n.attrs.title === '上一曲') && walk(playerApp).some(n => n.attrs && n.attrs.title === '下一曲'));
   ok('全屏播放器播放按钮不是返回按钮', walk(playerApp).some(n => n._class.has('music-player-play')) && !walk(playerApp).some(n => n._class.has('music-player-play') && n.attrs && n.attrs.title === '返回'));
+  const playBtn = walk(playerApp).find(n => n._class.has('music-player-play')); if (playBtn) playBtn.click();
+  ok('点击全屏播放按钮仍停留在播放器', walk(playerApp).some(n => n._class.has('music-player')));
   const musicGear = walk(playerApp).find(n => n.attrs && n.attrs.title === '设置'); if (musicGear) musicGear.click();
   ok('音乐设置是独立页面', walk(playerApp).some(n => n.textContent && n.textContent.includes('音乐设置')));
 

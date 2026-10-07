@@ -107,6 +107,25 @@ function appIcon(app, size = 36) {
 /* ── 共用小组件 ── */
 /* 不传 back 的一律退回上一层视图（App 主页面 = 退回桌面）。
    以前这里默认渲染一个空占位，导致每个 App 点进去都出不来 —— 别再改回去。 */
+/* subPage 定义在聊天 App 的 render 闭包里（捕获了那个 App 的 root）。
+   线下模式的视图在 IIFE 顶层够不着它，这里补一个显式传 root 的版本。
+   ponytail: 没去动原 subPage —— 它在那个闭包里被十几处用着，改它比加这 6 行危险。 */
+function subPageOf(root, title, back) {
+  root.innerHTML = '';
+  root.append(navBar(title, { back }));
+  const pad = SJ.el('div', { class: 'pad' });
+  root.append(pad);
+  return pad;
+}
+
+/* 「返回」往哪走：从聊天设置进来的回聊天，从 App 进来的回 App 列表。
+   记在调用栈里最省事，但这儿就一个入口，用个变量就够了。 */
+let offlineFrom = '';
+function offlineBack(cid) {
+  if (offlineFrom === 'chat' && window.SHELL) window.SHELL.openApp('chat', cid);
+  else if (window.SHELL) window.SHELL.openApp('offline');
+}
+
 function navBar(title, { back = null, left = null, right = null } = {}) {
   const onBack = back || (() => { if (window.SHELL) window.SHELL.closeTop(); });
   return SJ.el('div', { class: 'nav' }, [
@@ -2106,162 +2125,6 @@ const APPS = [
         }
 
 
-      /* ══ 线下模式「此刻相遇」 ══
-         一个阅读器 + 一个输入框。正文用衬线、行距 1.9、首行缩进两字，
-         刻意做成「书页」而不是聊天气泡 —— 这是它和聊天最大的区别。 */
-      function offlineView(cid) {
-        const ch = SJ.state.characters.find(x => x.id === cid);
-        if (!ch) return listView();
-        const pad = subPage('此刻相遇', () => chatView(cid));
-        pad.classList.add('of-page');
-
-        const o = SJ.offlineOf(cid);
-        const body = SJ.el('div', { class: 'of-body' });
-
-        const draw = () => {
-          body.innerHTML = '';
-          o.pages.forEach(pg => {
-            pg.entries.forEach(e => {
-              const cls = e.role === 'me' ? 'of-p me' : e.role === 'narr' ? 'of-p narr' : 'of-p';
-              if (e.cg) {
-                const fig = SJ.el('div', { class: 'of-cg' }, [
-                  SJ.el('div', { class: 'of-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
-                ]);
-                body.append(fig);
-              }
-              body.append(SJ.el('p', { class: cls }, e.text));
-            });
-          });
-          if (!SJ.offlineEntries(cid).length) {
-            body.append(SJ.el('div', { class: 'of-empty' }, [
-              SJ.el('div', { class: 'of-empty-t' }, '你们还没在这里见过面'),
-              SJ.el('div', { class: 'of-empty-s' }, '在下面写一句你想做的动作或想说的话，故事就从这儿开始。')
-            ]));
-          }
-          /* 滚到底：新写的一段总在最后 */
-          requestAnimationFrame(() => { const sc = pad.querySelector('.of-scroll'); if (sc) sc.scrollTop = sc.scrollHeight; });
-        };
-
-        const scroll = SJ.el('div', { class: 'of-scroll' }, [body]);
-
-        /* 三个可点的「回应选择」：点一下就当成一句动作发出去 */
-        const choiceBox = SJ.el('div', { class: 'of-choices' });
-        const setChoices = list => {
-          choiceBox.innerHTML = '';
-          if (!list || !list.length) return;
-          list.forEach(c => choiceBox.append(SJ.el('button', {
-            class: 'of-choice', onclick: () => { input.value = c; send(); }
-          }, c)));
-        };
-
-        const input = SJ.el('textarea', { class: 'of-input', placeholder: '写一句你想做的：我走过去拍了拍他的肩膀…', rows: '2' });
-        const sendBtn = SJ.el('button', { class: 'of-send' }, '下去');
-
-        let busy = false;
-        const syncSend = () => {
-          sendBtn.disabled = busy;
-          sendBtn.textContent = busy ? '写…' : '下去';
-        };
-
-        async function send() {
-          const text = String(input.value || '').trim();
-          if (!text && !SJ.offlineEntries(cid).length) return toast('先写一句你想做什么');
-          if (busy) return;
-          busy = true; syncSend();
-          if (text) { SJ.offlinePush(cid, 'me', text); input.value = ''; }
-          setChoices([]);
-          draw();
-          try {
-            const r = await SJ.askOffline(cid, text);
-            if (r.text) SJ.offlinePush(cid, 'char', r.text);
-            setChoices(r.choices);
-            if (SJ.state.settings.offline.autoOutline !== false) {
-              SJ.offlineOutline(cid).catch(() => {});
-            }
-            SJ.save();
-          } catch (e) {
-            SJ.offlinePush(cid, 'narr', '（这段没写出来）' + e.message);
-          }
-          busy = false; syncSend(); draw();
-        }
-        sendBtn.onclick = send;
-        input.addEventListener('keydown', e => {
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-        });
-        syncSend();
-
-        pad.append(
-          SJ.el('div', { class: 'of-bar' }, [
-            SJ.el('div', { class: 'of-who' }, [
-              avatarNode(ch),
-              SJ.el('div', { class: 'of-who-main' }, [
-                SJ.el('div', { class: 'of-who-name' }, ch.name || ''),
-                SJ.el('div', { class: 'of-who-sub' }, (() => {
-                  const [, sn] = SJ.offlineStyle(cid);
-                  const [, bn] = SJ.offlineBridge(cid);
-                  return sn + ' · 带着' + bn + '的近况';
-                })())
-              ])
-            ]),
-            SJ.el('button', { class: 'of-gear', onclick: () => offlineSettings(cid) }, '⚙')
-          ]),
-          scroll,
-          choiceBox,
-          SJ.el('div', { class: 'of-dock' }, [input, sendBtn])
-        );
-        draw();
-      }
-
-      /* 线下模式的设置：文风、上下文桥、长度、大纲 */
-      function offlineSettings(cid) {
-        const pad = subPage('此刻相遇 · 设置', () => offlineView(cid));
-        const S = SJ.state.settings.offline;
-        const o = SJ.offlineOf(cid);
-        const cur = k => (o.style || S.style) === k;
-
-        pad.append(
-          SJ.el('div', { class: 'group-title' }, '文风'),
-          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_STYLES.map(([k, name, desc]) =>
-            SJ.el('button', {
-              class: 'of-style' + (cur(k) ? ' on' : ''),
-              onclick: () => { o.style = k; SJ.save(); offlineSettings(cid); }
-            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
-
-          SJ.el('div', { class: 'group-title' }, '上下文桥'),
-          SJ.el('div', { class: 'hint' }, '他在剧场里能看到多少你们手机上的近况 —— 这一项最影响连贯感。'),
-          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_BRIDGE.map(([k, name, desc]) =>
-            SJ.el('button', {
-              class: 'of-style' + ((S.bridge || 'standard') === k ? ' on' : ''),
-              onclick: () => { S.bridge = k; SJ.save(); offlineSettings(cid); }
-            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
-
-          SJ.el('div', { class: 'group-title' }, '每段长度'),
-          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_LEN.map(([a, b], i) =>
-            SJ.el('button', {
-              class: 'of-style' + ((Number(S.len) || 0) === i ? ' on' : ''),
-              onclick: () => { S.len = i; SJ.save(); offlineSettings(cid); }
-            }, [SJ.el('div', { class: 'of-style-t' }, a + '~' + b + ' 字'), SJ.el('div', { class: 'of-style-s' }, ['标准', '短一点', '长一点', '很长'][i] || '')]))),
-
-          SJ.el('div', { class: 'group-title' }, '剧情大纲'),
-          SJ.el('div', { class: 'hint' }, '每段写完之后由 AI 顺手更新一版，防止剧情跑偏。可以自己改。'),
-          rowToggle('自动更新大纲', '关掉就由你手写', S.autoOutline !== false,
-            () => { S.autoOutline = !(S.autoOutline !== false); SJ.save(); offlineSettings(cid); }),
-          (() => {
-            const ta = SJ.el('textarea', { class: 'of-outline', rows: '4', placeholder: '还没写什么。第一段生成完这里就会有一句话的大纲。' });
-            ta.value = o.outline || '';
-            ta.addEventListener('change', () => { o.outline = ta.value.trim(); SJ.save(); });
-            return SJ.el('div', { class: 'pad' }, [ta]);
-          })(),
-
-          SJ.el('div', { class: 'group-title' }, '危险区'),
-          SJ.el('button', {
-            class: 'btn danger',
-            onclick: () => confirmBox('清空和「' + (SJ.state.characters.find(x => x.id === cid) || {}).name + '」的全部线下剧情？', () => {
-              SJ.offlineClear(cid); SJ.save(); offlineView(cid);
-            })
-          }, '清空线下剧情')
-        );
-      }
 
       function chatSettings(id) {
         const c = SJ.state.characters.find(x => x.id === id);
@@ -2320,7 +2183,7 @@ const APPS = [
           rowGo('此刻相遇（线下）', (() => {
             const n = SJ.offlineEntries(id).length;
             return n ? `已经写了 ${n} 段` : '面对面，写成一幕一幕的';
-          })(), () => offlineView(id)),
+          })(), () => { offlineFrom = 'chat'; offlineView(id, root); }),
           rowGo('记忆卡片', memN ? `TA 记得 ${memN} 件事` : '还没记下什么', () => memPage(id)),
           rowGo('语音与通话', (SJ.state.settings.voice !== false ? '语音条已开' : '语音条已关') + ' · 打个电话', () => voicePage(id)),
           rowGo('聊天背景', SJ.chatBgOf(c) ? (c.chatBg ? '这个人单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(id)),
@@ -7124,6 +6987,58 @@ const APPS = [
     }
   },
 
+
+  {
+    /* ══ 此刻相遇（线下）══
+       用户反馈：做完只挂在聊天设置里，桌面上找不到，等于没有。
+       所以它得是一个**真正的 App**：桌面上看得见、点得开，
+       里面先挑人，再进剧场。聊天设置那个入口保留（从角色那儿直接进更顺手）。 */
+    id: 'offline',
+    name: '此刻相遇',
+    icon: 'heart',
+    art: '1F3AD',
+    color: 'linear-gradient(150deg,#e8ddd4,#b8a294)',
+    render(root) {
+      const list = () => (SJ.state.characters || []).filter(c => !SJ.isGroup(c.id));
+
+      /* 客人列表：谁写过、写了多少段，一眼能看出来 */
+      function listView() {
+        root.innerHTML = '';
+        root.append(navBar('此刻相遇'));
+        const box = SJ.el('div', { class: 'list' });
+        box.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } },
+          '当面见他的时候，说的话就不再是一条条消息了 —— 是一幕一幕写下来的。'));
+
+        const all = list();
+        if (!all.length) {
+          box.append(emptyState('heart', '还没有人可遇见',
+            '先去「消息」里建一个角色，这里就有人等你了', '去建角色', () => {
+              if (window.SHELL) window.SHELL.openApp('contacts');
+            }));
+        }
+
+        all.forEach(c => {
+          const n = SJ.offlineEntries(c.id).length;
+          const o = SJ.offlineOf(c.id);
+          const last = SJ.offlineEntries(c.id).slice(-1)[0];
+          box.append(SJ.el('div', { class: 'row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root); } }, [
+            avatarNode(c),
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, c.name || '（没名字）'),
+              SJ.el('div', { class: 'row-sub' }, n
+                ? n + ' 段 · ' + (last ? String(last.text).replace(/\s+/g, ' ').slice(0, 18) : '')
+                : (o.outline || '还没见过面'))
+            ]),
+            SJ.el('div', { class: 'row-time' }, n ? '›' : '去见他')
+          ]));
+        });
+        root.append(box);
+      }
+
+      listView();
+    }
+  },
+
   {
     /* ══ 我的人设 ══
        用户：「立用户的人设……允许保存多套，支持对不同角色使用不同面具」。
@@ -8218,6 +8133,163 @@ const APPS = [
     }
   }
 ];
+
+  /* ══ 线下模式「此刻相遇」 ══
+     一个阅读器 + 一个输入框。正文用衬线、行距 1.9、首行缩进两字，
+     刻意做成「书页」而不是聊天气泡 —— 这是它和聊天最大的区别。 */
+  function offlineView(cid, root) {
+    const ch = SJ.state.characters.find(x => x.id === cid);
+    if (!ch) return listView();
+    const pad = subPageOf(root, '此刻相遇', () => offlineBack(cid));
+    pad.classList.add('of-page');
+
+    const o = SJ.offlineOf(cid);
+    const body = SJ.el('div', { class: 'of-body' });
+
+    const draw = () => {
+      body.innerHTML = '';
+      o.pages.forEach(pg => {
+        pg.entries.forEach(e => {
+          const cls = e.role === 'me' ? 'of-p me' : e.role === 'narr' ? 'of-p narr' : 'of-p';
+          if (e.cg) {
+            const fig = SJ.el('div', { class: 'of-cg' }, [
+              SJ.el('div', { class: 'of-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
+            ]);
+            body.append(fig);
+          }
+          body.append(SJ.el('p', { class: cls }, e.text));
+        });
+      });
+      if (!SJ.offlineEntries(cid).length) {
+        body.append(SJ.el('div', { class: 'of-empty' }, [
+          SJ.el('div', { class: 'of-empty-t' }, '你们还没在这里见过面'),
+          SJ.el('div', { class: 'of-empty-s' }, '在下面写一句你想做的动作或想说的话，故事就从这儿开始。')
+        ]));
+      }
+      /* 滚到底：新写的一段总在最后 */
+      requestAnimationFrame(() => { const sc = pad.querySelector('.of-scroll'); if (sc) sc.scrollTop = sc.scrollHeight; });
+    };
+
+    const scroll = SJ.el('div', { class: 'of-scroll' }, [body]);
+
+    /* 三个可点的「回应选择」：点一下就当成一句动作发出去 */
+    const choiceBox = SJ.el('div', { class: 'of-choices' });
+    const setChoices = list => {
+      choiceBox.innerHTML = '';
+      if (!list || !list.length) return;
+      list.forEach(c => choiceBox.append(SJ.el('button', {
+        class: 'of-choice', onclick: () => { input.value = c; send(); }
+      }, c)));
+    };
+
+    const input = SJ.el('textarea', { class: 'of-input', placeholder: '写一句你想做的：我走过去拍了拍他的肩膀…', rows: '2' });
+    const sendBtn = SJ.el('button', { class: 'of-send' }, '下去');
+
+    let busy = false;
+    const syncSend = () => {
+      sendBtn.disabled = busy;
+      sendBtn.textContent = busy ? '写…' : '下去';
+    };
+
+    async function send() {
+      const text = String(input.value || '').trim();
+      if (!text && !SJ.offlineEntries(cid).length) return toast('先写一句你想做什么');
+      if (busy) return;
+      busy = true; syncSend();
+      if (text) { SJ.offlinePush(cid, 'me', text); input.value = ''; }
+      setChoices([]);
+      draw();
+      try {
+        const r = await SJ.askOffline(cid, text);
+        if (r.text) SJ.offlinePush(cid, 'char', r.text);
+        setChoices(r.choices);
+        if (SJ.state.settings.offline.autoOutline !== false) {
+          SJ.offlineOutline(cid).catch(() => {});
+        }
+        SJ.save();
+      } catch (e) {
+        SJ.offlinePush(cid, 'narr', '（这段没写出来）' + e.message);
+      }
+      busy = false; syncSend(); draw();
+    }
+    sendBtn.onclick = send;
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    syncSend();
+
+    pad.append(
+      SJ.el('div', { class: 'of-bar' }, [
+        SJ.el('div', { class: 'of-who' }, [
+          avatarNode(ch),
+          SJ.el('div', { class: 'of-who-main' }, [
+            SJ.el('div', { class: 'of-who-name' }, ch.name || ''),
+            SJ.el('div', { class: 'of-who-sub' }, (() => {
+              const [, sn] = SJ.offlineStyle(cid);
+              const [, bn] = SJ.offlineBridge(cid);
+              return sn + ' · 带着' + bn + '的近况';
+            })())
+          ])
+        ]),
+        SJ.el('button', { class: 'of-gear', onclick: () => offlineSettings(cid, root) }, '⚙')
+      ]),
+      scroll,
+      choiceBox,
+      SJ.el('div', { class: 'of-dock' }, [input, sendBtn])
+    );
+    draw();
+  }
+
+  /* 线下模式的设置：文风、上下文桥、长度、大纲 */
+  function offlineSettings(cid, root) {
+    const pad = subPageOf(root, '此刻相遇 · 设置', () => offlineView(cid, root));
+    const S = SJ.state.settings.offline;
+    const o = SJ.offlineOf(cid);
+    const cur = k => (o.style || S.style) === k;
+
+    pad.append(
+      SJ.el('div', { class: 'group-title' }, '文风'),
+      SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_STYLES.map(([k, name, desc]) =>
+        SJ.el('button', {
+          class: 'of-style' + (cur(k) ? ' on' : ''),
+          onclick: () => { o.style = k; SJ.save(); offlineSettings(cid, root); }
+        }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+      SJ.el('div', { class: 'group-title' }, '上下文桥'),
+      SJ.el('div', { class: 'hint' }, '他在剧场里能看到多少你们手机上的近况 —— 这一项最影响连贯感。'),
+      SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_BRIDGE.map(([k, name, desc]) =>
+        SJ.el('button', {
+          class: 'of-style' + ((S.bridge || 'standard') === k ? ' on' : ''),
+          onclick: () => { S.bridge = k; SJ.save(); offlineSettings(cid, root); }
+        }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+      SJ.el('div', { class: 'group-title' }, '每段长度'),
+      SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_LEN.map(([a, b], i) =>
+        SJ.el('button', {
+          class: 'of-style' + ((Number(S.len) || 0) === i ? ' on' : ''),
+          onclick: () => { S.len = i; SJ.save(); offlineSettings(cid, root); }
+        }, [SJ.el('div', { class: 'of-style-t' }, a + '~' + b + ' 字'), SJ.el('div', { class: 'of-style-s' }, ['标准', '短一点', '长一点', '很长'][i] || '')]))),
+
+      SJ.el('div', { class: 'group-title' }, '剧情大纲'),
+      SJ.el('div', { class: 'hint' }, '每段写完之后由 AI 顺手更新一版，防止剧情跑偏。可以自己改。'),
+      rowToggle('自动更新大纲', '关掉就由你手写', S.autoOutline !== false,
+        () => { S.autoOutline = !(S.autoOutline !== false); SJ.save(); offlineSettings(cid, root); }),
+      (() => {
+        const ta = SJ.el('textarea', { class: 'of-outline', rows: '4', placeholder: '还没写什么。第一段生成完这里就会有一句话的大纲。' });
+        ta.value = o.outline || '';
+        ta.addEventListener('change', () => { o.outline = ta.value.trim(); SJ.save(); });
+        return SJ.el('div', { class: 'pad' }, [ta]);
+      })(),
+
+      SJ.el('div', { class: 'group-title' }, '危险区'),
+      SJ.el('button', {
+        class: 'btn danger',
+        onclick: () => confirmBox('清空和「' + (SJ.state.characters.find(x => x.id === cid) || {}).name + '」的全部线下剧情？', () => {
+          SJ.offlineClear(cid); SJ.save(); offlineView(cid, root);
+        })
+      }, '清空线下剧情')
+    );
+  }
 
 window.APPS = APPS;
 window.ICONSVG = svg;

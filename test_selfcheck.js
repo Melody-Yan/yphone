@@ -7063,6 +7063,56 @@ console.log('\n[99] 线下模式「此刻相遇」 / 主题包');
     })(), '记忆段没讲用法');
 }
 
+console.log('\n[100] 此刻相遇是一个真的 App');
+
+{
+  const A = sandbox.SJ;
+  /* 用户报过：「咋没看到线下模式的app啊」—— 上次只挂在聊天设置里，桌面上没有。
+     这几条守的就是「它必须是一个能上桌面、能被 openApp 直达的 App」。 */
+  const ap = sandbox.window.APPS.find(a => a.id === 'offline');
+  ok('「此刻相遇」在 App 注册表里', !!ap, ap ? ap.name : '(没有)');
+  ok('它没被 hide 掉，所以会出现在桌面', ap && !ap.hide, ap && String(ap.hide));
+  ok('它有名字和图标', ap && ap.name === '此刻相遇' && !!ap.icon && !!ap.art,
+    ap && [ap.name, ap.icon, ap.art].join('/'));
+  ok('它是一个有 render 的 App', ap && typeof ap.render === 'function');
+
+  /* 桌面的 appOrder 会把没进 layout 的新 App 补进来（老用户存档里没有它） */
+  const before = A.state.layout;
+  A.state.layout = ['contacts', 'chat'];
+  const order = sandbox.window.SHELL && sandbox.window.SHELL.appOrder
+    ? sandbox.window.SHELL.appOrder() : null;
+  if (order) {
+    ok('老存档的桌面布局里没有它，也会自动补上', order.includes('offline'), order.join(','));
+  } else {
+    /* appOrder 不在 SHELL 上就直接验逻辑：hide 的排除、其余全在 */
+    const ids = sandbox.window.APPS.filter(a => !a.hide).map(a => a.id);
+    ok('老存档的桌面布局里没有它，也会自动补上', ids.includes('offline'), ids.join(','));
+  }
+  A.state.layout = before;
+
+  /* 线下两个视图必须在 IIFE 顶层 —— 它们上次被误插进聊天 App 的 render 闭包里，
+     结果「此刻相遇」这个 App 一打开就 ReferenceError。缩进是唯一能从源码看出来的证据。 */
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const indOf = name => {
+    const m = src.match(new RegExp('\\n( *)function ' + name + '\\b'));
+    return m ? m[1].length : -1;
+  };
+  ok('offlineView 在 IIFE 顶层（缩进 2），不在某个 App 的闭包里',
+    indOf('offlineView') === 2, '缩进=' + indOf('offlineView'));
+  ok('offlineSettings 也在 IIFE 顶层', indOf('offlineSettings') === 2,
+    '缩进=' + indOf('offlineSettings'));
+  /* 对照：subPage 本来就在闭包里（缩进 6），别被顺手搬走 */
+  ok('原来的 subPage 没被动（它还在闭包里）', indOf('subPage') === 6, '缩进=' + indOf('subPage'));
+  ok('顶层补了一个显式传 root 的 subPageOf', indOf('subPageOf') === 0,
+    '缩进=' + indOf('subPageOf'));
+  /* 线下视图不能再裸调闭包里的 subPage —— 那正是崩掉的那一行 */
+  const ofSeg = src.slice(src.indexOf('  function offlineView('), src.indexOf('  function offlineSettings('));
+  ok('线下视图不再裸调闭包里的 subPage',
+    ofSeg.length > 100 && !/const pad = subPage\(/.test(ofSeg), ofSeg.slice(0, 60));
+  ok('聊天设置里的入口还在（两条路都能进）', /offlineFrom = 'chat'; offlineView\(id, root\)/.test(src));
+  ok('App 里的入口也在', /offlineFrom = 'app'; offlineView\(c\.id, root\)/.test(src));
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

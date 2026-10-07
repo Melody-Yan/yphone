@@ -7255,10 +7255,14 @@ console.log('\n[103] 剧场视觉：沉浸式排版');
 
 {
   const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
-  /* 旁白：斜体 + #666 + 比正文小 */
-  ok('旁白是斜体深灰', /\.of2-narr\s*\{[^}]*font-style:\s*italic/.test(css) && /\.of2-narr\s*\{[^}]*color:\s*#666/.test(css));
-  /* 对白：加粗 + 高亮暖色 + 比旁白大 */
-  ok('对白是加粗暖色高亮', /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css) && /\.of2-say\s*\{[^}]*#b07d2e/.test(css));
+  /* 旁白：斜体 + 深灰（具体色值不锁死，对比度由 [106] 把关） */
+  ok('旁白是斜体深灰',
+    /\.of2-narr\s*\{[^}]*font-style:\s*italic/.test(css) &&
+    /\.of2-narr\s*\{[^}]*color:\s*#[0-9a-f]{6}/i.test(css));
+  /* 对白：加粗 + 暖色高亮（色值不锁死，对比度由 [106] 把关） */
+  ok('对白是加粗暖色高亮',
+    /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css) &&
+    /\.of2-say\s*\{[^}]*color:\s*#[0-9a-f]{6}/i.test(css));
   /* 底图：blur(20px) */
   ok('底图是 blur(20px)', /\.of2-bg-img\s*\{[^}]*blur\(20px\)/.test(css));
   /* 状态卡：大圆角 + 毛玻璃 + 柔和阴影 */
@@ -7382,6 +7386,68 @@ console.log('\n[105] 剧场里的设置入口 + 不叠 App');
   ok('设置页有线下接口地址 / Key / 模型三个字段',
     /线下接口地址/.test(src) && /线下 API Key/.test(src) && /线下模型/.test(src));
   ok('有拉取和测试两个按钮', /拉取线下模型/.test(src) && /测试线下接口/.test(src));
+}
+
+console.log('\n[106] 剧场的可读性：对比度和头像不打架');
+
+{
+  const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+
+  /* 旁白压在 #f2f2f2 上，要过 WCAG AA(4.5) 甚至 AAA(7)。
+     算一遍真实的对比度 —— 别再凭感觉调颜色了。 */
+  const lum = ([R, G, B]) => {
+    const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(R) + 0.7152 * f(G) + 0.0722 * f(B);
+  };
+  const ratio = (a, b) => {
+    const la = lum(a), lb = lum(b), hi = Math.max(la, lb), lo = Math.min(la, lb);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const BG = [242, 242, 242];   // --bg
+
+  const narrHex = (css.match(/\.of2-narr\s*\{[^}]*color:\s*(#[0-9a-f]{6})/i) || [])[1];
+  const sayHex = (css.match(/\.of2-say\s*\{[^}]*color:\s*(#[0-9a-f]{6})/i) || [])[1];
+  ok('拿得到旁白和对白的颜色', !!narrHex && !!sayHex, narrHex + ' / ' + sayHex);
+  const nr = ratio(hex(narrHex), BG), sr = ratio(hex(sayHex), BG);
+  ok('旁白对比度过 AAA（≥7:1）', nr >= 7, nr.toFixed(2) + ':1');
+  ok('对白对比度过 AA（≥4.5:1）', sr >= 4.5, sr.toFixed(2) + ':1');
+  ok('对白比旁白更醒目（它是主角，不能比旁白还弱）',
+    ratio(hex(sayHex), BG) > 4.5 && /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css));
+
+  /* 遮罩别把底色洗得太白 —— 那正是「背景和字体太相近」的成因 */
+  const ov = (css.match(/\.of2-bg::after\s*\{[^}]*linear-gradient\(([^)]*\)[^;]*)\)/i) || [])[1] || '';
+  const alphas = (ov.match(/rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/g) || [])
+    .map(x => Number(x.match(/([\d.]+)\)$/)[1]));
+  ok('遮罩读得到', alphas.length > 0, JSON.stringify(alphas));
+  ok('遮罩没有把背景洗白（最大的白色透明度 ≤ .5）',
+    Math.max(...alphas) <= 0.5, 'max=' + Math.max(...alphas));
+
+  /* 头像水印：以前是 30px / opacity .2，还被后面的 <p> 盖住。
+     现在要大一点、明显一点，并且有 z-index 压住文字。 */
+  const wm = (css.match(/\.of2-wm\s*\{[^}]*\}/) || [''])[0];
+  ok('头像不再暗淡（opacity ≥ .4）',
+    /opacity:\s*\.(\d+)/.test(wm) && Number('0.' + wm.match(/opacity:\s*\.(\d+)/)[1]) >= 0.4,
+    wm.match(/opacity:\s*[.\d]+/)?.[0]);
+  ok('头像有 z-index 压住正文', /z-index:\s*\d/.test(wm), wm.match(/z-index:\s*\d/)?.[0]);
+  ok('头像比原来大（≥32px）', /width:\s*3[2-9]px/.test(wm), wm.match(/width:\s*\d+px/)?.[0]);
+
+  /* 关键：头像和正文不能抢同一块地方。
+     之前两边的 left 都是 60 —— 头像整个压在字上。 */
+  ok('带头像的块给正文让了位（has-wm 有 padding-left）',
+    /\.of2-blk\.has-wm\s*\{[^}]*padding-left:\s*4[0-9]px/.test(css));
+  ok('JS 真的会给带头像的块加上 has-wm', /holder\.classList\.add\('has-wm'\)/.test(src));
+  ok('头像贴块的最左边（left: 0）', /\.of2-wm\s*\{[^}]*left:\s*0/.test(css));
+
+  /* padding-left 的账要算得过来：scroll 的 60 + has-wm 的 44 + p 的 14 > 头像的 34 */
+  const scrollPad = Number((css.match(/\.of2-scroll\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
+  const wmPad = Number((css.match(/\.of2-blk\.has-wm\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
+  const pPad = Number((css.match(/\.of2-narr\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
+  const wmW = Number((css.match(/\.of2-wm\s*\{[^}]*width:\s*(\d+)px/) || [])[1]);
+  ok('头像和正文之间有实实在在的空隙',
+    (wmPad + pPad) > wmW,
+    'wm=' + wmW + ' 正文相对偏移=' + (wmPad + pPad) + '（scroll ' + scrollPad + ' 是共同的底）');
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

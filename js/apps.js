@@ -8398,8 +8398,11 @@ const APPS = [
             ? [{ kind: 'narr', text: e.text }]
             : SJ.parseScene(e.text);
           blocks.forEach((b, bi) => {
-            /* 头像水印：每个角色分段的第一行前面放一个小头像 */
+            /* 头像：每个角色分段的第一行前面放一个小头像。
+               加 has-wm 是为了让 CSS 给这一块让出 44px ——
+               不然头像和正文的 left 都是 60，头像会压在字上。 */
             if (bi === 0 && e.role !== 'narr') {
+              holder.classList.add('has-wm');
               holder.append(SJ.el('div', { class: 'of2-wm' }, [avatarNode(ch)]));
             }
             if (b.kind === 'char') {

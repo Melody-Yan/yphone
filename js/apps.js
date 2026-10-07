@@ -149,9 +149,14 @@ function subPageOf(root, title, back) {
    列表和剧场本来就是同一个 root，回列表要就地重画。 */
 let offlineFrom = '';
 function offlineBack(cid, listBack) {
-  /* 从聊天设置进来的，回的是聊天 App（另一个 App，只能 openApp） */
-  if (offlineFrom === 'chat' && window.SHELL) return window.SHELL.openApp('chat', cid);
-  /* 否则回列表：就地重画。别再 openApp('offline') —— 那是压栈不是换页。 */
+  /* 从聊天进来的：聊天页本来就压在栈底下，**出栈**就回到它了。
+     以前这里写 openApp('chat', cid) —— 那是又压一层，
+     结果是「剧场点返回，反而进到更深的一页」。 */
+  if (offlineFrom === 'chat') {
+    if (window.SHELL) return window.SHELL.closeTop();
+    return;
+  }
+  /* 从 App 列表进来的：回列表就地重画。别 openApp('offline') —— 那是压栈不是换页。 */
   if (typeof listBack === 'function') return listBack();
   if (window.SHELL) window.SHELL.openApp('offline');
 }
@@ -2912,10 +2917,53 @@ const APPS = [
           if (m.kind === 'gift') return giftBubble(m);
           if (m.kind === 'card') return cardBubble(m);
           if (m.kind === 'call') return callBubble(m);
+          if (m.kind === 'meet') return meetBubble(m);
           if (m.kind === 'gift') return giftBubble(m);
           if (m.kind === 'voice') return voiceBubble(m, m.me);
           if (m.me) return bubble(SJ.stripMarks(m.text) || m.text, true, m.quote);
           SJ.splitReply(m.text).forEach(t => chunkNode(t, false));
+        }
+
+        /* 见面的邀约卡。点「好」就真的进剧场 —— 那边本来就是一幕一幕演的。
+           婉拒之后卡片留着（上面写「这次没见成」），不当成错误状态。 */
+        function meetBubble(m) {
+          const mine = m.from === 'me';
+          const st = m.meetState || 'pending';
+          const card = SJ.el('div', { class: 'meet-card' + (mine ? ' mine' : '') }, [
+            SJ.el('div', { class: 'meet-ico', html: svg('heart', 20) }),
+            SJ.el('div', { class: 'meet-main' }, [
+              SJ.el('div', { class: 'meet-head' }, mine ? '你约了 TA' : (c.name || 'TA') + ' 想见你'),
+              SJ.el('div', { class: 'meet-place' }, m.place || '见一面')
+            ])
+          ]);
+          if (st === 'pending') {
+            if (mine) {
+              /* 我提的，等他回。这里不给「取消」—— 硬加一个状态不值当 */
+              card.append(SJ.el('div', { class: 'meet-act' }, '等 TA 答复'));
+            } else {
+              const go = SJ.el('button', { class: 'meet-btn ok' }, '好，去见他');
+              go.onclick = () => {
+                /* ⚠️ 这是聊天闭包，聊天对象叫 id；offlineView 里那个才叫 cid */
+                SJ.meetSetState(id, m.ts, 'accepted');
+                /* offlineFrom='chat'：剧场里点返回就回到这段聊天 */
+                offlineFrom = 'chat';
+                if (window.SHELL) window.SHELL.openApp('offline', id);
+              };
+              const no = SJ.el('button', { class: 'meet-btn' }, '改天吧');
+              no.onclick = () => {
+                SJ.meetSetState(id, m.ts, 'declined');
+                redraw();
+              };
+              card.append(SJ.el('div', { class: 'meet-act' }, [go, no]));
+            }
+          } else {
+            card.append(SJ.el('div', { class: 'meet-act' },
+              st === 'accepted' ? (mine ? 'TA 答应了' : '你答应了') : '这次没见成'));
+          }
+          /* row() 才是把它挂到列表上的那一步 ——
+             renderMsg 是「调一下、它自己挂」，不是拿返回值再挂。 */
+          row(card, mine);
+          return card;
         }
 
         /* 对面发来的一段 → 它可能是语音、红包，也可能只是句人话。
@@ -3568,9 +3616,40 @@ const APPS = [
           { svg: 'gift', label: '给 TA 买礼物', hint: '去桃桃商城自己挑', run: giftThing },
           { svg: 'pin', label: '发位置', run: askLocation },
           { svg: 'user', label: '发名片', run: pickCard },
+          { svg: 'heart', label: '邀约相遇', hint: '约 TA 见一面，答应了就进剧场', run: askMeet },
           { svg: 'sparkle', label: '动作 / 旁白', hint: '用括号包起来', run: sendAside },
           { svg: 'undo', label: '撤回上一条', run: undoMine }
         ], { bottom: 96 }));
+
+        /* 我发起邀约。落成一张卡之后顺手让 TA 回一句 ——
+           答不答应由模型自己决定（提示词里教了他什么时候该接、什么时候别接）。 */
+        function askMeet() {
+          const place = SJ.el('input', {
+            class: 'field', maxlength: '40', placeholder: '去江边走走'
+          });
+          let mask = null;
+          const go = () => {
+            const v = String(place.value || '').trim();
+            if (!v) { toast('写一句想去哪'); place.focus(); return; }
+            if (mask) dismiss(mask);
+            SJ.meetInvite(id, v, 'me');
+            renderMsg(SJ.lastMessage(id));
+            newReadTag(lastRow);
+            syncSend(); beep('out');
+            /* TA 顺着这张卡回一句 */
+            askAndShow();
+          };
+          const form = SJ.el('div', { class: 'money-form' }, [
+            SJ.el('div', { class: 'sheet-head' }, '约 TA 见面'),
+            SJ.el('div', { class: 'hint' },
+              'TA 会看到这张邀约。他答应了，你们就不再发消息 —— 而是到「此刻相遇」里，一幕一幕地演下去。'),
+            place,
+            SJ.el('button', { class: 'btn money-go', onclick: go }, '发给 TA')
+          ]);
+          place.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+          mask = sheet(form);
+          setTimeout(() => { if (place.focus) place.focus(); }, 60);
+        }
 
         send.addEventListener('click', () => {
           const text = input.value.trim();
@@ -7028,7 +7107,7 @@ const APPS = [
     icon: 'heart',
     art: '1F3AD',
     color: 'linear-gradient(150deg,#f0e2cd,#c9a87e)',
-    render(root) {
+    render(root, close, arg) {
       const list = () => (SJ.state.characters || []).filter(c => !SJ.isGroup(c.id));
 
       /* 客人列表：谁写过、写了多少段，一眼能看出来 */
@@ -7231,7 +7310,11 @@ const APPS = [
         root.append(box);
       }
 
-      listView();
+      /* 从邀约卡点「好，去见他」进来时带了 arg（角色 id）：直接进剧场，
+         不先落在列表上再让他点一次。**这一句必须在最后** ——
+         往中间插会被下面这句覆盖，看起来就像 cid 根本没生效。 */
+      if (arg && SJ.state.characters.some(c => c.id === arg)) offlineView(arg, root, listView);
+      else listView();
     }
   },
 

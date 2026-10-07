@@ -4679,7 +4679,12 @@ function giftOf(chunk) {
 }
 /* 语音关掉时别把方括号原样摆在用户脸上 */
 function stripMarks(s) {
-  return String(s || '').replace(/\[\[\/?v\]\]/g, '').replace(/\[\[rp:[\d.]*(?::[^[\]]*)?\]\]/g, '').replace(/\[\[gift:(?:外卖|礼物)\]\]/g, '').trim();
+  return String(s || '')
+    .replace(/\[\[\/?v\]\]/g, '')
+    .replace(/\[\[rp:[\d.]*(?::[^[\]]*)?\]\]/g, '')
+    .replace(/\[\[gift:(?:外卖|礼物)\]\]/g, '')
+    .replace(/\[\[\s*meet\s*[:：][^\]]*\]\]/gi, '')
+    .trim();
 }
 /* 语音条显示几秒。TTS 实际时长拿不到（各浏览器回调时机不一），按字数估一个够用的 */
 function voiceDur(text) { return Math.max(1, Math.round(String(text || '').length * 0.22)); }
@@ -4740,6 +4745,12 @@ const SPLIT_RE = /\s*[%％]\s*[%％]+[%％]*\s*/;
 
 function splitReply(raw) {
   let s = String(raw || '');
+  /* 约见面：把 [[meet:...]] 摘出来挂到 state 上，等上层画成卡片。
+     正文里不能留这个标记（用户不该看到内部记号）。 */
+  {
+    const iv = pickInvite(s);
+    if (iv.invite) { s = iv.text; pendingInvite = iv.invite; }
+  }
   /* 语音关了就把语音标记拆掉，别让用户看到 [[v]] 这种内部记号（红包标记不拆，它照常变气泡） */
   if (!voiceOn()) s = s.replace(/\[\[\/?v\]\]/g, '');
   /* 别的分隔符也一并认了：模型偶尔打成 ‖ || 或者 ######## 这种。
@@ -4922,6 +4933,43 @@ function buildSystem(char, history) {
     }
   }
 
+  /* 约见面：只有私聊才有意义，群里不适用 */
+  if (!c.group) {
+    lines.push('', '## 约他见面  [[meet:想去哪 / 想做什么]]');
+    lines.push('想见他的时候就说出来：[[meet:去江边走走]]、[[meet:来我家，我煮面给你吃]]');
+    lines.push('对方会看到一张邀约卡片，点「好」就真的见面了 —— 见面之后你们不再是发消息，');
+    lines.push('而是一幕一幕地演下去。所以这句话分量不轻，**别随便用**。');
+    lines.push('');
+    lines.push('什么时候可以约：');
+    lines.push('- 聊到某个具体的念头上，而这件事本来就该当面做 —— 一起吃饭、看那部你说要陪他看的电影、');
+    lines.push('  他刚说自己难受而你就在附近、吵架之后想当面和好、很久没见了。');
+    lines.push('- 最好是**话赶话**赶出来的：他说想吃火锅 → 「那走吧，我请你」。而不是凭空一句「我们见面吧」。');
+    lines.push('- 时间和地点要落得下来，别只说「有空见一面」。「明天七点，老地方」才像真的。');
+    lines.push('');
+    lines.push('什么时候**不要**约：');
+    lines.push('- 刚认识、还没聊几句。这时候约显得很急，也不像真人。');
+    lines.push('- 对方在忙、在生气、在难受的时候硬约。');
+    lines.push('- 说过一次被婉拒了，短期内别再提。');
+    lines.push('- 上一轮刚约过一次。');
+    lines.push('大部分对话里你都不会约。这个标记可能几十轮才用上一次，那才是对的。');
+  }
+
+
+  /* 已经有没答复的邀约 / 刚约过：说一句让他别急，不然会连着一轮轮约 */
+  if (!c.group && c.id) {
+    const msgs = messages(c.id);
+    const pend = msgs.filter(x => x.kind === 'meet' && x.meetState === 'pending').slice(-1)[0];
+    if (pend) {
+      lines.push('', '（你们刚说好见面这件事还没定下来' + (pend.from === 'me' ? '，是你先提的' : '，是他先提的') + '。'
+        + '别再提约见面的标记了，先正常聊。）');
+    } else {
+      const last = msgs.filter(x => x.kind === 'meet').slice(-1)[0];
+      /* 最近 30 条里已经有一条，就说明刚约过 */
+      if (last && msgs.indexOf(last) >= msgs.length - 30) {
+        lines.push('', '（你们最近刚约过或聊过见面的事。这次别再发约见面的标记。）');
+      }
+    }
+  }
 
   /* 今天有安排就先说，免得对方问「你在干嘛」时才想起来 */
   const ev = todayEvents();
@@ -5372,6 +5420,47 @@ async function testOffline() {
 
 /* 拆「场景头 + 正文 + 三个选择」。模型不一定乖乖给 ###CHOICES###，
    所以几种写法都兜一下；实在没有选择就返回空数组（前端隐藏那一栏）。 */
+/* 刚解析出来的邀约，等聊天页取走。用模块级变量而不是返回值 ——
+   splitReply 的返回值被好几处按「字符串数组」用，改签名会牵一发动全身。 */
+let pendingInvite = null;
+function takeInvite() { const v = pendingInvite; pendingInvite = null; return v; }
+
+/* 落一条邀约消息。from 是 'char'（TA 约你）或 'me'（你约 TA）。 */
+function meetInvite(id, place, from) {
+  pushMessage(id, false, place || '见一面', {
+    kind: 'meet', place: String(place || '').slice(0, 60),
+    from: from === 'me' ? 'me' : 'char', meetState: 'pending'
+  });
+  return lastMessage(id);
+}
+
+/* 改一条邀约的状态。找不到就算了 —— 可能已经被清出聊天记录了。 */
+function meetSetState(id, ts, st) {
+  const m = messages(id).find(x => x.kind === 'meet' && x.ts === ts);
+  if (!m) return null;
+  m.meetState = (st === 'accepted' || st === 'declined') ? st : 'pending';
+  save();
+  return m;
+}
+
+/* 这个角色当前有没有还没答复的邀约（用来在聊天页挂提示） */
+function meetPending(id) {
+  return messages(id).filter(x => x.kind === 'meet' && x.meetState === 'pending')[0] || null;
+}
+
+/* 从一条回复里摘出约见面的邀请。
+   跟 [[img:]] [[loc:]] 那套是同一个路子：正文照常说话，标记单独摘出来。
+   返回 { text: 去掉标记的正文, invite: {place} | null } */
+function pickInvite(raw) {
+  const src = String(raw || '');
+  const m = src.match(/\[\[\s*meet\s*[:：]\s*([^\]]{1,60})\]\]/i);
+  if (!m) return { text: src, invite: null };
+  return {
+    text: src.replace(m[0], '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(),
+    invite: { place: m[1].trim().slice(0, 60) }
+  };
+}
+
 function splitOfflineReply(raw) {
   const text = String(raw || '').trim();
   if (!text) return { text: '', choices: [], scene: null };
@@ -5769,7 +5858,8 @@ window.SJ = {
   sanitizeThemePack, themesOf, themeIdOf, themeOf, saveThemePack, removeThemePack,
   pickTheme, applyThemeTo, themePackJson, importThemePack, builtinThemesFor,
   /* 线下模式「此刻相遇」 */
-  OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN, OFFLINE_SIZE,
+  OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN, OFFLINE_SIZE, pickInvite, takeInvite,
+  meetInvite, meetSetState, meetPending,
   offlineOf, offlineEntries, offlinePush, offlineClear, offlineStyle, offlineBridge,
   buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline,
   parseScene, cleanLine, offlineScene, setOfflineScene,

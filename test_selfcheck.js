@@ -7114,9 +7114,10 @@ console.log('\n[100] 此刻相遇是一个真的 App');
   /* 两个入口都必须把 listView 传进去：从剧场里点「所有角色的默认」要就地重画成列表页。
      不传的话只能 openApp('offline')，那会往栈上再压一个同样的 App ——
      实测点完是一片空白（两个 .app-offline 叠着）。 */
-  ok('两个入口都把 listView 当回退传进去了',
-    (src.match(/offlineView\([^)]*listView\)/g) || []).length === 2,
-    '出现 ' + (src.match(/offlineView\([^)]*listView\)/g) || []).length + ' 次');
+  /* 每个入口都要把 listView 传进去（少了它，剧场里的返回就回不到列表）。
+     现在有三个：聊天设置、App 列表、以及从邀约卡直接进剧场那条。 */
+  const viewCallers = (src.match(/offlineView\([^)]*listView\)/g) || []).length;
+  ok('三个入口都把 listView 当回退传进去了', viewCallers === 3, '出现 ' + viewCallers + ' 次');
   ok('offlineView 收得下第三个参数', /function offlineView\(cid, root, listBack\)/.test(src));
   ok('「所有角色的默认」优先就地重画，而不是再 openApp 叠一层',
     /typeof listBack === 'function'\) \{ listBack\(\); return; \}/.test(src));
@@ -7516,12 +7517,15 @@ console.log('\n[108] 剧场的返回栈：别把 App 压两层');
      这次的症状是「剧场返回进列表、列表返回又回到剧场」。 */
   const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
 
-  const fn = src.slice(src.indexOf('function offlineBack'), src.indexOf('function navBar'));
+  const fn = src.slice(src.indexOf('function offlineBack'), src.indexOf('function offlineBack') + 900);
   ok('offlineBack 收一个 listBack 用来就地回列表', /function offlineBack\(cid, listBack\)/.test(fn));
   ok('回列表走 listBack，不是 openApp', /typeof listBack === 'function'\) return listBack\(\)/.test(fn));
-  ok('openApp 只留给「回聊天」那条路（那是另一个 App）',
-    fn.indexOf("offlineFrom === 'chat'") < fn.indexOf("openApp('chat'"),
+  /* 从聊天进来的：聊天页本来就压在栈底下，出栈就回到它了。
+     以前写 openApp('chat', cid) 是又压一层 —— 表现是「剧场点返回反而更深」。 */
+  ok('回聊天走 closeTop（出栈）',
+    fn.indexOf("offlineFrom === 'chat'") < fn.indexOf('closeTop()'),
     'chat 分支在前');
+  ok('回聊天不再 openApp 压栈', !/openApp\('chat'/.test(fn.replace(/\/\*[\s\S]*?\*\//g, '')));
 
   /* 剧场的返回按钮真的把 listBack 递进去了 */
   ok('剧场返回按钮传了 listBack',
@@ -7538,6 +7542,106 @@ console.log('\n[108] 剧场的返回栈：别把 App 压两层');
     uses.every(i => viewSeg.lastIndexOf('listBack', i) > viewSeg.lastIndexOf('function', i) - 1 &&
                     viewSeg.slice(Math.max(0, i - 260), i).includes('listBack')),
     '共 ' + uses.length + ' 处');
+}
+
+console.log('\n[109] 邀约相遇：聊天里约见面 → 进剧场');
+
+{
+  const A = sandbox.SJ;
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const core = fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8');
+
+  /* 解析：[[meet:...]] 要从正文里摘干净 —— 用户不该看到内部记号 */
+  const a = A.pickInvite('那走吧 [[meet:去江边走走]] 我请你');
+  ok('[[meet:...]] 能摘出来', a.invite && a.invite.place === '去江边走走', JSON.stringify(a.invite));
+  ok('摘完之后正文里不留标记', !/meet/i.test(a.text), a.text);
+  ok('正文其余部分还在', a.text.indexOf('那走吧') === 0 && a.text.indexOf('我请你') > 0, a.text);
+  ok('没有标记时不会凭空造一个', A.pickInvite('今天天气不错').invite === null);
+
+  /* 全角冒号也认（模型常打成 ：） */
+  ok('全角冒号也认', (A.pickInvite('[[meet：来我家]]').invite || {}).place === '来我家');
+  /* stripMarks 也得认，不然兜底路径会把标记露出来 */
+  ok('stripMarks 认 meet 标记', A.stripMarks('走 [[meet:去江边]]').indexOf('meet') < 0);
+
+  /* 信任边界：地点会进存档和提示词。超长的整条不认（正则上限 60），
+     而不是截一半 —— 截一半会得到一个看着像真的、实际被切碎的地点。 */
+  ok('超长地点整条不认', A.pickInvite('[[meet:' + 'x'.repeat(200) + ']]').invite === null);
+  ok('刚过 60 字的也不认',
+    A.pickInvite('[[meet:' + 'x'.repeat(61) + ']]').invite === null);
+  ok('正好 60 字的认',
+    (A.pickInvite('[[meet:' + 'x'.repeat(60) + ']]').invite || {}).place.length === 60);
+
+  /* 落一条邀约 + 三态流转 */
+  const ch = A.state.characters[0];
+  A.state.chats = {};
+  const m = A.meetInvite(ch.id, '去江边走走', 'char');
+  ok('邀约落成 kind=meet 的消息', m && m.kind === 'meet', m && m.kind);
+  ok('默认是 pending', m.meetState === 'pending', m.meetState);
+  ok('记得是谁提的', m.from === 'char', m.from);
+  ok('meetPending 找得到它', !!A.meetPending(ch.id));
+
+  A.meetSetState(ch.id, m.ts, 'accepted');
+  ok('接受之后不再是 pending', A.meetPending(ch.id) === null);
+  ok('状态真的是 accepted', A.messages(ch.id).find(x => x.kind === 'meet').meetState === 'accepted');
+
+  /* 非法状态不许写进去 */
+  A.meetSetState(ch.id, m.ts, '随便什么');
+  ok('乱传的状态回落成 pending（不写到存档里）',
+    A.messages(ch.id).find(x => x.kind === 'meet').meetState === 'pending');
+
+  /* pickInvite 的结果要能被取走，且只能取一次（不然一帧画两张卡） */
+  A.splitReply('走 [[meet:去江边]]');
+  ok('takeInvite 取得到', (A.takeInvite() || {}).place === '去江边');
+  ok('取过就没了（不会重复落卡）', A.takeInvite() === null);
+
+  /* ── 提示词：教他什么时候该约、什么时候别约 ── */
+  const sys = A.buildSystem(ch, []);
+  ok('提示词里有 [[meet: 的用法', sys.indexOf('[[meet:') >= 0);
+  ok('提示词讲了「答应了就进剧场」这件事', /一幕一幕|剧场/.test(sys));
+  ok('提示词有「什么时候不要约」（不然模型会每三句就想约）',
+    /什么时候\*\*不要\*\*约|什么时候不要约/.test(sys), sys.slice(sys.indexOf('什么时候'), sys.indexOf('什么时候') + 40));
+  ok('提示词提到了「话赶话」这种自然发生的场景', /话赶话/.test(sys));
+  ok('提示词说了「大部分对话里都不会约」', /大部分对话/.test(sys));
+
+  /* 有没答复的邀约时，要额外提醒一句别催 */
+  A.state.chats = {};
+  A.meetInvite(ch.id, '去江边', 'char');
+  ok('有未答复的邀约时，提示词会提醒别再提',
+    /别再提约见面/.test(A.buildSystem(ch, [])));
+
+  /* ── UI 接线 ── */
+  ok('聊天菜单里有「邀约相遇」', /label: '邀约相遇'/.test(src));
+  ok('邀约卡有渲染分支', /if \(m\.kind === 'meet'\) return meetBubble\(m\)/.test(src));
+  ok('卡片真的挂到列表上（renderMsg 是自己挂，不是收返回值）',
+    /row\(card, mine\);/.test(src));
+  ok('有「好，去见他」和「改天吧」两个按钮',
+    /好，去见他/.test(src) && /改天吧/.test(src));
+
+  /* 关键：带 arg 进 App 要直接落在剧场，而且这句必须在 render 末尾 ——
+     往中间插会被后面那句 listView() 覆盖（踩过）。 */
+  /* 只取这个 App 的 render 体：从 id:'offline' 到它的 render 结束。
+     不能直接往后切一大段 —— 后面的 App（人设页也有个 listView）会混进来。 */
+  /* render 体：从 id:'offline' 到分派那句之后的收尾。按实际标记切，
+     别猜长度 —— 这个 App 的 render 有一万多字符，猜短了会切到别的 App。 */
+  const offAt = src.indexOf("id: 'offline'");
+  const dispAbs = src.indexOf('offlineView(arg, root, listView)', offAt);
+  const endAbs = src.indexOf('\n    }\n  },', dispAbs);
+  const renderSeg = src.slice(offAt, endAbs > 0 ? endAbs : dispAbs + 200);
+  const dispatchAt = renderSeg.indexOf('offlineView(arg, root, listView)');
+  ok('带 arg 就直接进剧场', dispatchAt > 0 && dispAbs > 0, 'dispatch@' + dispatchAt);
+  /* render 体里除了分派自己那句，不该再有别的无条件 listView() 收尾 ——
+     有的话就会把刚建好的剧场覆盖掉（这个坑踩过一次）。 */
+  const bare = (renderSeg.slice(0, dispatchAt).match(/^\s*listView\(\);\s*$/gm) || []).length;
+  ok('render 体里没有别的无条件 listView() 收尾（它会把剧场盖掉）',
+    bare === 0, '发现 ' + bare + ' 处');
+
+  /* ── 返回：从聊天进来的要出栈，不能再压一层 ── */
+  const fn = src.slice(src.indexOf('function offlineBack'), src.indexOf('function offlineBack') + 900);
+  /* 注释里正提到旧写法，断言前先把注释剥掉，不然量的是注释不是代码 */
+  const fnCode = fn.replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('从聊天进来的走 closeTop（出栈），不是 openApp 再压一层',
+    /closeTop\(\)/.test(fnCode) && !/openApp\('chat'/.test(fnCode),
+    'closeTop=' + /closeTop\(\)/.test(fnCode) + ' openAppChat=' + /openApp\('chat'/.test(fnCode));
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

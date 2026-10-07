@@ -4406,3 +4406,117 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .of2.ended .of2-dock, .of2.ended .of2-choices { display: none; }
 .of2.ended .of2-resume { display: block; }
+
+
+/* ── 邀约相遇：聊天里的一张请柬 ─────────────────────────
+   点了「好」就进剧场。做得像张卡，不像一条普通消息 —— 
+   因为它确实是件「事」，不是一句话。 */
+.meet-card {
+  width: min(268px, 76vw); margin: 6px 0 10px;
+  padding: 14px 15px 13px; border-radius: 18px;
+  background: linear-gradient(158deg, #fdf7ee, #f6e9d6);
+  border: 1px solid rgba(180,140,80,.22);
+  box-shadow: 0 2px 12px rgba(150,110,50,.09);
+}
+.meet-card.mine {
+  background: linear-gradient(158deg, #f4f6f8, #e9edf1);
+  border-color: rgba(110,120,135,.18);
+  box-shadow: 0 2px 12px rgba(90,100,115,.08);
+}
+.meet-card .meet-ico {
+  width: 34px; height: 34px; border-radius: 11px; margin-bottom: 9px;
+  display: grid; place-items: center;
+  background: rgba(200,150,80,.16); color: #a9762c;
+}
+.meet-card.mine .meet-ico { background: rgba(110,120,135,.14); color: #6b7480; }
+.meet-head { font-size: 12.5px; color: var(--ink-3); margin-bottom: 3px; }
+.meet-place {
+  font-size: 15.5px; font-weight: 600; color: #7a5420;
+  line-height: 1.45; word-break: break-word;
+}
+.meet-card.mine .meet-place { color: #46505c; }
+.meet-act {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 12px; font-size: 13px; color: var(--ink-3);
+}
+.meet-btn {
+  flex: 1; padding: 8px 10px; border-radius: 12px; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  background: rgba(0,0,0,.045); color: var(--ink-2);
+  border: 1px solid transparent;
+}
+.meet-btn.ok {
+  background: linear-gradient(150deg, #e8b96a, #d19a3f);
+  color: #fff; box-shadow: 0 2px 8px rgba(190,140,60,.28);
+}
+.meet-btn:active { transform: scale(.985); }
+
+#phone.dark .meet-card {
+  background: linear-gradient(158deg, #2e2a24, #272320);
+  border-color: rgba(200,160,100,.16);
+}
+#phone.dark .meet-card.mine {
+  background: linear-gradient(158deg, #282b2e, #232629);
+  border-color: rgba(150,160,175,.13);
+}
+#phone.dark .meet-place { color: #e0bc80; }
+#phone.dark .meet-card.mine .meet-place { color: #c3ccd6; }
+#phone.dark .meet-btn { background: rgba(255,255,255,.08); color: var(--ink-2); }
+#phone.dark .meet-btn.ok { background: linear-gradient(150deg, #c99a4e, #a97c2e); }
+
+
+/* ── 邀约相遇：聊天里的一张请柬 ─────────────────────────
+   点了「好」就进剧场。做得像张卡，不像一条普通消息 —— 
+   因为它确实是件「事」，不是一句话。 */
+.meet-card {
+  width: min(268px, 76vw); margin: 6px 0 10px;
+  padding: 14px 15px 13px; border-radius: 18px;
+  background: linear-gradient(158deg, #fdf7ee, #f6e9d6);
+  border: 1px solid rgba(180,140,80,.22);
+  box-shadow: 0 2px 12px rgba(150,110,50,.09);
+}
+.meet-card.mine {
+  background: linear-gradient(158deg, #f4f6f8, #e9edf1);
+  border-color: rgba(110,120,135,.18);
+  box-shadow: 0 2px 12px rgba(90,100,115,.08);
+}
+.meet-card .meet-ico {
+  width: 34px; height: 34px; border-radius: 11px; margin-bottom: 9px;
+  display: grid; place-items: center;
+  background: rgba(200,150,80,.16); color: #a9762c;
+}
+.meet-card.mine .meet-ico { background: rgba(110,120,135,.14); color: #6b7480; }
+.meet-head { font-size: 12.5px; color: var(--ink-3); margin-bottom: 3px; }
+.meet-place {
+  font-size: 15.5px; font-weight: 600; color: #7a5420;
+  line-height: 1.45; word-break: break-word;
+}
+.meet-card.mine .meet-place { color: #46505c; }
+.meet-act {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 12px; font-size: 13px; color: var(--ink-3);
+}
+.meet-btn {
+  flex: 1; padding: 8px 10px; border-radius: 12px; cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  background: rgba(0,0,0,.045); color: var(--ink-2);
+  border: 1px solid transparent;
+}
+.meet-btn.ok {
+  background: linear-gradient(150deg, #e8b96a, #d19a3f);
+  color: #fff; box-shadow: 0 2px 8px rgba(190,140,60,.28);
+}
+.meet-btn:active { transform: scale(.985); }
+
+#phone.dark .meet-card {
+  background: linear-gradient(158deg, #2e2a24, #272320);
+  border-color: rgba(200,160,100,.16);
+}
+#phone.dark .meet-card.mine {
+  background: linear-gradient(158deg, #282b2e, #232629);
+  border-color: rgba(150,160,175,.13);
+}
+#phone.dark .meet-place { color: #e0bc80; }
+#phone.dark .meet-card.mine .meet-place { color: #c3ccd6; }
+#phone.dark .meet-btn { background: rgba(255,255,255,.08); color: var(--ink-2); }
+#phone.dark .meet-btn.ok { background: linear-gradient(150deg, #c99a4e, #a97c2e); }

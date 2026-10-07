@@ -2206,7 +2206,7 @@ const APPS = [
           rowGo('此刻相遇（线下）', (() => {
             const n = SJ.offlineEntries(id).length;
             return n ? `已经写了 ${n} 段` : '面对面，写成一幕一幕的';
-          })(), () => { offlineFrom = 'chat'; offlineView(id, root); }),
+          })(), () => { offlineFrom = 'chat'; offlineView(id, root, listView); }),
           rowGo('记忆卡片', memN ? `TA 记得 ${memN} 件事` : '还没记下什么', () => memPage(id)),
           rowGo('语音与通话', (SJ.state.settings.voice !== false ? '语音条已开' : '语音条已关') + ' · 打个电话', () => voicePage(id)),
           rowGo('聊天背景', SJ.chatBgOf(c) ? (c.chatBg ? '这个人单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(id)),
@@ -7056,7 +7056,7 @@ const APPS = [
           const n = SJ.offlineEntries(c.id).length;
           const o = SJ.offlineOf(c.id);
           const last = SJ.offlineEntries(c.id).slice(-1)[0];
-          box.append(SJ.el('div', { class: 'row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root); } }, [
+          box.append(SJ.el('div', { class: 'row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
             avatarNode(c),
             SJ.el('div', { class: 'row-main' }, [
               SJ.el('div', { class: 'row-title' }, c.name || '（没名字）'),
@@ -7075,6 +7075,69 @@ const APPS = [
          跟进入剧场后的那个 ⚙ 不是一回事：那个是「这一段怎么写」，
          这个是「以后都怎么写」。 */
       function settingsView() {
+        /* 线下模式接口的辅助：settingsView 是个大数组字面量，
+           元素里写不了 const，所以先在这儿声明好。 */
+        const ofSet = () => (SJ.state.settings.offline = SJ.state.settings.offline || {});
+        /* field() 写死 state.settings[key]，线下这三个在 settings.offline 底下，单独做一个 */
+        const ofField = (label, key, ph, type) => {
+          const input = SJ.el('input', {
+            class: 'field', placeholder: ph, type: type || 'text',
+            value: ofSet()[key] || '',
+            oninput: () => { ofSet()[key] = input.value.trim(); SJ.save(); }
+          });
+          return SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, label), input]);
+        };
+        const ofModelBtn = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: () => {
+            const custom = SJ.ofCustom();
+            const list = (custom ? (SJ.state.settings.ofModelList || []) : SJ.state.settings.modelList).slice();
+            const cur = ofSet().model || '';
+            if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+            if (!list.length) return toast(custom ? '先点「拉取线下模型」' : '先给聊天点一次「拉取模型列表」');
+            window.popover(list.map(mm => ({
+              label: mm,
+              hint: mm === cur ? '当前' : '',
+              run: () => { ofSet().model = mm; SJ.save(); settingsView(); }
+            })), { head: '线下模型（' + list.length + ' 个）' });
+          }
+        }, (ofSet().model || (SJ.ofCustom() ? '（还没挑）' : '跟随聊天：' + (SJ.state.settings.apiModel || '未设置'))) + '  \u25be');
+        const ofTip = SJ.el('div', { class: 'hint' }, SJ.ofCustom()
+          ? '现在用：' + SJ.ofModel() + ' @ ' + SJ.ofBase()
+          : '现在跟随聊天那套接口。想让线下单独用一个文笔更好的模型，就把下面填上。');
+        const ofPull = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            ofPull.disabled = true; ofPull.textContent = '取列表中…';
+            try {
+              await SJ.fetchModels();
+              SJ.state.settings.ofModelList = (SJ.state.settings.modelList || []).slice();
+              SJ.save();
+              ofTip.style.color = 'var(--accent-ink)';
+              ofTip.textContent = '取到 ' + (SJ.state.settings.ofModelList || []).length + ' 个模型，点上面挑一个';
+            } catch (e) {
+              ofTip.style.color = 'var(--danger)';
+              ofTip.textContent = '取列表失败：' + e.message;
+            }
+            ofPull.disabled = false; ofPull.textContent = '拉取线下模型';
+          }
+        }, '拉取线下模型');
+        const ofTest = SJ.el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            ofTest.disabled = true; ofTest.textContent = '写着呢…';
+            try {
+              const rr = await SJ.testOffline();
+              ofTip.style.color = 'var(--accent-ink)';
+              ofTip.textContent = '通了 ✓ ' + rr.model + '，用了 ' + rr.ms + ' ms' + (rr.reply ? '，它写：「' + rr.reply + '」' : '');
+            } catch (e) {
+              ofTip.style.color = 'var(--danger)';
+              ofTip.textContent = '测试失败：' + (e.message || e);
+            }
+            ofTest.disabled = false; ofTest.textContent = '测试线下接口';
+          }
+        }, '测试线下接口');
+
         root.innerHTML = '';
         root.append(navBar('设置', { back: () => listView() }));
         const box = SJ.el('div', { class: 'list' });
@@ -7112,6 +7175,18 @@ const APPS = [
           rowToggle('每次给三个回应选择', '写完之后附三条「你可以接着做的」，点一下就用',
             S.choices !== false,
             () => { S.choices = !(S.choices !== false); SJ.save(); settingsView(); }),
+
+            /* 线下模式接口：留空就整段跟随聊天那套。
+             用途是聊天用快而便宜的、线下写小说换个文笔好的。 */
+          SJ.el('div', { class: 'group-title' }, '线下模式接口（留空跟随聊天）'),
+          SJ.el('div', { class: 'pad' }, [
+            ofField('线下接口地址', 'base', 'https://api.deepseek.com/v1'),
+            ofField('线下 API Key', 'key', 'sk-…', 'password'),
+            SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '线下模型'), ofModelBtn]),
+            ofPull, ofTest, ofTip,
+            SJ.el('div', { class: 'hint' },
+              '只填其中一两项也行：没填的字段各自回落到聊天那套。所以你可以只换模型，也能整个换一个中转站。')
+          ]),
 
           SJ.el('div', { class: 'group-title' }, '全部剧情'),
           (() => {
@@ -8235,7 +8310,7 @@ const APPS = [
   /* ══ 线下模式「此刻相遇」 ══
      一个阅读器 + 一个输入框。正文用衬线、行距 1.9、首行缩进两字，
      刻意做成「书页」而不是聊天气泡 —— 这是它和聊天最大的区别。 */
-  function offlineView(cid, root) {
+  function offlineView(cid, root, listBack) {
     const ch = SJ.state.characters.find(x => x.id === cid);
     if (!ch) return listView();
     /* 不套 subPageOf：剧场要全屏沉浸，不要那层 .pad 的边距和普通导航栏 */
@@ -8406,15 +8481,34 @@ const APPS = [
       SJ.el('button', { class: 'of2-round', title: '返回', html: svg('back', 19), onclick: () => offlineBack(cid) }),
       card,
       SJ.el('div', { class: 'of2-actions' }, [
+        SJ.el('button', { class: 'of2-round', title: '设置', html: svg('gear', 18), onclick: () => openSettings() }),
         SJ.el('button', { class: 'of2-round', title: '更多', html: svg('more', 19), onclick: openMenu }),
         menu
       ])
     ]);
     menu.append(
+      SJ.el('button', { class: 'of2-mi', onclick: () => { closeMenu(); openSettings(); } }, '设置（文风 / 接口）'),
       SJ.el('button', { class: 'of2-mi', onclick: () => { closeMenu(); send(true); } }, '重 Roll 这段'),
       SJ.el('button', { class: 'of2-mi', onclick: () => { closeMenu(); editLast(); } }, '编辑最后一段'),
       SJ.el('button', { class: 'of2-mi warn', onclick: () => { closeMenu(); endScene(); } }, '结束场景')
     );
+
+    /* 剧场里点齿轮：先问清是改「这一段」还是「全局」。
+       两页不合并 —— 一个是这场戏怎么写，一个是用哪个模型写，混在一起太长。 */
+    function openSettings() {
+      closeMenu();
+      window.popover([
+        { label: '这一段的写法', hint: '文风 / 上下文桥 / 长度 / 大纲',
+          run: () => offlineSettings(cid, root) },
+        { label: '所有角色的默认', hint: '默认文风 / 长度 / 生成开关 / 清空剧情',
+          /* 就地重画成列表页再进设置，别再 openApp 叠一层 */
+          run: () => {
+            offlineFrom = 'app';
+            if (typeof listBack === 'function') { listBack(); return; }
+            if (window.SHELL) window.SHELL.openApp('offline');
+          } }
+      ], { head: '设置' });
+    }
 
     /* 重 Roll：把最后那条角色输出删掉重写 */
     function redoLast() {

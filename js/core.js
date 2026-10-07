@@ -190,7 +190,9 @@ const DEFAULTS = {
     /* 每个槽位选了哪个主题包（'' = 内置默认）。三套分开选，换桌面不影响聊天 */
     themePick: { desktop: '', chat: '', sms: '' },
     /* 线下模式：文风 / 上下文桥 / 自动更新大纲 / 每段字数档位（索引进 OFFLINE_LEN） */
-    offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0 },
+    /* base/key/model 留空 = 线下跟聊天用同一套接口；填了就单独走 */
+  offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0, base: '', key: '', model: '' },
+  ofModelList: [],
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
@@ -349,6 +351,14 @@ function load() {
 
 /* 向前兼容 + 类型归一：老存档缺字段用默认值补齐，类型不对的丢掉。
    load() 和导入存档都走这里，所以导入永远不可能塞进结构不对的东西。 */
+/* 存档里「本该是字符串」的字段统一走这里。
+   以前写 String(x || '')，结果导入一份 base: 12345 的存档会变成地址 "12345" ——
+   看着像配过了，实际发请求必然失败，还很难查。宁可不认。 */
+function strOf(v, max) {
+  if (typeof v !== 'string') return '';
+  return v.trim().slice(0, max || 200);
+}
+
 function migrate(saved) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return clone(DEFAULTS);
   const out = clone(DEFAULTS);
@@ -369,11 +379,21 @@ function migrate(saved) {
     out.settings.offline = {
       style: ['novel', 'script', 'first', 'trans', 'weibo'].indexOf(of.style) >= 0 ? of.style : 'novel',
       bridge: ['off', 'light', 'standard', 'deep', 'all'].indexOf(of.bridge) >= 0 ? of.bridge : 'standard',
+      /* 只认字符串：导入的存档里可能是数字 / 对象，混进 fetch 会拼出怪地址。
+         注意不能只写 String(x || '')，那会把 12345 变成 "12345" 当成合法地址。 */
+      base: strOf(of.base, 200),
+      key: strOf(of.key, 200),
+      model: strOf(of.model, 120),
       autoOutline: of.autoOutline !== false,
       choices: of.choices !== false,
       len: (ln === 1 || ln === 2 || ln === 3) ? ln : 0
     };
   }
+  /* 线下那套自己拉到的模型候选（跟聊天的分开，切来切去不打架） */
+  out.settings.ofModelList = Array.isArray(out.settings.ofModelList)
+    ? out.settings.ofModelList.filter(x => typeof x === 'string' && x.trim()).slice(0, 300)
+    : [];
+
   /* 线下正文：必须是对象。里面每一页由 offlineOf() 按需修正 */
   out.offline = (out.offline && typeof out.offline === 'object' && !Array.isArray(out.offline)) ? out.offline : {};
   /* 每页的 entries、每人的 scene 都得是能用的形状，别让一行坏数据把剧场渲染崩了 */
@@ -4151,6 +4171,19 @@ async function proactiveCheck(onOne) {
    ══════════════════════════════════════════════════════ */
 const apiRoot = () => String(state.settings.apiBase || '').trim().replace(/\/+$/, '');
 
+/* ── 线下模式专用的接口（留空 = 跟随聊天那套）──
+   跟生图 imgRoot/imgKey 是同一个路子：默认跟随，单独填了就覆盖。
+   用途是：聊天想用快而便宜的模型，线下写小说想用文笔好的那个。
+   三个字段任一为空就各自回落到聊天配置，所以只填模型也能用。 */
+const ofBase  = () => String((state.settings.offline || {}).base  || '').trim().replace(/\/+$/, '') || apiRoot();
+const ofKey   = () => String((state.settings.offline || {}).key   || '').trim() || String(state.settings.apiKey || '');
+const ofModel = () => String((state.settings.offline || {}).model || '').trim() || String(state.settings.apiModel || '');
+/* 有没有单独配过（设置页拿它显示「跟随中 / 已单独设置」） */
+const ofCustom = () => {
+  const o = state.settings.offline || {};
+  return !!(String(o.base || '').trim() || String(o.key || '').trim() || String(o.model || '').trim());
+};
+
 /* ── 多套接口方案 ──
    存的是快照，切换时把快照抄回 apiBase/apiKey/apiModel 这三个「当前生效」的字段 ——
    所有发请求的地方读的都是那三个，所以这条路一行都不用改。 */
@@ -4223,21 +4256,27 @@ function apiLogClear() {
 async function chatPost(messages, tag) {
   const s = state.settings;
   const t0 = Date.now();
+  /* 线下模式那几个请求单独挑接口：留空就还是聊天的这套，行为跟以前一样 */
+  const off = OFFLINE_TAGS.has(String(tag || ''));
+  const root  = off ? ofBase()  : apiRoot();
+  const key   = off ? ofKey()   : s.apiKey;
+  const model = off ? ofModel() : s.apiModel;
+  const t0model = model;
   let res;
   try {
-    res = await fetch(apiRoot() + '/chat/completions', {
+    res = await fetch(root + '/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.apiKey },
-      body: JSON.stringify({ model: s.apiModel, messages })
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: JSON.stringify({ model, messages })
     });
   } catch (e) {
     const msg = '连不上：' + e.message + '（地址写错 / 没联网 / 对方不允许跨域）';
-    apiLog({ tag, ms: Date.now() - t0, model: s.apiModel, error: msg });
+    apiLog({ tag, ms: Date.now() - t0, model: t0model, error: msg });
     throw new Error(msg);
   }
   if (!res.ok) {
     const msg = await apiFail(res);
-    apiLog({ tag, ms: Date.now() - t0, model: s.apiModel, error: msg });
+    apiLog({ tag, ms: Date.now() - t0, model: t0model, error: msg });
     throw new Error(msg);
   }
   let data;
@@ -4248,7 +4287,7 @@ async function chatPost(messages, tag) {
     throw new Error(msg);
   }
   apiLog({
-    tag, ms: Date.now() - t0, model: data.model || s.apiModel,
+    tag, ms: Date.now() - t0, model: data.model || t0model,
     usage: data.usage || null, n: messages.length
   });
   return data;
@@ -4337,14 +4376,23 @@ async function testApi() {
 /* 通用的一次性问答。跟角色扮演无关的活（比如外卖 App 现生成商家）走这里：
    只发一段 system + 一段 user，拿回纯文本。刻意不碰 buildSystem 和消息历史 ——
    那些是「谁在跟谁说话」的东西，塞进一个点外卖的请求里只会互相污染。 */
-async function askOnce(system, user) {
+/* 哪些 tag 算「线下模式」的请求 —— 走线下那套接口（没单独配就还是聊天的） */
+const OFFLINE_TAGS = new Set(['askOffline', 'offlineOutline', 'offlineTest']);
+
+async function askOnce(system, user, tag) {
   const s = state.settings;
-  if (!apiRoot() || !s.apiKey) throw new Error('还没填接口地址和 Key：去「设置」里补上');
-  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
+  const off = OFFLINE_TAGS.has(String(tag || ''));
+  /* 线下模式单独配了接口时，得按线下那套来判断「配没配齐」 */
+  const root  = off ? ofBase()  : apiRoot();
+  const key   = off ? ofKey()   : s.apiKey;
+  const model = off ? ofModel() : s.apiModel;
+  const where = off ? '（线下模式）' : '';
+  if (!root || !key) throw new Error('还没填接口地址和 Key：去「设置」里补上' + where);
+  if (!model) throw new Error('还没挑模型' + where + '：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
   const data = await chatPost([
     { role: 'system', content: String(system || '') },
     { role: 'user', content: String(user || '') }
-  ], 'askOnce');
+  ], tag || 'askOnce');
   return ((data.choices || [])[0] || {}).message?.content || '';
 }
 
@@ -5263,7 +5311,7 @@ async function askOffline(cid, userAction, opts) {
   const s = state.settings;
   const o = offlineOf(cid);
   const action = String(userAction || '').trim();
-  if (!apiRoot() || !s.apiKey) {
+  if (!ofBase() || !ofKey()) {
     const ch = state.characters.find(x => x.id === cid) || {};
     return {
       text: '（本地演示）' + (ch.name || '他') + '愣了一下，没立刻接话。\n'
@@ -5273,7 +5321,7 @@ async function askOffline(cid, userAction, opts) {
       choices: ['再说点什么', '看着他，不说话', '转身走开']
     };
   }
-  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」');
+  if (!ofModel()) throw new Error('还没挑模型（线下模式）：去「设置」里点一下「拉取模型列表」');
 
   const style = offlineStyle(cid);
   const L = (s.offline && s.offline.len) || OFFLINE_LEN[0];
@@ -5293,8 +5341,27 @@ async function askOffline(cid, userAction, opts) {
   lines.push('2. 第二个选择');
   lines.push('3. 第三个选择');
 
-  const raw = await askOnce(sys, lines.join('\n'));
+  const raw = await askOnce(sys, lines.join('\n'), 'askOffline');
   return splitOfflineReply(raw);
+}
+
+/* 测试线下接口：真的让它写一小段，比只看能不能连上更有说服力 ——
+   能连上但模型不敢写、或者接口不认这个模型，都只有真发一次才知道。 */
+async function testOffline() {
+  if (!ofBase() || !ofKey()) throw new Error('还没填线下接口地址和 Key（也没跟随聊天那套）');
+  if (!ofModel()) throw new Error('还没挑线下模型');
+  const t0 = Date.now();
+  const raw = await askOnce(
+    '你是一个小说写手。只输出正文，不要解释。',
+    '用一句话写一个下雨的傍晚，两个人刚见面的场景。',
+    'offlineTest'
+  );
+  return {
+    ok: true,
+    ms: Date.now() - t0,
+    model: ofModel() + (ofCustom() ? '' : '（跟随聊天）'),
+    reply: String(raw || '').trim().slice(0, 40)
+  };
 }
 
 /* 拆「场景头 + 正文 + 三个选择」。模型不一定乖乖给 ###CHOICES###，
@@ -5332,7 +5399,8 @@ function splitOfflineReply(raw) {
 /* 让模型顺手更新一版大纲。失败不影响正文 —— 大纲是锦上添花。 */
 async function offlineOutline(cid) {
   const s = state.settings;
-  if (!apiRoot() || !s.apiKey || !s.apiModel) return '';
+  if (!ofBase() || !ofKey() || !ofModel()) return '';
+  /* 大纲是给正文服务的，所以上面这个判定用的是线下那套配置 */
   const o = offlineOf(cid);
   const hist = offlineHistory(cid, 20);
   if (!hist) return '';
@@ -5341,7 +5409,7 @@ async function offlineOutline(cid) {
     + '只输出大纲本身，不要解释、不要 Markdown、不要编号。';
   const user = (o.outline ? '【旧大纲】\n' + o.outline + '\n\n' : '') + '【已写的内容】\n' + hist;
   try {
-    const t = await askOnce(sys, user);
+    const t = await askOnce(sys, user, 'offlineOutline');
     const clean = String(t || '').trim().replace(/^#+\s*/, '').split('\n')[0].slice(0, 120);
     if (clean) { o.outline = clean; }
     return o.outline;
@@ -5698,5 +5766,6 @@ window.SJ = {
   OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN,
   offlineOf, offlineEntries, offlinePush, offlineClear, offlineStyle, offlineBridge,
   buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline,
-  parseScene, cleanLine, offlineScene, setOfflineScene
+  parseScene, cleanLine, offlineScene, setOfflineScene,
+  ofBase, ofKey, ofModel, ofCustom, OFFLINE_TAGS, testOffline
 };

@@ -7109,8 +7109,17 @@ console.log('\n[100] 此刻相遇是一个真的 App');
   const ofSeg = src.slice(src.indexOf('  function offlineView('), src.indexOf('  function offlineSettings('));
   ok('线下视图不再裸调闭包里的 subPage',
     ofSeg.length > 100 && !/const pad = subPage\(/.test(ofSeg), ofSeg.slice(0, 60));
-  ok('聊天设置里的入口还在（两条路都能进）', /offlineFrom = 'chat'; offlineView\(id, root\)/.test(src));
-  ok('App 里的入口也在', /offlineFrom = 'app'; offlineView\(c\.id, root\)/.test(src));
+  ok('聊天设置里的入口还在（两条路都能进）', /offlineFrom = 'chat'; offlineView\(id, root, listView\)/.test(src));
+  ok('App 里的入口也在', /offlineFrom = 'app'; offlineView\(c\.id, root, listView\)/.test(src));
+  /* 两个入口都必须把 listView 传进去：从剧场里点「所有角色的默认」要就地重画成列表页。
+     不传的话只能 openApp('offline')，那会往栈上再压一个同样的 App ——
+     实测点完是一片空白（两个 .app-offline 叠着）。 */
+  ok('两个入口都把 listView 当回退传进去了',
+    (src.match(/offlineView\([^)]*listView\)/g) || []).length === 2,
+    '出现 ' + (src.match(/offlineView\([^)]*listView\)/g) || []).length + ' 次');
+  ok('offlineView 收得下第三个参数', /function offlineView\(cid, root, listBack\)/.test(src));
+  ok('「所有角色的默认」优先就地重画，而不是再 openApp 叠一层',
+    /typeof listBack === 'function'\) \{ listBack\(\); return; \}/.test(src));
 }
 
 console.log('\n[101] 图标必须有文件 + 此刻相遇的设置页');
@@ -7279,6 +7288,100 @@ console.log('\n[103] 剧场视觉：沉浸式排版');
   /* 三个操作都要在菜单里 */
   ok('菜单里有重 Roll / 编辑 / 结束场景',
     /重 Roll 这段/.test(src) && /编辑最后一段/.test(src) && /结束场景/.test(src));
+}
+
+console.log('\n[104] 线下模式可以单独配一套接口');
+
+{
+  const A = sandbox.SJ;
+  const S = A.state.settings;
+
+  /* 留空 = 整段跟随聊天那套（跟生图 imgBase 是同一个路子） */
+  S.apiBase = 'https://chat.example/v1'; S.apiKey = 'sk-chat'; S.apiModel = 'chat-model';
+  S.offline = { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0, base: '', key: '', model: '' };
+  ok('留空时三个字段都回落到聊天那套',
+    A.ofBase() === 'https://chat.example/v1' && A.ofKey() === 'sk-chat' && A.ofModel() === 'chat-model',
+    [A.ofBase(), A.ofKey(), A.ofModel()].join(' | '));
+  ok('留空时 ofCustom 是 false', A.ofCustom() === false);
+
+  /* 只填模型：地址和 key 各自回落 —— 「只换个文笔好的模型」是最常见的用法 */
+  S.offline.model = 'writer-pro';
+  ok('只填模型时，地址和 key 仍然跟随聊天',
+    A.ofBase() === 'https://chat.example/v1' && A.ofKey() === 'sk-chat', A.ofBase() + ' / ' + A.ofKey());
+  ok('模型用自己的', A.ofModel() === 'writer-pro');
+  ok('填了就算单独配过', A.ofCustom() === true);
+
+  /* 全填：整段独立 */
+  S.offline.base = 'https://write.example/v1/'; S.offline.key = 'sk-write';
+  ok('全填时走线下自己那套', A.ofBase() === 'https://write.example/v1' && A.ofKey() === 'sk-write');
+  ok('地址末尾的斜杠会被去掉（不然拼出来是 //chat/completions）', A.ofBase() === 'https://write.example/v1');
+
+  /* 别把空串当成「配过了」 */
+  S.offline = { base: '   ', key: '', model: '' };
+  ok('全是空白字符等于没配', A.ofCustom() === false && A.ofBase() === 'https://chat.example/v1');
+
+  /* 只有线下那几个 tag 走线下接口，聊天不受影响 */
+  ok('线下 tag 认得出来',
+    A.OFFLINE_TAGS.has('askOffline') && A.OFFLINE_TAGS.has('offlineOutline') && A.OFFLINE_TAGS.has('offlineTest'));
+  ok('普通聊天 tag 不在线下那组里', !A.OFFLINE_TAGS.has('askOnce') && !A.OFFLINE_TAGS.has('askCharacter'));
+  ok('testOffline 导出了', typeof A.testOffline === 'function');
+
+  /* migrate 是信任边界：非字符串不能混进去，非法的候选列表要清掉。
+     直接往存档里塞脏数据再启动 —— 导入存档走的就是这条路。 */
+  const raw = store.get('xiaoshouji.v1');
+  const saved = raw ? JSON.parse(raw) : {};
+  saved.settings = Object.assign({}, saved.settings, {
+    offline: { base: 12345, key: { a: 1 }, model: ['x'] },
+    ofModelList: ['ok', 7, null, 'also']
+  });
+  store.set('xiaoshouji.v1', JSON.stringify(saved));
+  boot(); const App2 = sandbox.SJ;
+  ok('migrate 把线下那三个字段强制成字符串',
+    typeof App2.state.settings.offline.base === 'string' &&
+    typeof App2.state.settings.offline.key === 'string' &&
+    typeof App2.state.settings.offline.model === 'string',
+    JSON.stringify([App2.state.settings.offline.base, App2.state.settings.offline.key, App2.state.settings.offline.model]));
+  ok('migrate 清掉候选列表里的非字符串',
+    Array.isArray(App2.state.settings.ofModelList) && App2.state.settings.ofModelList.join(',') === 'ok,also',
+    JSON.stringify(App2.state.settings.ofModelList));
+  ok('migrate 之后 ofBase 还能正常回落（脏数据没把地址污染成 "12345"）',
+    App2.ofBase() === String(App2.state.settings.apiBase || '').trim().replace(/\/+$/, ''),
+    App2.ofBase());
+}
+
+console.log('\n[105] 剧场里的设置入口 + 不叠 App');
+
+{
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const core = fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8');
+
+  /* 剧场顶栏要有齿轮，菜单里也要有一条 —— 两条路都走得到设置 */
+  ok('剧场顶栏有设置齿轮', /title: '设置', html: svg\('gear', 18\)/.test(src));
+  ok('菜单里也有一条设置', /closeMenu\(\); openSettings\(\); \}/.test(src));
+  ok('点齿轮能选「这一段的写法」或「所有角色的默认」',
+    /这一段的写法/.test(src) && /所有角色的默认/.test(src));
+
+  /* 关键回归：从剧场里进全局设置要**就地重画**，不能先走 openApp ——
+     实测那样点完是一片空白（两个 .app-offline 叠着）。
+     openApp 只留作 listBack 拿不到时的兜底，所以顺序必须是先 listBack 再 openApp。 */
+  const osSeg = src.slice(src.indexOf('function openSettings()'), src.indexOf('function redoLast()'));
+  ok('openSettings 先试 listBack 就地重画', /listBack\(\); return;/.test(osSeg));
+  ok('openApp 只作为兜底，排在 listBack 后面',
+    osSeg.indexOf('listBack') < osSeg.indexOf("openApp('offline')"),
+    'listBack@' + osSeg.indexOf('listBack') + ' openApp@' + osSeg.indexOf("openApp('offline')"));
+  ok('listBack 拿到时不会再多压一层 App',
+    /typeof listBack === 'function'\) \{ listBack\(\); return; \}/.test(osSeg));
+
+  /* 线下那几个 tag 要真的接在发请求的地方（不然配置了也没用） */
+  ok('askOffline 发请求时带上了自己的 tag', /askOnce\(sys, lines\.join\('\\n'\), 'askOffline'\)/.test(core));
+  ok('offlineOutline 也带 tag', /askOnce\(sys, user, 'offlineOutline'\)/.test(core));
+  ok('chatPost 按 tag 分流到线下那套接口',
+    /const off = OFFLINE_TAGS\.has\(String\(tag \|\| ''\)\)/.test(core));
+
+  /* 设置页里该有的字段 */
+  ok('设置页有线下接口地址 / Key / 模型三个字段',
+    /线下接口地址/.test(src) && /线下 API Key/.test(src) && /线下模型/.test(src));
+  ok('有拉取和测试两个按钮', /拉取线下模型/.test(src) && /测试线下接口/.test(src));
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

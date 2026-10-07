@@ -655,6 +655,21 @@ console.log('\n[15] 设置：保存入口');
 const setv = openFresh('settings');
 ok('设置页有「保存设置」按钮', !!findBtn(setv, '保存设置'));
 ok('设置页有「拉取模型列表」按钮', !!findBtn(setv, '拉取模型列表'));
+
+/* 拉取模型会重画整个设置页，以前每次都把滚动弹回最顶上。
+   main() 里必须先把 .list 的 scrollTop 记下来、重画完再放回去。
+   无头 DOM 没有布局、scrollTop 恒为 0，所以守源码里这段逻辑在不在。
+   注意：文件里 main() 有三个（外观/存储/设置），得按设置页那个来定位。 */
+{
+  const src = fs.readFileSync(path.join(DIR, 'js', 'apps.js'), 'utf8');
+  const anchor = src.indexOf("root.append(navBar('设置'));");
+  const i = anchor < 0 ? -1 : src.lastIndexOf('function main() {', anchor);
+  const seg = i < 0 ? '' : src.slice(i, anchor);
+  ok('设置页重画前先记住滚动位置', /keepTop\s*=\s*prevList\s*\?\s*prevList\.scrollTop/.test(seg),
+    seg.slice(0, 70).replace(/\s+/g, ' '));
+  const after = anchor < 0 ? '' : src.slice(anchor, anchor + 30000);
+  ok('重画后把滚动位置放回去', /if\s*\(keepTop\)\s*box\.scrollTop\s*=\s*keepTop/.test(after));
+}
 ok('设置页有「测试连接」按钮', !!findBtn(setv, '测试连接'));
 ok('设置页已经没有「手动填模型名」那一项了',
   !walk(setv).some(n => n.textContent === '手动填模型名'));
@@ -4771,7 +4786,9 @@ console.log('\n[34] 群聊');
     top().filter(n => n._class.has('field-wrap')).map(n => n.textContent).join('|'));
   const fwText = top().filter(n => n._class.has('field-wrap')).map(n => n.textContent).join('|');
   const btns = top().filter(n => n._class.has('btn')).map(n => n.textContent);
-  ok('群设置里有群名称 / 群头像', fwText.includes('群名称') && fwText.includes('群头像'), fwText);
+  ok('群设置里有群名称 / 备用 emoji', fwText.includes('群名称') && fwText.includes('emoji'), fwText);
+  ok('群设置里能上传群头像 / 改回拼图',
+    btns.some(b => /上传群头像|换一张/.test(b)) && btns.includes('用拼图'), btns.join(','));
   ok('群设置里写着群成员人数', top().some(n => n._class.has('group-title') && n.textContent.includes('群成员（2 人）')),
     top().filter(n => n._class.has('group-title')).map(n => n.textContent).join(','));
   ok('群设置里有加人 / 聊天背景 / 清空 / 解散',

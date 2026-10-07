@@ -411,6 +411,28 @@ function avatarNode(c) {
       }
     });
   }
+  /* 群头像：自己传了图就用那张；没传就把前几个成员的头像拼成一张。
+     拼图不引第三方库 —— 就是 2×2 的 div，每个格子一个成员头像。
+     人数不足 4 个时按实际人数排（2 人就左右半分，3 人上面 2 个下面 1 个）。 */
+  if (c && c.group && !c.avatarImg) {
+    const ms = SJ.state.characters;
+    const ids = (SJ.groupOf(c.id) || {}).members || [];
+    const mem = ids.map(id => ms.find(x => x.id === id)).filter(Boolean).slice(0, 4);
+    if (mem.length) {
+      const box = SJ.el('div', { class: 'avatar mosaic n' + mem.length });
+      mem.forEach(m => {
+        const cell = SJ.el('div', { class: 'mos-cell' },
+          m.avatarImg ? '' : (m.avatar || '🙂'));
+        cell.style.background = m.color || '#9cb9c2';
+        if (m.avatarImg) {
+          cell.style.backgroundImage = 'url("' + SJ.imgSrc(m.avatarImg) + '")';
+          cell.classList.add('img');
+        }
+        box.append(cell);
+      });
+      return box;
+    }
+  }
   return SJ.el('div', { class: 'avatar', style: { background: (c && c.color) || '#9cb9c2' } }, (c && c.avatar) || '🙂');
 }
 
@@ -1917,13 +1939,43 @@ const APPS = [
       /* ── 群聊设置 ──
          和单聊的设置故意长得不一样：群没有「关系」「记忆卡片」这些，
          但多了成员管理 —— 少拉一个人、多拉一个人，都在这儿。 */
-      function groupSettings(g) {
+
+      function groupSettings(gr) {
+        /* 容错：外面有传对象进来的，也有只拿到 id 的（chatSettings 那条路）。
+           以前只认对象，传 id 就是在字符串上取 .members，直接抛。 */
+        const g = typeof gr === 'string' ? SJ.groupOf(gr) : gr;
+        if (!g) return listView();
         const pad = subPage('群聊设置', () => chatView(g.id));
+        const face = () => SJ.groupFace(g);
         const name = SJ.el('input', { class: 'field', placeholder: '群名称', value: g.name });
-        const emoji = SJ.el('input', { class: 'field', placeholder: '一个 emoji 当群头像', value: g.emoji || '' });
+        const emoji = SJ.el('input', { class: 'field', placeholder: '没传图时用这个 emoji 当头像', value: g.emoji || '' });
         const saveIt = () => { g.name = name.value; g.emoji = emoji.value; SJ.saveGroup(g); };
         name.addEventListener('change', saveIt);
         emoji.addEventListener('change', saveIt);
+
+        /* 群头像：能自己传，不传就用成员头像拼。传的那张走 putImg → idb 引用，
+           和角色头像、聊天背景同一套存储（别另开一路）。 */
+        const avPrev = SJ.el('div', { class: 'av-pick-row' }, [
+          avatarNode(face()),
+          (() => {
+            const b = SJ.el('button', { class: 'btn ghost' }, g.avatarImg ? '换一张' : '上传群头像');
+            b.onclick = async () => {
+              /* 走 pickToStore：和角色头像、聊天背景同一套（putImg → idb 引用），别另开一路 */
+              const v = await pickToStore(720, 0.85);
+              if (!v) return;
+              g.avatarImg = v; SJ.saveGroup(g);
+              toast('群头像换好了');
+              groupSettings(g);
+            };
+            return b;
+          })(),
+          (() => {
+            const b = SJ.el('button', { class: 'btn ghost' }, '用拼图');
+            if (!g.avatarImg) { b.disabled = true; return b; }
+            b.onclick = () => { g.avatarImg = ''; SJ.saveGroup(g); toast('改回成员拼图'); groupSettings(g); };
+            return b;
+          })()
+        ]);
 
         const memBox = SJ.el('div', { class: 'mem-list' });
         g.members.forEach(id => {
@@ -1945,19 +1997,55 @@ const APPS = [
           ]));
         });
 
+        /* 上下文深度：和单聊一个道理，但默认浅一点 —— 群里一个来回就是好几句，
+           带同样条数 token 翻好几倍。 */
+        const depthRow = (() => {
+          const gl = Math.max(2, Number(SJ.state.settings.historyKeep) || 40);
+          const cur = Math.max(2, Number(g.historyKeep) || Math.min(gl, 30));
+          const lab = SJ.el('div', { class: 'row-time' }, g.historyKeep ? cur + ' 条' : '跟随全局 ' + Math.min(gl, 30));
+          const rng = SJ.el('input', { class: 'field heart-range', type: 'range', min: '2', max: '200', step: '2', value: String(cur) });
+          rng.addEventListener('input', () => { lab.textContent = rng.value + ' 条'; });
+          rng.addEventListener('change', () => {
+            g.historyKeep = Number(rng.value) || Math.min(gl, 30);
+            SJ.saveGroup(g);
+            toast('群里带最近 ' + g.historyKeep + ' 条');
+          });
+          return SJ.el('div', {}, [
+            SJ.el('div', { class: 'prow' }, [
+              SJ.el('div', { class: 'prow-t' }, '上下文深度'),
+              SJ.el('div', { class: 'prow-s' }, '每次接着聊时带群里最近几条（2 – 200）。群里一轮好几句，带多了很费 token'),
+              SJ.el('div', { class: 'seg-row' }, [rng, lab])
+            ]),
+            SJ.el('div', { class: 'pad' }, [SJ.el('button', {
+              class: 'btn ghost',
+              onclick: () => { g.historyKeep = 0; SJ.saveGroup(g); toast('改回跟随全局'); groupSettings(g); }
+            }, '跟随全局')])
+          ]);
+        })();
+
         const left = SJ.state.characters.length - g.members.length;
         pad.append(
-          SJ.el('div', { class: 'who' }, [avatarNode(SJ.groupFace(g)), SJ.el('div', { class: 'who-name' }, g.name)]),
+          SJ.el('div', { class: 'who' }, [avatarNode(face()), SJ.el('div', { class: 'who-name' }, g.name)]),
+          avPrev,
+          SJ.el('div', { class: 'hint' }, '不传图就用成员头像拼一张，人数变了拼图也会跟着变。'),
           SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '群名称'), name]),
-          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '群头像'), emoji]),
+          SJ.el('label', { class: 'field-wrap' }, [SJ.el('span', {}, '备用 emoji'), emoji]),
 
           SJ.el('div', { class: 'group-title' }, `群成员（${g.members.length} 人）`),
           memBox,
           rowGo('加人', left > 0 ? `还有 ${left} 个人没进群` : '所有人都已经在群里了',
             () => groupPick(g.members, '加人', '完成', ids => { g.members = ids; SJ.saveGroup(g); groupSettings(g); })),
 
+          SJ.el('div', { class: 'group-title' }, '怎么聊'),
+          depthRow,
+          rowToggle('一次全部发出', '关掉就一条一条往外蹦，更像真人在群里打字', SJ.state.settings.allAtOnce === true,
+            () => { SJ.state.settings.allAtOnce = !SJ.state.settings.allAtOnce; SJ.save(); groupSettings(g); }),
+          rowToggle('让 TA 们互相接话', '群里的人除了回你，也会顺着别人的话往下聊', g.chatty !== false,
+            () => { g.chatty = g.chatty === false; SJ.saveGroup(g); groupSettings(g); }),
+
           SJ.el('div', { class: 'group-title' }, '内容'),
-          rowGo('聊天背景', SJ.chatBgOf(SJ.groupFace(g)) ? (g.chatBg ? '这个群单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(g.id)),
+          rowGo('聊天背景', SJ.chatBgOf(face()) ? (g.chatBg ? '这个群单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(g.id)),
+          rowGo('消息与回复', SJ.state.settings.allAtOnce ? '一次全部发出' : '逐条发出', () => msgPage(g.id)),
 
           SJ.el('div', { class: 'group-title' }, '危险区'),
           SJ.el('button', {
@@ -1970,6 +2058,7 @@ const APPS = [
           }, '解散群聊')
         );
       }
+
 
         /* ── 角色心声：点头像看 TA 此刻在想什么 ──
            不是复述对话，是「现在这一刻」的内心（心情 / 状态 / 在想 / 对你）。
@@ -7466,6 +7555,11 @@ const APPS = [
       }
 
       function main() {
+        /* 重画前先记住滚到哪了：拉取模型、切开关都会重调 main()，
+           以前每次都把页面弹回最顶上，往下滚了半天白滚。
+           记住的是 .list 这个滚动容器的位置，重画完再放回去。 */
+        const prevList = root.querySelector('.app-view > .list, .list');
+        const keepTop = prevList ? prevList.scrollTop : 0;
         root.innerHTML = '';
         root.append(navBar('设置'));
         const box = SJ.el('div', { class: 'list' });
@@ -7787,6 +7881,8 @@ const APPS = [
         ]));
 
         root.append(box);
+        /* 放回原来的滚动位置。必须在节点进树之后设 —— 没进树时 scrollTop 会被丢掉。 */
+        if (keepTop) box.scrollTop = keepTop;
       }
 
       /* 文件名用真实时间戳是对的（不是剧情时间，别改成 virtualNow） */

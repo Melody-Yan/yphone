@@ -4009,3 +4009,24 @@ input.field[type="range"]::-webkit-slider-thumb {
 .tint-dot.tint-rose { background: linear-gradient(140deg, #f2909f, #c0335a); }
 .tint-dot.tint-ocean { background: linear-gradient(140deg, #8ec7f2, #2a6ea8); }
 .tint-dot.tint-forest { background: linear-gradient(140deg, #9ad6ae, #327a4e); }
+
+/* ── 群头像拼图 ──
+   没传群头像时，拿前几个成员的头像拼一张（2/3/4 人三种排法）。
+   尺寸跟着 .avatar 的 44px 走，不另开一套大小。 */
+.avatar.mosaic { display: grid; gap: 1px; padding: 0; overflow: hidden; background: var(--line); }
+.avatar.mosaic.n2 { grid-template-columns: 1fr 1fr; }
+.avatar.mosaic.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.avatar.mosaic.n3 .mos-cell:first-child { grid-row: span 2; }
+.avatar.mosaic.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.avatar.mosaic .mos-cell {
+  display: grid; min-width: 0; min-height: 0; place-items: center;
+  font-size: 13px; line-height: 1; color: #262626;
+  background-size: cover; background-position: center;
+}
+/* 拼图格子里 emoji 要更小：四个格子挤在 44px 里，23px 的字会互相压 */
+.avatar.mosaic.n3 .mos-cell:first-child { font-size: 15px; }
+.avatar.mosaic .mos-cell.img { font-size: 0; }
+
+/* 群设置里挑头像 */
+.av-pick-row { display: flex; align-items: center; gap: 10px; margin: 0 16px 6px; }
+.av-pick-row .avatar { width: 56px; height: 56px; border-radius: 18px; }

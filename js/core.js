@@ -4640,7 +4640,7 @@ async function askGroup(g, history) {
       + '」。去「设置」里填上接口地址和 Key，群里就会真的有人接话。';
   }
   if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」，挑一个会聊天的再来');
-  const keep = Math.max(2, Number(group.historyKeep) || Number(s.historyKeep) || 40);
+  const keep = Math.max(2, Number(g.historyKeep) || Number(s.historyKeep) || 40);
   const usr = '【群里刚说的话】\n' + groupLines(all.slice(-keep)).join('\n') + '\n\n接着往下聊。';
   return askOnce(buildGroupSystem(g, all), usr);
 }

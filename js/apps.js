@@ -5603,10 +5603,15 @@ const APPS = [
       function listView() {
         root.innerHTML = '';
         const searchBox = SJ.el('input', { type: 'search', placeholder: '搜索歌曲、歌手、专辑' });
+        /* 顶栏一行搞定：返回键在左、ymusic 真居中（不是靠块级元素占满整行假装居中）。
+           原来「返回」自己占一行，把标题往下顶了 70px，白一大截。 */
         root.append(SJ.el('div', { class: 'ymusic-head' }, [
-           SJ.el('button', { class: 'nav-btn back ymusic-back', onclick: () => window.SHELL && window.SHELL.closeTop() }, '返回'),
-           SJ.el('div', { class: 'ymusic-brand' }, 'ymusic'),
-           SJ.el('div', { class: 'ymusic-search-row' }, [
+          SJ.el('div', { class: 'ymusic-top' }, [
+            SJ.el('button', { class: 'nav-btn back ymusic-back', onclick: () => window.SHELL && window.SHELL.closeTop() }, '返回'),
+            SJ.el('div', { class: 'ymusic-brand' }, 'ymusic')
+          ]),
+          SJ.el('div', { class: 'ymusic-search-row' }, [
+
              SJ.el('label', { class: 'ymusic-search' }, [SJ.el('span', { html: svg('search', 17) }), searchBox]),
              SJ.el('button', { class: 'ymusic-settings', title: '设置', onclick: settingsView }, [SJ.el('span', { html: svg('gear', 18) })])
            ])
@@ -6170,13 +6175,18 @@ const APPS = [
         }
 
         /* ── 导入：右下角那个 + 弹出来的抽屉 ── */
+        /* 导入菜单用居中卡片，不是贴底的半屏抽屉。
+           sheet() 是全局共用的（贴纸、账单、模型选择…都贴底），所以这里不碰它，
+           只要它返回的遮罩，挂上 card-mask 就把面板摆到屏幕中间。 */
         function importSheet() {
-          sheet([
+          const mask = sheet([
             { svg: 'music', label: '导入本地音频', hint: 'mp3 / m4a / wav\u2026，存在本机', run: pickLocalAudio },
             { svg: 'folder', label: '导入歌单文件', hint: 'json / txt / lrc', run: pickPlaylistFile },
             { svg: 'plus', label: '新建空歌单', hint: '起个名字，之后再往里加歌', run: newPlaylist },
             { svg: 'link', label: '粘贴链接导入', hint: '网易云歌单链接、音频直链', run: importView }
           ], '导入音乐');
+          if (mask) mask.classList.add('card-mask');
+          return mask;
         }
         /* 本地音频进 IndexedDB（存档放不下音频），存档里只留 'idb:<id>'。
            它跟图片共用同一个字节仓 —— 「设置 → 存储」里清图片会一起清掉，这是取舍。 */

@@ -2593,6 +2593,42 @@ ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.t
     ok(sel + ' 带齐滚动三件套', /flex:\s*1/.test(r) && /min-height:\s*0/.test(r) && /overflow-y:\s*auto/.test(r),
       r.replace(/\s+/g, ' ').slice(0, 80));
   });
+
+  /* 「歌单里的歌浮在屏幕正中间」那个 bug：.music-list 是网格，容器高、行少的时候
+     默认 align-content:stretch 会把每行拉伸去填满 —— 实测每行被撑到 157px，
+     三首歌铺满一屏，看着就像居中。同样量不出来，守样式本身。 */
+  ['.music-list', '.music-playlists'].forEach(sel => {
+    ok(sel + ' 用 align-content:start（否则行少时会被拉成一百多像素高）',
+      /align-content:\s*start/.test(cssRule(sel)), cssRule(sel).replace(/\s+/g, ' ').slice(0, 90));
+  });
+
+  /* 「播放器背景只剩色块」：模糊别开太大、遮罩别压太黑 */
+  const pvAfter = cssRule('.music-player::after');
+  const pvBefore = cssRule('.music-player::before');
+  ok('播放器遮罩是渐变而不是 .5 的纯黑',
+    /linear-gradient/.test(pvAfter) && !/rgba\(0,\s*0,\s*0,\s*\.5\)/.test(pvAfter),
+    pvAfter.replace(/\s+/g, ' ').slice(0, 90));
+  ok('播放器背景模糊不超过 30px（大了就只剩颜色，看不出封面）',
+    (() => { const m = pvBefore.match(/blur\((\d+)px\)/); return !!m && Number(m[1]) <= 30; })(),
+    pvBefore.replace(/\s+/g, ' ').slice(0, 90));
+
+  /* 导入菜单是居中卡片；全局 sheet() 的贴底样式不能被带歪（还有 32 处在用） */
+  const cardMask = cssRule('.card-mask');
+  const cardSheet = cssRule('.card-mask .sheet');
+  ok('导入菜单用居中卡片（水平垂直都居中）',
+    /align-items:\s*center/.test(cardMask) && /justify-items:\s*center/.test(cardMask),
+    cardMask.replace(/\s+/g, ' ').slice(0, 90));
+  ok('卡片是全圆角，不是贴底抽屉的「上圆下平」',
+    /border-radius:\s*22px/.test(cardSheet) && !/22px 22px 0 0/.test(cardSheet),
+    cardSheet.replace(/\s+/g, ' ').slice(0, 90));
+  ok('全局 .sheet-mask 仍然是贴底（没被音乐这边改坏）',
+    /align-items:\s*end/.test(cssRule('.sheet-mask')), cssRule('.sheet-mask'));
+
+  /* 顶栏：返回和 ymusic 同一行，标题不能再被顶下去 */
+  ok('顶栏标题是绝对定位居中（不靠块级元素占满一行假装居中）',
+    /position:\s*absolute/.test(cssRule('.ymusic-top .ymusic-brand')) &&
+    /translateX\(-50%\)/.test(cssRule('.ymusic-top .ymusic-brand')),
+    cssRule('.ymusic-top .ymusic-brand').replace(/\s+/g, ' ').slice(0, 90));
   const stage2 = walk(lrcApp).find(n => n._class.has('music-stage'));
   if (stage2) stage2.click();
   ok('再点一下能切回封面', !!walk(lrcApp).find(n => n._class.has('music-disc'))

@@ -3301,14 +3301,20 @@ input.field[type="range"]::-webkit-slider-thumb {
 .np-bar i { display: block; height: 100%; border-radius: 2px; background: var(--ink); transition: width 240ms linear; }
 
 /* 音乐页：低对比毛玻璃层 + 歌单扫描式列表 */
-.ymusic-head { padding: 22px 18px 8px; }
-.ymusic-back { margin-bottom: 6px; }
-.ymusic-brand { font-size: 42px; font-weight: 800; letter-spacing: -.08em; line-height: 1; }
-.ymusic-search-row { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+/* 顶栏：返回与标题同一行，品牌字真居中（绝对定位居中，不被返回键的宽度挤偏） */
+.ymusic-head { padding: 8px 18px 8px; }
+.ymusic-top { position: relative; display: flex; min-height: 44px; align-items: center; }
+.ymusic-top .ymusic-brand { position: absolute; left: 50%; transform: translateX(-50%); }
+.ymusic-back { margin-bottom: 0; }
+.ymusic-brand { font-size: 34px; font-weight: 800; letter-spacing: -.08em; line-height: 1; }
+.ymusic-search-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .ymusic-search { display: flex; align-items: center; gap: 8px; flex: 1; padding: 11px 13px; border-radius: 18px; background: var(--bg-2); color: var(--ink-3); }
 .ymusic-search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 15px; }
 .ymusic-settings { display: grid; width: 42px; height: 42px; place-items: center; border: 0; border-radius: 15px; background: var(--bg-2); color: var(--ink-2); cursor: pointer; }
-.music-list { display: grid; gap: 8px; padding: 10px 14px 110px;
+/* align-content:start 不能少：网格默认 stretch，容器一高、行一少，
+   每行会被拉成一百多像素，看着就像「列表跑到屏幕中间去了」。
+   音乐库行多时不明显，歌单详情只有三首时特别明显。 */
+.music-list { display: grid; gap: 8px; align-content: start; padding: 10px 14px 110px;
   /* .app-view 是 flex 列容器：子元素不带 flex:1 + min-height:0 + overflow-y 就根本滚不动 */
   flex: 1; min-height: 0; overflow-y: auto; }
 .music-track { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 12px; border: 0; border-radius: 18px; background: color-mix(in srgb, var(--card) 82%, transparent); color: var(--ink); text-align: left; cursor: pointer; transition: transform .18s ease, background .18s ease; }
@@ -3328,7 +3334,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .music-mini-fixed { position: fixed; left: 50%; bottom: 74px; z-index: 19; width: calc(100% - 28px); max-width: 360px; transform: translateX(-50%); margin: 0; border-radius: 20px; background: color-mix(in srgb, var(--card) 84%, transparent); box-shadow: 0 10px 30px rgba(44,40,36,.16); backdrop-filter: blur(18px); }
 .music-fab { position: fixed; right: 22px; bottom: 142px; z-index: 21; width: 52px; height: 52px; border: 0; border-radius: 50%; background: var(--ink); color: var(--card); font-size: 30px; line-height: 1; box-shadow: 0 12px 25px rgba(44,40,36,.22); cursor: pointer; transition: transform .2s ease; }
 .music-fab:active { transform: scale(.92); }
-.music-playlists { display: grid; gap: 10px; padding: 14px 14px 100px; flex: 1; min-height: 0; overflow-y: auto; }
+.music-playlists { display: grid; gap: 10px; align-content: start; padding: 14px 14px 100px; flex: 1; min-height: 0; overflow-y: auto; }
 /* 播放页背景选择：跟随封面 / 内置 / 自传 */
 .music-bgs { display: flex; flex-wrap: wrap; gap: 8px; }
 .music-bg { display: grid; width: 58px; height: 58px; padding: 0; place-items: center; overflow: hidden; border: 2px solid transparent; border-radius: 14px; background: var(--bg-2) center/cover; color: var(--ink-3); font-size: 12px; cursor: pointer; }
@@ -3352,8 +3358,11 @@ input.field[type="range"]::-webkit-slider-thumb {
 .music-stage { display: flex; width: 100%; flex-direction: column; align-items: center; cursor: pointer; }
 .music-empty { padding: 34px 10px; color: var(--ink-3); font-size: 14px; text-align: center; }
 .lyric-line.empty { color: #fffa; }
-.music-player::before { content: ''; position: absolute; inset: -50px; z-index: -2; background: inherit; filter: blur(50px); transform: scale(1.12); }
-.music-player::after { content: ''; position: absolute; inset: 0; z-index: -1; background: rgba(0,0,0,.5); }
+/* 背景层：模糊别开太大（50px 就只剩色块了），收窄到能看出封面的构图和色彩层次 */
+.music-player::before { content: ''; position: absolute; inset: -30px; z-index: -2; background: inherit; filter: blur(26px) saturate(1.15); transform: scale(1.15); }
+/* 压暗层：.5 太重，白字是清楚了但背景也黑没了。改成上深下浅的渐变 ——
+   文字主要在上半部分（封面/歌词），底部留给背景透色，沉浸感更好。 */
+.music-player::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.26) 42%, rgba(0,0,0,.34) 100%); }
 .music-disc { width: min(72vw, 280px); aspect-ratio: 1 / 1; height: auto; flex: 0 0 auto; padding: 0; overflow: hidden; border: 5px solid #202020; border-radius: 50%; background: #222; box-shadow: 0 22px 55px rgba(0,0,0,.55), inset 0 0 0 1px #fff2; cursor: pointer; animation: musicRotate 16s linear infinite; }
 .music-disc img { display: block; width: 100%; aspect-ratio: 1 / 1; height: auto; border-radius: 50%; object-fit: cover; }
 .music-disc.hide { display: none; }
@@ -3940,3 +3949,23 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .music-fav.on { color: #ff5a7a; }
 .about-logo { display: grid; width: 72px; height: 72px; place-items: center; border-radius: 22px; background: var(--ink); color: var(--card); }
+
+/* ── 导入菜单：居中卡片，不是贴底的半屏抽屉 ──
+   只挂在 #phone .card-mask 上：全局 sheet() 还有 32 处在用（贴纸、账单、模型…），
+   那些地方贴底是对的，不能跟着变。 */
+/* justify-items 必须是 center：.sheet-mask 那条是 stretch，配 width:100% + max-width
+   会把卡片压在左边（差出半个 padding 的宽度），看着就不居中了。 */
+.card-mask { align-items: center; justify-items: center; padding: 24px; }
+.card-mask .sheet {
+  width: min(330px, 100%); max-height: min(70%, 560px);
+  border-radius: 22px; padding: 8px 0 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+  animation: cardPop .22s cubic-bezier(.22, 1, .36, 1);
+}
+.card-mask .sheet-grab { display: none; }
+.card-mask .sheet-head { text-align: center; }
+@keyframes cardPop {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .card-mask .sheet { animation: none; } }

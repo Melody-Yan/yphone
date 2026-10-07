@@ -3240,12 +3240,31 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
 
   /* ── 生图：三条接口依次试 ── */
   /* 两条路各回各的错：验证报错时把每一次的失败原因都摊出来，而不是只留最后一条 */
+  App.state.settings.imgModel = 'img-model';       // 生图模型不再回退，得自己填
   fetchImpl = url => Promise.resolve(mockRes(false,
     { error: { message: /images\//.test(String(url)) ? '没有生图权限' : '模型不会画图' } }, 404));
   let imgErr = '';
   try { await App.genImage('一只兔子'); } catch (e) { imgErr = e.message; }
   ok('两条路都不通时，把每一条的失败原因都报出来',
     /没有生图权限/.test(imgErr) && /模型不会画图/.test(imgErr), imgErr.slice(0, 60));
+
+  /* 生图模型**不能**回退成聊天模型 —— 那会把聊天模型名发给 /images/generations，
+     失败后又降级到 /chat/completions，于是「生图」变成让聊天模型描述一张图。
+     用户看到的就是「生图生不出来」。这里守死这条回退。 */
+  {
+    const keepImg = App.state.settings.imgModel;
+    App.state.settings.imgModel = '';
+    App.state.settings.apiModel = 'gpt-4o-mini';   // 聊天模型在，但生图模型空着
+    let hit = '';
+    const kept = fetchImpl;
+    fetchImpl = url => { hit = String(url); return Promise.resolve(mockRes(false, {}, 404)); };
+    let e0 = null;
+    try { await App.genImage('一只兔子'); } catch (e) { e0 = e; }
+    ok('生图模型空着时不去打接口、也不拿聊天模型凑',
+      e0 && e0.noModel === true && !hit, '打了 ' + (hit || '（没打）'));
+    fetchImpl = kept;
+    App.state.settings.imgModel = keepImg;
+  }
 
   fetchImpl = () => Promise.resolve(mockRes(false, { error: { message: '不支持' } }, 400));
   let noModel = '';
@@ -3254,6 +3273,7 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
   try { await App.genImage('一只兔子'); } catch (e) { noModel = e.message; }
   ok('没填生图模型就不去打接口，先让人去配', /模型/.test(noModel), noModel);
   App.state.settings.apiModel = 'test-model';
+  App.state.settings.imgModel = 'img-model';    // 下面测的是「生图接口挂了退聊天接口」，得先有生图模型
 
   let hits = [];
   fetchImpl = (url, opts) => {
@@ -3272,8 +3292,14 @@ console.log('\n[26] 外观、头像、朋友圈与生图');
     /^data:image/.test(App.pickImage('data:image/png;base64,' + 'C'.repeat(120))) &&
     App.pickImage('图片：https://a.test/c.jpg?x=1') === 'https://a.test/c.jpg?x=1');
   ok('一堆废话里没有图就返回空，不硬猜', App.pickImage('好的，我画好了（并没有）') === '');
-  ok('生图接口留空就跟随聊天接口', App.imgRoot() === App.state.settings.apiBase &&
-    App.imgModel() === App.state.settings.apiModel);
+  ok('生图接口地址留空就跟随聊天接口',
+    App.imgRoot() === App.state.settings.apiBase);
+  /* 但**模型**绝不跟随：拿聊天模型名去请求 /images/generations 必然失败，
+     失败后又降级到 /chat/completions，就变成「生图生不出来」。 */
+  ok('生图模型不会偷偷跟随聊天模型（不然生图必失败）',
+    (() => { const k = App.state.settings.imgModel; App.state.settings.imgModel = '';
+      const r = App.imgModel() === '' && App.imgModel() !== App.state.settings.apiModel;
+      App.state.settings.imgModel = k; return r; })());
 
   /* ── 聊天页的每一条消息都带头像 ── */
   App.pushMessage(cA.id, false, '在吗');
@@ -6864,6 +6890,177 @@ console.log('\n[19] 接口监视折叠 · 世界书导出 · 角色卡导入');
     sandbox.fmtAgo(Date.now() - 86400000 * 5));
   ok('世界书 .json 不会被误建成人（提示一声就完事）',
     A.state.characters.length === 1 && /没认出角色卡/.test(toasts()), toasts() + ' / ' + A.state.characters.length);
+}
+
+console.log('\n[99] 线下模式「此刻相遇」 / 主题包');
+
+/* ── 线下模式：状态、分页、桥、拆回复 ── */
+{
+  const A = sandbox.SJ;
+  const ch0 = A.state.characters[0];
+  A.state.offline = {};
+  const o = A.offlineOf(ch0.id);
+  ok('线下刚开是空的', A.offlineEntries(ch0.id).length === 0 && !!o);
+
+  A.offlinePush(ch0.id, 'me', '我走过去拍了拍他的肩膀');
+  A.offlinePush(ch0.id, 'char', '他回过头，愣了一下。');
+  ok('写进去两段', A.offlineEntries(ch0.id).length === 2);
+  ok('空文本不落盘', A.offlinePush(ch0.id, 'char', '   ') === null && A.offlineEntries(ch0.id).length === 2);
+
+  /* 分页：同一天挤在一页里 */
+  ok('同一天只占一页', A.offlineOf(ch0.id).pages.length === 1);
+  ok('每段记了是谁写的',
+    A.offlineEntries(ch0.id).map(e => e.role).join(',') === 'me,char',
+    A.offlineEntries(ch0.id).map(e => e.role).join(','));
+
+  /* 上下文桥 */
+  A.state.settings.offline.bridge = 'off';
+  ok('桥关了就不带线上近况', A.offlineBridge(ch0.id)[0] === 'off');
+  A.state.settings.offline.bridge = 'light';
+  ok('桥的精简档是最近 5 条', A.offlineBridge(ch0.id)[1] === '精简');
+  A.state.settings.offline.bridge = '乱填的';
+  ok('桥填了不认识的值 → 回到标准档', A.offlineBridge(ch0.id)[0] === 'standard', A.offlineBridge(ch0.id)[0]);
+
+  /* 文风 */
+  A.state.settings.offline.style = 'script';
+  ok('文风能选到剧本', A.offlineStyle(ch0.id)[0] === 'script');
+  A.offlineOf(ch0.id).style = 'weibo';
+  ok('角色自己的文风盖过全局', A.offlineStyle(ch0.id)[0] === 'weibo');
+  A.offlineOf(ch0.id).style = '';
+
+  /* 提示词里要真的带上人设、记忆、大纲 */
+  A.offlineOf(ch0.id).outline = '他们在海边重逢';
+  const sys = A.buildOfflineSystem(ch0.id);
+  ok('线下提示词带上了人设', /人设|性格/.test(sys));
+  ok('线下提示词带上了大纲', /他们在海边重逢/.test(sys));
+  ok('线下提示词要求写成散文而不是聊天', /散文|面对面/.test(sys), sys.slice(0, 40));
+
+  /* 拆「正文 + 三个选择」：几种写法都要认 */
+  const r1 = A.splitOfflineReply('他笑了。\n\n###CHOICES###\n1. 我也笑\n2. 别过头\n3. 问他为什么');
+  ok('标准格式拆得出三个选择', r1.choices.length === 3 && /他笑了/.test(r1.text),
+    r1.choices.join('|'));
+  const r2 = A.splitOfflineReply('他笑了。\n1. 我也笑\n2. 别过头\n3. 问他为什么');
+  ok('没写 ###CHOICES### 也能从末尾认出来', r2.choices.length === 3 && r2.text === '他笑了。',
+    r2.text + ' // ' + r2.choices.join('|'));
+  const r3 = A.splitOfflineReply('只有正文，没有选择。');
+  ok('没有选择就给空数组（前端据此隐藏那一栏）', r3.choices.length === 0 && /只有正文/.test(r3.text));
+  ok('拆不出来也不吞正文', A.splitOfflineReply('').text === '');
+
+  /* 清空 */
+  A.offlineClear(ch0.id);
+  ok('清空之后一段不剩', A.offlineEntries(ch0.id).length === 0);
+}
+
+/* ── 主题包：三个槽位分开、白名单、导入导出 ── */
+{
+  const A = sandbox.SJ;
+  A.state.themes = { desktop: [], chat: [], sms: [] };
+  A.state.themesRemoved = [];
+  A.state.settings.themePick = { desktop: '', chat: '', sms: '' };
+
+  const t1 = A.saveThemePack('chat', { name: '夜聊', vars: { 'bubble-me': '#123456', accent: '#654321' } });
+  ok('存进聊天槽位', A.themesOf('chat').length === 1 && t1.slot === 'chat');
+  ok('桌面槽位没被污染', A.themesOf('desktop').length === 0 && A.themesOf('sms').length === 0,
+    A.themesOf('desktop').length + '/' + A.themesOf('sms').length);
+
+  A.pickTheme('chat', t1.id);
+  ok('选上了', A.themeIdOf('chat') === t1.id);
+  ok('选桌面主题不会把聊天的一起选上', A.themeIdOf('desktop') === '');
+  A.pickTheme('desktop', '不存在的id');
+  ok('选一个不存在的 id → 回到默认，而不是记个死 id', A.themeIdOf('desktop') === '');
+
+  /* 白名单：CSS 注入要被挡掉 */
+  const bad = A.sanitizeThemePack({ name: '坏', slot: 'desktop', vars: {
+    accent: 'url(https://evil.test/x)',              // 不是颜色
+    bg: 'red; background-image: url(//x)',           // 带分号注入
+    ink: 'javascript:alert(1)',
+    card: '#fff',
+    'bubble-radius': '999px',                        // 合法尺寸
+    'bubble-me': 'expression(alert(1))',
+    font: 'x; } body { display:none } .a{'
+  } });
+  ok('CSS 注入的颜色一律丢掉，只剩合法的',
+    bad.vars.card === '#fff' && bad.vars['bubble-radius'] === '999px' &&
+    !bad.vars.accent && !bad.vars.bg && !bad.vars.ink && !bad.vars['bubble-me'] && !bad.vars.font,
+    JSON.stringify(bad.vars));
+  ok('主题包里的壁纸只认图片引用',
+    A.sanitizeThemePack({ slot: 'desktop', wall: 'javascript:x' }).wall === '' &&
+    A.sanitizeThemePack({ slot: 'desktop', wall: 'idb:abc' }).wall === 'idb:abc');
+  ok('非桌面槽位不接受壁纸',
+    A.sanitizeThemePack({ slot: 'chat', wall: 'idb:abc' }).wall === '');
+
+  /* 导入 */
+  const r = A.importThemePack(JSON.stringify({ kind: 'yphone-theme', name: '导入的', vars: { accent: '#abcdef' } }), 'sms');
+  ok('导入成功并落在指定的槽位', r.ok && A.themesOf('sms').length === 1, A.themesOf('sms').length);
+  ok('导入的坏 JSON 报错而不是崩', A.importThemePack('{不是json', 'sms').ok === false);
+  ok('导入一个空对象也给不出一堆主题', A.importThemePack('{}', 'sms').ok === false);
+
+  /* 导出→再导入，颜色得原样回来 */
+  const t2 = A.saveThemePack('desktop', { name: '往返', vars: { accent: '#a1b2c3', 'bubble-radius': '12px' } });
+  const json = A.themePackJson('desktop', t2.id);
+  const back = A.importThemePack(json, 'desktop');
+  const got = A.themesOf('desktop')[A.themesOf('desktop').length - 1];
+  ok('导出再导入颜色不变', back.ok && got.vars.accent === '#a1b2c3' && got.vars['bubble-radius'] === '12px',
+    JSON.stringify(got.vars));
+
+  /* 删 */
+  const n0 = A.themesOf('chat').length;
+  A.removeThemePack('chat', t1.id);
+  ok('删掉之后少一个，并且不再选中它',
+    A.themesOf('chat').length === n0 - 1 && A.themeIdOf('chat') === '');
+  ok('删一个不存在的 id 不炸', A.removeThemePack('chat', 'nope') >= 0);
+
+  /* 内置主题：删过的不再冒出来 */
+  ok('内置主题按槽位分好', A.builtinThemesFor('desktop').every(t => t.slot === 'desktop') &&
+    A.builtinThemesFor('chat').every(t => t.slot === 'chat') &&
+    A.builtinThemesFor('sms').every(t => t.slot === 'sms'));
+  const bi = A.builtinThemesFor('chat')[0];
+  A.state.themesRemoved = [bi.id];
+  ok('删过的内置主题不会再冒出来', !A.builtinThemesFor('chat').some(t => t.id === bi.id));
+  A.state.themesRemoved = [];
+
+  /* 主题变量得真被用上：CSS 里要有 var(--bubble-me) 这类回落 */
+  const cssT = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  ok('气泡真的会读主题变量', /var\(--bubble-me,/.test(cssT) && /var\(--bubble-ta,/.test(cssT));
+  ok('没选主题时全部回落到原来的令牌', /var\(--bubble-me, var\(--accent\)\)/.test(cssT));
+}
+
+/* ── 生图模型不许回退成聊天模型 ── */
+{
+  const A = sandbox.SJ;
+  const keepI = A.state.settings.imgModel, keepC = A.state.settings.apiModel;
+  A.state.settings.imgModel = '';
+  A.state.settings.apiModel = 'gpt-4o-mini';
+  ok('生图模型空着就是空着，绝不拿聊天模型顶上',
+    A.imgModel() === '' && A.imgModel() !== A.state.settings.apiModel,
+    '拿到的是 ' + JSON.stringify(A.imgModel()));
+  A.state.settings.imgModel = 'seedream';
+  ok('填了就用填的', A.imgModel() === 'seedream');
+  A.state.settings.imgModel = keepI; A.state.settings.apiModel = keepC;
+  ok('生图失败的兜底档位是合法的三档之一',
+    ['auto', 'always', 'never'].indexOf(A.state.settings.imgFake) >= 0, A.state.settings.imgFake);
+}
+
+/* ── 提示词：工具得教到位 ── */
+{
+  const A = sandbox.SJ;
+  const ch = A.state.characters[0];
+  const sys = A.buildSystem(ch, []);
+  ok('提示词里有「你手上有一部手机」这一块', /你手上有一部手机/.test(sys));
+  ok('教了怎么发照片', /\[\[img:/.test(sys));
+  ok('教了照片画不出来也没关系（自动给假图）', /假图|画不出来/.test(sys));
+  ok('教了怎么发语音', /\[\[v\]\]/.test(sys));
+  ok('教了怎么发位置', /\[\[loc:/.test(sys));
+  ok('真人感那三条在（具体 / 不完整 / 不讨好）',
+    /具体/.test(sys) && /不完整/.test(sys) && /不讨好/.test(sys));
+  ok('明确要求说的比问的少、别总结', /别总结/.test(sys));
+  ok('记忆那块讲了「怎么用」而不是只列一串',
+    A.state.memories && (() => {
+      A.state.memories[ch.id] = [{ id: 'm1', text: '他怕黑' }];
+      const s2 = A.buildSystem(ch, []);
+      const seg = s2.slice(s2.indexOf('# 你记得的事'));
+      return /真的记得/.test(seg) && /他怕黑/.test(seg) && /别把它们当成刚才发生/.test(seg);
+    })(), '记忆段没讲用法');
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

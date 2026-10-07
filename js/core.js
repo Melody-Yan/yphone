@@ -184,6 +184,13 @@ const DEFAULTS = {
     imgKey: '',
     imgModel: '',
     imgSize: '1024x1024',
+    /* 生图失败时怎么办：auto 试一次画不出来就发假照片 / always 从不真画 / never 画不出来就不发。
+       空值等于 auto。以前这个键只被读、没在 DEFAULTS 里，导入存档能塞任意字符串进来。 */
+    imgFake: 'auto',
+    /* 每个槽位选了哪个主题包（'' = 内置默认）。三套分开选，换桌面不影响聊天 */
+    themePick: { desktop: '', chat: '', sms: '' },
+    /* 线下模式：文风 / 上下文桥 / 自动更新大纲 / 每段字数档位（索引进 OFFLINE_LEN） */
+    offline: { style: 'novel', bridge: 'standard', autoOutline: true, len: 0 },
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
@@ -255,6 +262,14 @@ musicBg: '', musicTint: 'ink',
   groups: [],
   /* 表情包库：自己收进来的图（图片仓引用）。内置的那些 emoji 写在前端代码里，不进存档 */
   stickers: [],
+  /* 线下模式「此刻相遇」：{ 角色id: {pages:[{id,date,entries:[{id,role,text,at,cg}]}], outline, style, turn} }
+     和 chats 分开存 —— 线下是长文，混进消息流两边都读不好。 */
+  offline: {},
+  /* 主题包：桌面 / 聊天 / 短信 三个槽位各自一组，互不干扰。
+     [{id,name,slot,vars:{},dark:{},wall,ts}] —— vars 里的键受 THEME_VARS 白名单限制 */
+  themes: { desktop: [], chat: [], sms: [] },
+  /* 被用户删掉的内置主题 id。删完不再冒出来 —— 删了又回来比没有更烦 */
+  themesRemoved: [],
   /* 外卖：商家是 AI 现生成的，不是写死的一张表 */
   delivery: {
     shops: [],           // [{id,name,kind,eta,rating,emoji,bg,dishes:[{id,name,desc,price,emoji}]}, ...]
@@ -298,7 +313,7 @@ const SCHEMA = {
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
   personas: 'array', personaId: 'string', sms: 'object', longMem: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
-  mall: 'object', wallet: 'object', addresses: 'array'
+  mall: 'object', wallet: 'object', addresses: 'array', themes: 'object', themesRemoved: 'array', offline: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -346,6 +361,30 @@ function migrate(saved) {
     }
   }
   if (!Array.isArray(out.settings.modelList)) out.settings.modelList = [];
+  /* 线下模式那几个开关也来自存档，逐项归一。
+     ⚠️ 字面量写死，别引用 OFFLINE_STYLES 这类后面才 const 的东西（TDZ）。 */
+  {
+    const of = (out.settings.offline && typeof out.settings.offline === 'object') ? out.settings.offline : {};
+    const ln = Number(of.len);
+    out.settings.offline = {
+      style: ['novel', 'script', 'first', 'trans', 'weibo'].indexOf(of.style) >= 0 ? of.style : 'novel',
+      bridge: ['off', 'light', 'standard', 'deep', 'all'].indexOf(of.bridge) >= 0 ? of.bridge : 'standard',
+      autoOutline: of.autoOutline !== false,
+      len: (ln === 1 || ln === 2 || ln === 3) ? ln : 0
+    };
+  }
+  /* 线下正文：必须是对象。里面每一页由 offlineOf() 按需修正 */
+  out.offline = (out.offline && typeof out.offline === 'object' && !Array.isArray(out.offline)) ? out.offline : {};
+  if (['auto', 'always', 'never'].indexOf(out.settings.imgFake) < 0) out.settings.imgFake = 'auto';
+  /* 主题槽位：只留三个认识的键，值必须是字符串。存档里塞别的键名不该被带进 state */
+  {
+    const tp = (out.settings.themePick && typeof out.settings.themePick === 'object') ? out.settings.themePick : {};
+    out.settings.themePick = {
+      desktop: typeof tp.desktop === 'string' ? tp.desktop : '',
+      chat: typeof tp.chat === 'string' ? tp.chat : '',
+      sms: typeof tp.sms === 'string' ? tp.sms : ''
+    };
+  }
   /* 接口方案来自存档 = 信任边界，逐条归一；坏条目直接丢掉而不是留个 undefined 进去。
      ⚠️ 这里写死字符串字面量，不要引用后面才 const 的变量（TDZ 会把整个存档读白）。 */
   out.settings.profiles = (Array.isArray(out.settings.profiles) ? out.settings.profiles : [])
@@ -499,6 +538,34 @@ function migrate(saved) {
   out.stickers = Array.from(new Set(
     (Array.isArray(out.stickers) ? out.stickers : []).map(bgOk).filter(Boolean)
   )).slice(-STICKER_MAX);
+
+  /* 主题包：导入存档是信任边界，每个包都过一遍白名单清洗。
+     ⚠️ 这里不能调 sanitizeThemePack（它是后面才 const 的函数，migrate 在模块初始化
+     时就被 load() 调到了，会踩 TDZ）。所以就地做最小清洗：只留认识的槽位和字符串键。 */
+  {
+    const raw = (out.themes && typeof out.themes === 'object' && !Array.isArray(out.themes)) ? out.themes : {};
+    const clean = (list, slot) => (Array.isArray(list) ? list : []).map(t => {
+      if (!t || typeof t !== 'object') return null;
+      const vars = {}, dark = {};
+      const grab = (src, dst) => {
+        if (!src || typeof src !== 'object') return;
+        Object.keys(src).forEach(k => {
+          if (src[k] != null && typeof src[k] === 'string') dst[k] = src[k].slice(0, 80);
+        });
+      };
+      grab(t.vars, vars); grab(t.dark, dark);
+      return {
+        id: String(t.id || '').slice(0, 40) || ('th' + Math.random().toString(36).slice(2, 10)),
+        name: String(t.name || '').slice(0, 30) || '未命名主题',
+        slot,
+        vars, dark,
+        wall: (slot === 'desktop' && typeof t.wall === 'string' && avatarSrc(t.wall)) ? t.wall : ''
+      };
+    }).filter(Boolean).slice(0, 40);
+    out.themes = { desktop: clean(raw.desktop, 'desktop'), chat: clean(raw.chat, 'chat'), sms: clean(raw.sms, 'sms') };
+  }
+  out.themesRemoved = (Array.isArray(out.themesRemoved) ? out.themesRemoved : [])
+    .filter(x => typeof x === 'string').map(x => x.slice(0, 40)).slice(0, 40);
 
   /* 世界书：也是导入边界（以前这里根本没归一，一个 {content:123} 就能让提示词里
      出现 undefined）。老存档存的是 scope + charId 的单归属，这里升级成 charIds 数组
@@ -822,6 +889,197 @@ function avatarSrc(v) {
   const s = String(v || '');
   return /^(idb:[\w-]+|data:image\/|https?:\/\/)/.test(s) ? s : '';
 }
+
+/* ══════════════════════════════════════════════════════
+   主题包：桌面 / 聊天 / 短信 三套分开，各自可导入导出。
+   设计原则（ponytail）：
+   - 不引库、不加构建步骤。一个主题包就是一份 JSON + 一段 CSS 变量赋值。
+   - 只开放**变量**，不开放任意 CSS —— 存档是能被导入的，等于信任边界。
+     任意 CSS 能拿去偷 key、能盖住「删除」按钮，所以只允许白名单变量。
+   - 三个槽位各自独立：换桌面不动聊天气泡，换短信不动微信。
+   ══════════════════════════════════════════════════════ */
+
+/* 允许主题改的变量白名单。键是 CSS 变量名，值是要填进的类型。
+   没列在这儿的一律忽略 —— 包括 background、content、position 这种能被玩坏的。 */
+const THEME_VARS = {
+  /* 通用 */
+  bg: 'color', 'bg-2': 'color', card: 'color', 'card-2': 'color',
+  line: 'color', 'line-2': 'color', ink: 'color', 'ink-2': 'color', 'ink-3': 'color',
+  accent: 'color', 'accent-ink': 'color', 'accent-soft': 'color', 'accent-solid': 'color',
+  /* 气泡专用 */
+  'bubble-me': 'color', 'bubble-me-ink': 'color',
+  'bubble-ta': 'color', 'bubble-ta-ink': 'color',
+  'bubble-radius': 'size',
+  /* 字体 / 圆角 */
+  font: 'font', 'radius': 'size'
+};
+
+const THEME_SLOTS = ['desktop', 'chat', 'sms'];
+
+/* 一个颜色长什么样：十六进制 / rgb() / rgba() / hsl() / 具名色。
+   刻意不用「任意字符串」——`url(...)`、`expression(...)`、`var(--x)` 都不放行。 */
+const COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([^()]{1,60}\)|hsla?\([^()]{1,60}\)|[a-z]{3,20})$/i;
+/* 尺寸：只认数字 + 单位，防止塞 calc()/env() 这种能引用外部东西的 */
+const SIZE_RE = /^\d{1,3}(\.\d+)?(px|em|rem|%)$/;
+const FONT_RE = /^[^;{}<>"'\\()]{1,120}$/;
+
+function themeValueOk(kind, v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (kind === 'color') return COLOR_RE.test(s) ? s : '';
+  if (kind === 'size') return SIZE_RE.test(s) ? s : '';
+  if (kind === 'font') return FONT_RE.test(s) ? s : '';
+  return '';
+}
+
+/* 把一个原始对象削成合法的主题包。给导入用，也给自己存预设用。
+   坏键直接丢，不报错 —— 导入一份手改过的 JSON 不该把整个手机搞崩。 */
+function sanitizeThemePack(raw) {
+  const r = (raw && typeof raw === 'object') ? raw : {};
+  const out = {
+    name: String(r.name || '').trim().slice(0, 30) || '未命名主题',
+    slot: THEME_SLOTS.indexOf(r.slot) >= 0 ? r.slot : 'desktop',
+    vars: {},
+    /* 桌面主题允许带一张壁纸（图片引用，走同一套 imgSrc 白名单） */
+    wall: (r.slot === 'desktop' && typeof r.wall === 'string' && avatarSrc(r.wall)) ? r.wall : '',
+    /* 深色版单独一份，浅深各一套才不至于黑底配黑字 */
+    dark: {}
+  };
+  const take = (src, dst) => {
+    Object.keys(THEME_VARS).forEach(k => {
+      if (!src || typeof src !== 'object') return;
+      const v = themeValueOk(THEME_VARS[k], src[k]);
+      if (v) dst[k] = v;
+    });
+  };
+  take(r.vars, out.vars);
+  take(r.dark, out.dark);
+  return out;
+}
+
+function themesOf(slot) {
+  if (!state.themes || typeof state.themes !== 'object') state.themes = {};
+  if (!Array.isArray(state.themes[slot])) state.themes[slot] = [];
+  return state.themes[slot];
+}
+
+/* 当前每个槽位用的是哪个主题：'' = 用内置默认 */
+function themeIdOf(slot) {
+  if (!state.settings.themePick || typeof state.settings.themePick !== 'object') state.settings.themePick = {};
+  const id = String(state.settings.themePick[slot] || '');
+  return themesOf(slot).some(t => t.id === id) ? id : '';
+}
+
+function themeOf(slot) {
+  const id = themeIdOf(slot);
+  return id ? (themesOf(slot).find(t => t.id === id) || null) : null;
+}
+
+function saveThemePack(slot, pack) {
+  const clean = sanitizeThemePack(Object.assign({}, pack, { slot }));
+  clean.id = 'th' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+  themesOf(slot).push(clean);
+  return clean;
+}
+
+function removeThemePack(slot, id) {
+  state.themes[slot] = themesOf(slot).filter(t => t.id !== id);
+  if (themeIdOf(slot) === id) state.settings.themePick[slot] = '';
+  return state.themes[slot].length;
+}
+
+/* 选主题（空串 = 回默认）。返回真正生效的 id。 */
+function pickTheme(slot, id) {
+  state.settings.themePick[slot] = themesOf(slot).some(t => t.id === id) ? id : '';
+  return themeIdOf(slot);
+}
+
+/* 把一个槽位的变量铺到一个元素上。dark 传 true 时优先用深色那一套。
+   返回是否真的有主题生效 —— 前端据此决定要不要加 .themed 类。 */
+function applyThemeTo(el, slot, dark) {
+  if (!el || !el.style) return false;
+  const t = themeOf(slot);
+  const vars = t ? (dark && Object.keys(t.dark || {}).length ? t.dark : t.vars) : null;
+  Object.keys(THEME_VARS).forEach(k => {
+    const v = vars && vars[k];
+    if (v) el.style.setProperty('--' + k, v);
+    else el.style.removeProperty('--' + k);
+  });
+  if (el.classList) el.classList.toggle('themed', !!t);
+  return !!t;
+}
+
+/* 主题包导出成 JSON 文本（给「导出」按钮用） */
+function themePackJson(slot, id) {
+  const t = themesOf(slot).find(x => x.id === id);
+  if (!t) return '';
+  return JSON.stringify({ v: 1, kind: 'yphone-theme', name: t.name, slot: t.slot, vars: t.vars, dark: t.dark, wall: t.wall }, null, 2);
+}
+
+/* 导入：吃一段 JSON 文本，返回 {ok, pack} 或 {ok:false,error}。
+   认两种：单个对象，或者 {themes:[...]} 的合集（方便一次导一批）。 */
+function importThemePack(text, slot) {
+  let raw = null;
+  try { raw = JSON.parse(String(text || '')); }
+  catch (e) { return { ok: false, error: '这不是一份 JSON 主题文件' }; }
+  const list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.themes) ? raw.themes : [raw]);
+  const made = [];
+  list.forEach(x => {
+    if (!x || typeof x !== 'object') return;
+    /* 一个既没有 vars 也没有 dark 的包 = 空壳。放进去只会得到一条
+       「未命名主题」占着列表，什么也不改 —— 那比报错更让人困惑。 */
+    const hasVars = (x.vars && typeof x.vars === 'object' && Object.keys(x.vars).length) ||
+                    (x.dark && typeof x.dark === 'object' && Object.keys(x.dark).length);
+    if (!hasVars) return;
+    /* 文件里没写 slot 就用调用方指定的那个 */
+    made.push(saveThemePack(slot, Object.assign({}, x, { slot: x.slot || slot })));
+  });
+  if (!made.length) return { ok: false, error: '文件里没有能认的主题（没有颜色变量）' };
+  return { ok: true, packs: made };
+}
+
+/* 内置几套现成的，省得用户第一眼看到空列表不知道怎么开始。
+   都是纯变量，不引图片。 */
+const BUILTIN_THEMES = [
+  {
+    id: 'bi-paper', slot: 'desktop', name: '旧纸',
+    vars: { bg: '#efe9dd', 'bg-2': '#e6dfd0', card: '#fbf7ef', line: 'rgba(90,72,48,.16)', ink: '#2e2820', 'ink-2': '#6b6154', accent: '#8a6a3f', 'accent-ink': '#7a5c33', 'accent-solid': '#4a3c28' },
+    dark: { bg: '#211f1b', card: '#2c2924', line: 'rgba(255,240,215,.14)', ink: '#f0e9dd', 'ink-2': 'rgba(240,233,221,.72)', accent: '#c8a273', 'accent-ink': '#d8b589', 'accent-solid': '#c8a273' },
+    wall: ''
+  },
+  {
+    id: 'bi-mint', slot: 'desktop', name: '薄荷',
+    vars: { bg: '#e8f2ee', 'bg-2': '#dcebe4', card: '#fbfffd', line: 'rgba(40,90,74,.14)', ink: '#173029', 'ink-2': '#4d6b62', accent: '#3f9c7c', 'accent-ink': '#2f7d62', 'accent-solid': '#2f7d62' },
+    dark: { bg: '#141f1c', card: '#1e2b27', line: 'rgba(210,255,238,.14)', ink: '#e6f2ed', 'ink-2': 'rgba(230,242,237,.72)', accent: '#5cc39c', 'accent-ink': '#79d3b1', 'accent-solid': '#5cc39c' },
+    wall: ''
+  },
+  {
+    id: 'bi-night', slot: 'chat', name: '夜聊',
+    vars: { 'bubble-me': '#3a4a6b', 'bubble-me-ink': '#ffffff', 'bubble-ta': '#f2f3f7', 'bubble-ta-ink': '#1b1e26', 'bubble-radius': '18px', accent: '#3a4a6b', 'accent-ink': '#3a4a6b' },
+    dark: { 'bubble-me': '#5a6f9c', 'bubble-me-ink': '#ffffff', 'bubble-ta': '#262b36', 'bubble-ta-ink': '#e9ecf3', accent: '#8aa3d4', 'accent-ink': '#a8bde6' },
+    wall: ''
+  },
+  {
+    id: 'bi-letter', slot: 'chat', name: '信纸',
+    vars: { 'bubble-me': '#f6e2b8', 'bubble-me-ink': '#3a2f16', 'bubble-ta': '#fdfbf4', 'bubble-ta-ink': '#3a3527', 'bubble-radius': '6px', accent: '#b08a3c', 'accent-ink': '#8a6a2a' },
+    dark: { 'bubble-me': '#6b5a33', 'bubble-me-ink': '#fdf6e4', 'bubble-ta': '#2a2823', 'bubble-ta-ink': '#efe9db', accent: '#cfa75c', 'accent-ink': '#dcbb7a' },
+    wall: ''
+  },
+  {
+    id: 'bi-term', slot: 'sms', name: '终端',
+    vars: { 'bubble-me': '#1f6f43', 'bubble-me-ink': '#eafff2', 'bubble-ta': '#eceee9', 'bubble-ta-ink': '#17231b', 'bubble-radius': '4px', accent: '#1f6f43', 'accent-ink': '#1a5c38', font: "'SFMono-Regular', ui-monospace, monospace" },
+    dark: { 'bubble-me': '#2f9c60', 'bubble-me-ink': '#04160c', 'bubble-ta': '#1b221d', 'bubble-ta-ink': '#d8e6dc', accent: '#2f9c60', 'accent-ink': '#48bd7c' },
+    wall: ''
+  }
+];
+
+/* 把内置主题读出来（没被用户改过的话）。用户删掉了就不再塞回去 —— 
+   删完又冒出来比没有更烦。 */
+function builtinThemesFor(slot) {
+  const gone = Array.isArray(state.themesRemoved) ? state.themesRemoved : [];
+  return BUILTIN_THEMES.filter(t => t.slot === slot && gone.indexOf(t.id) < 0);
+}
+
 
 /* ══════════════════════════════════════════════════════
    L0.5 图片仓：图片不进制式存档，走 IndexedDB
@@ -4103,7 +4361,11 @@ function parseJSONLoose(text) {
    ══════════════════════════════════════════════════════ */
 const imgRoot  = () => String(state.settings.imgBase || '').trim().replace(/\/+$/, '') || apiRoot();
 const imgKey   = () => String(state.settings.imgKey || '').trim() || String(state.settings.apiKey || '');
-const imgModel = () => String(state.settings.imgModel || '').trim() || String(state.settings.apiModel || '');
+/* ⚠️ 以前这里会回退成 apiModel（聊天模型）。后果是：用户没单独填生图模型时，
+   我们拿「gpt-4o-mini」这种聊天模型名去请求 /images/generations —— 服务端当然不认，
+   失败之后又降级到 /chat/completions，于是「生图」变成让聊天模型描述一张图，
+   返回一堆文字，用户看到的就是「生图生不出来」。宁可不画，也不能拿聊天模型硬凑。 */
+const imgModel = () => String(state.settings.imgModel || '').trim();
 const imgSize  = () => String(state.settings.imgSize || '').trim() || '1024x1024';
 
 /* 图床/接口给回来的可能是个 http 图片地址（会过期），先试着抓成本地 data URI 存下来。
@@ -4224,7 +4486,13 @@ async function imgViaChat(root, key, model, prompt, ref) {
   const body = (msg.message && msg.message.content) || '';
   const real = typeof body === 'string' ? body : (Array.isArray(body) ? body.map(p => p.text || (p.image_url && p.image_url.url) || '').join('\n') : '');
   const src = pickImage(real) || pickImage(txt);
-  if (!src) throw new Error('聊天接口没返回图片（模型可能不会出图）');
+  if (!src) {
+    /* 走到这儿说明这个模型只会写字不会出图 —— 打上标记，
+       上层据此直接给角色发「假图」，不用再等一次必然失败的尝试。 */
+    const e = new Error('这个模型只返回文字，不会出图（换个生图模型，或者让角色发假图）');
+    e.notAnImageModel = true;
+    throw e;
+  }
   return await imgToData(src);
 }
 
@@ -4293,7 +4561,11 @@ async function genImage(prompt, ref) {
   if (!text) throw new Error('先用一句话说说想画什么');
   const root = imgRoot(), key = imgKey(), model = imgModel();
   if (!root || !key) throw new Error('还没配接口：去「设置」里的「生图接口」（也可以留空，跟着上面那套走）');
-  if (!model) throw new Error('还没填生图模型：去「设置」里的「生图接口」写一个能出图的');
+  if (!model) {
+    const e = new Error('还没填生图模型：去「设置」→「生图接口」写一个能出图的（现在空着，我不想拿聊天模型去糊一张假图）');
+    e.noModel = true;
+    throw e;
+  }
   const size = imgSize();
   const meta = [];
   try {
@@ -4453,7 +4725,15 @@ function splitReply(raw) {
    再告诉他演谁，模型才不会被一句「你是AI助手」带跑。
    ══════════════════════════════════════════════════════ */
 const ROLE_RULES = [
-  '你在用手机跟人聊天。你是真人，不是助手。',
+  '你在用手机跟人聊天。你是真人，不是助手，也不是在扮演一个角色 —— 你就是这个人。',
+  '',
+  '# 像真人的三条底线',
+  '- **具体**。别写「今天好累」，写「今天开了四个会，最后一个拖到七点半」。别写「我很想你」，',
+  '  写「刚路过那家奶茶店，就是上次你非要加双份珍珠那家」。具体的细节才是人味。',
+  '- **不完整**。真人一句话说不完、会跑题、会突然想起别的事、会「算了不说了」。',
+  '  不必每条都信息完整、逻辑通顺 —— 你是在聊天，不是在交作业。',
+  '- **不讨好**。你可以有情绪、可以敷衍、可以已读又回、可以对他的话题不感兴趣、可以忙。',
+  '  你不是在满足他，你是在过自己的日子，顺便跟他说说话。',
   '',
   '# 怎么说话',
   '- 短句、口语，一条只说一件事，像随手打字。',
@@ -4463,6 +4743,8 @@ const ROLE_RULES = [
   '- 可以带「嗯」「诶」「哦对」「哈哈」这种口头语，但别每句都带。',
   '- 允许停顿和没说完（用…），允许改口（用 * 划掉前一句，例如「我五点*六点下班」）。',
   '- 标点和错别字都随意，不必工整。',
+  '- **说的比问的少**。别每条都反问「你呢？」，真人不会一直把话头踢回去。',
+  '- **别总结**。他说了一件事，你接一句具体的反应就行，不要复述一遍再评点。',
   '',
   '# 不要做',
   '- 不要书面语：「首先」「其次」「总之」「综上」「希望对你有帮助」一律不要。',
@@ -4470,7 +4752,8 @@ const ROLE_RULES = [
   '- 不要用 Markdown：**加粗**、# 标题、- 列表、`代码` 都不要。',
   '- 不要在括号里写动作、神态、旁白（除非人设里明确要求）。',
   '- 不要每句都挂 emoji，更不要一次堆一串。',
-  '- 不要像客服那样问「还有什么可以帮你」「请问您需要」。'
+  '- 不要像客服那样问「还有什么可以帮你」「请问您需要」。',
+  '- 不要把自己的情绪解释给人听（「我现在有点难过，因为你……」这种心理分析腔非常假）。'
 ].join('\n');
 
 function buildSystem(char, history) {
@@ -4512,31 +4795,74 @@ function buildSystem(char, history) {
     lines.push('不用每次都写。只有关系确实变了才写。');
   }
 
+  /* ── 你手上的这部手机 ──
+     模型默认把「聊天」当成唯一动作通道，所以不会主动发照片、点外卖、挪位置。
+     这里把手机本身讲成一个有 App、有相机、有钱包的实体，并明确
+     「想干这些事的时候要主动做，别只用嘴说」。 */
+  lines.push('');
+  lines.push('# 你手上有一部手机');
+  lines.push('你不是在「跟用户对话」，你是在**用手机跟他聊天**。手机里有相机、相册、钱包、地图、外卖 App。');
+  lines.push('想干点什么就真的去干 —— 别只用嘴描述。说「我给你看张照片」的同时就把照片发出去；');
+  lines.push('说「给你点了份外卖」的时候就把外卖点掉。只说不做，对面会觉得你在敷衍。');
+  lines.push('下面这些动作写成**单独一条**消息（前后可以有正常的话），系统认得出来并真的执行。');
+
   if (voiceOn()) {
-    lines.push('', '# 你已经可以发语音了');
-    lines.push(`懒得打字的时候，把**整条**消息用 ${VOICE_OPEN} 和 ${VOICE_CLOSE} 包起来发出去，它就会变成语音条被念出来。`);
-    lines.push(`例如：${VOICE_OPEN}我到家了${VOICE_CLOSE}`);
-    lines.push('- 包起来的那条要是能念出口的整句话，别在里面塞动作、旁白或者方括号。');
-    lines.push('- 一次别发超过两条语音，语音说多了很烦人。大部分时候还是打字。');
+    lines.push('');
+    lines.push('## 发照片 / 发图  [[img:画面描述]]');
+    lines.push('用相机拍一张发给他：[[img:窗外的雨，玻璃上全是水珠]]');
+    lines.push('- 描述要具体：拍的是什么、什么样的光、什么时间、什么感觉。写得越具体画得越像。');
+    lines.push('- 什么时候用：他问你「在干嘛」「吃了吗」、你想告诉他你在哪、你刚看到好玩的东西、');
+    lines.push('  想念他的时候 —— 「给你看」这三个字后面就该跟一张图。');
+    lines.push('- 一次最多一张。别每轮都发，一天里看到值得拍的东西才发。');
+    lines.push('- **图片可能画不出来**（没配生图、模型不认、接口挂了）。没关系，画不出来的时候');
+    lines.push('  系统会自动用一张「拍糊了 / 太暗了 / 只拍到一角」的假图代替，你不用管，照常发就是了。');
   }
+
+  if (voiceOn()) {
+    lines.push('');
+    lines.push('## 发语音  ' + VOICE_OPEN + '想说的话' + VOICE_CLOSE);
+    lines.push('懒得打字，或者这句话用说的更真心的时候，整条用标记包起来：' + VOICE_OPEN + '我到家了' + VOICE_CLOSE);
+    lines.push('- 包起来的那条要是能念出口的整句话，别在里面塞动作、旁白或者方括号。');
+    lines.push('- 什么时候用：想他的时候、撒娇、道歉、刚睡醒、喝了酒、情绪上头 —— 文字说不清楚的那一刻改用语音。');
+    lines.push('- 一次别发超过两条，语音说多了很烦人。大部分时候还是打字。');
+  }
+
+  lines.push('');
+  lines.push('## 发位置  [[loc:地点名]]');
+  lines.push('让他知道你在哪：[[loc:公司楼下的咖啡店]]');
+  lines.push('什么时候用：刚到一个地方、约他但还没到、想说「我离你很近」的时候。');
 
   /* 送礼：只在对方确实填了收货地址时才教它 —— 没地址的人收到「我给你点了外卖」
      会扑空，那比不送还差。所以这个能力跟着地址走。 */
   if (state.addresses && state.addresses.length) {
-    lines.push('', '# 你可以给他点外卖 / 买东西');
-    lines.push('想给他送点吃的，就单独发一条：[[gift:外卖]]');
-    if (voiceOn() !== false) {
-      /* 发照片：跟送礼一样是「单独一条标记」，回复里认出来才真的去画。
-         画失败也不会吞掉这句话 —— 标记摘掉、文字照常发。 */
-      lines.push('想给他发张照片，就单独发一条：[[img:画面描述]]，比如 [[img:窗外的雨，玻璃上全是水珠]]。');
-      lines.push('照片是按你写的描述现画的，所以描述具体一点：拍的是什么、什么时间、什么感觉。一条最多一张。');
-    }
-    lines.push('想给他买件东西（快递过去），就单独发一条：[[gift:礼物]]');
+    lines.push('');
+    lines.push('## 给他点外卖 / 买东西  [[gift:外卖]] / [[gift:礼物]]');
     lines.push('- 这一条只写标记，什么都别加。送什么由系统按他的口味现挑，你不用编菜名或商品名。');
     lines.push('- 前面或后面照常打字，把话说清楚（「给你点了份夜宵」之类）。');
-    lines.push('- 别老送。他帮了你、你惦记他、过节、他想吃什么 —— 有由头才送。无缘无故连送几单很假。');
+    lines.push('- 什么时候用：他加班到很晚、他说没吃饭、他生病了、过节、你惦记他。');
+    lines.push('- 别老送。无缘无故连送几单很假。有由头才送。');
     lines.push('- 你送的东西不花他的钱，是你自己掏的。');
   }
+
+  /* 红包：跟礼物一样要有由头，但不能跟外卖捆一起教（会变成每次都发红包） */
+  lines.push('');
+  lines.push('## 发红包  [[rp:金额:留言]]');
+  lines.push('例如：[[rp:52:拿去买奶茶]]（金额是数字，留言可以省略）');
+  lines.push('什么时候用：过节、他生日、他帮了你、你惹他生气了想哄。别当日常聊天用。');
+
+  /* 表情包：图库里存的是图片引用，没有名字，所以只告诉它「有 N 张可挑」，
+     让它输出 [[sticker:描述]]，由前端按描述模糊匹配。 */
+  {
+    const st = stickersOf();
+    if (st.length) {
+      lines.push('');
+      lines.push('## 发表情包  [[sticker:描述]]');
+      lines.push('你手机里有 ' + st.length + ' 张表情包。想发的时候写 [[sticker:想表达的意思]]，');
+      lines.push('比如 [[sticker:笑死]]、[[sticker:无语]]，系统会挑一张最接近的发出去。');
+      lines.push('什么时候用：接不住话、想逗他笑、想表达情绪但懒得打字。一次一个，别连发。');
+    }
+  }
+
 
   /* 今天有安排就先说，免得对方问「你在干嘛」时才想起来 */
   const ev = todayEvents();
@@ -4549,8 +4875,14 @@ function buildSystem(char, history) {
   if (c.id) {
     const mem = memories(c.id);
     if (mem.length) {
-      lines.push('', '# 你记得的事（以前聊过的，是你的记忆，不是刚发生的事）');
+      lines.push('', '# 你记得的事');
+      lines.push('下面是你**真的记得**的事。它们是你亲身经历过的，不是别人告诉你的资料。');
+      lines.push('不用刻意提起，但聊天聊到相关的时候要自然带出来 —— 比如提到那家店，');
+      lines.push('你会想起上次你们在那儿发生的事；他说起某个人，你知道你对那个人的看法。');
+      lines.push('这是你和他之间的旧账，用得上就用，用不上就放在那儿，别硬凑。');
       mem.forEach(m => lines.push('- ' + m.text));
+      lines.push('（注意：这些是**以前**的事。别把它们当成刚才发生的，也别原样复述一遍，');
+      lines.push(' 那样像在念档案。要带就带一句话、一个细节、一点情绪。）');
     }
   }
   return lines.join('\n');
@@ -4638,6 +4970,272 @@ function parseGroupReply(g, raw) {
     }
     return { who: (who || any()).id, text: s || '…' };
   }).filter(x => x.text);
+}
+
+/* ══════════════════════════════════════════════════════
+   线下模式「此刻相遇」
+   ──────────────────────────────────────────────────────
+   本质是一个「小说生成器 + 阅读器」：同一个角色，从「聊天」切到「面对面」，
+   输出从短消息变成散文段落。但角色还是那个角色 —— 它照旧带着线上聊天的
+   近况（上下文桥）、照旧记得那些记忆卡片。
+
+   数据结构刻意和 chats 分开：线下是长文，混进消息流里两边都读不好。
+   ══════════════════════════════════════════════════════ */
+
+const OFFLINE_STYLES = [
+  ['novel', '小说体', '第三人称旁白 + 对白，像在读一本小说'],
+  ['script', '剧本', '以「角色：台词」和舞台说明为主，克制、利落'],
+  ['first', '第一人称', '全部用「我」的视角写，贴着他的心理走'],
+  ['trans', '翻译腔', '长句、从句、书面感，像译作'],
+  ['weibo', '碎片体', '短句、留白多、心理活动碎，像随手记的']
+];
+
+/* 上下文桥：剧场里能看到线上聊天的多少。参考产品做得最细的一处，
+   也最影响「连贯感」—— 角色记得刚才在微信里说过什么，戏才接得住。 */
+const OFFLINE_BRIDGE = [
+  ['off', '不带', '完全独立，当刚认识'],
+  ['light', '精简', '最近 5 条'],
+  ['standard', '标准', '最近 12 条'],
+  ['deep', '深度', '最近 20 条'],
+  ['all', '极深', '全部未总结的聊天']
+];
+
+const OFFLINE_LEN = [[100, 500], [60, 200], [200, 800], [400, 1500]];
+
+function offlineOf(cid) {
+  if (!state.offline || typeof state.offline !== 'object') state.offline = {};
+  if (!state.offline[cid] || typeof state.offline[cid] !== 'object') {
+    state.offline[cid] = { pages: [], outline: '', style: '', turn: 0 };
+  }
+  const o = state.offline[cid];
+  if (!Array.isArray(o.pages)) o.pages = [];
+  if (typeof o.outline !== 'string') o.outline = '';
+  if (typeof o.turn !== 'number') o.turn = 0;
+  return o;
+}
+
+/* 一页 = 一天（或一次连续的场景）。跨天自动开新页，见 offlinePush。 */
+function offlinePage(cid, at) {
+  const o = offlineOf(cid);
+  const d = fmtDate(at == null ? virtualNow() : at);
+  let p = o.pages[o.pages.length - 1];
+  if (!p || p.date !== d) {
+    p = { id: 'of' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36), date: d, entries: [] };
+    o.pages.push(p);
+  }
+  return p;
+}
+
+function offlineEntries(cid) {
+  return offlineOf(cid).pages.reduce((a, p) => a.concat(p.entries), []);
+}
+
+function offlinePush(cid, role, text, extra) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const p = offlinePage(cid);
+  const e = Object.assign({
+    id: 'oe' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+    role, text: t, at: virtualNow()
+  }, extra || {});
+  p.entries.push(e);
+  offlineOf(cid).turn++;
+  return e;
+}
+
+function offlineClear(cid) {
+  state.offline[cid] = { pages: [], outline: '', style: offlineOf(cid).style, turn: 0 };
+  return true;
+}
+
+/* 文风：角色级设置优先，其次全局 */
+function offlineStyle(cid) {
+  const o = offlineOf(cid);
+  const s = state.settings.offline || {};
+  const k = o.style || s.style || 'novel';
+  const hit = OFFLINE_STYLES.find(x => x[0] === k);
+  return hit ? hit : OFFLINE_STYLES[0];
+}
+
+function offlineBridge(cid) {
+  const s = state.settings.offline || {};
+  const k = String(s.bridge || 'standard');
+  const hit = OFFLINE_BRIDGE.find(x => x[0] === k);
+  return hit || OFFLINE_BRIDGE[2];
+}
+
+/* 线上聊天 → 剧场的上下文桥。只取该角色那条线，按开关截断。 */
+function offlineBridgeLines(cid) {
+  const [k] = offlineBridge(cid);
+  if (k === 'off') return [];
+  const all = (state.chats[cid] || []).filter(m => m && m.text && !m.img);
+  const n = { light: 5, standard: 12, deep: 20 }[k];
+  const list = n ? all.slice(-n) : all;
+  const me = String(state.settings.userName || '').trim() || '我';
+  const ch = state.characters.find(x => x.id === cid) || {};
+  return list.map(m => (m.me ? me : (ch.name || '对方')) + '：' + String(m.text).slice(0, 200));
+}
+
+const OFFLINE_RULES = [
+  '你在写一段**面对面的相处场景**（不是聊天记录）。',
+  '他和你就站在同一个空间里，能看见彼此、能碰到彼此。',
+  '',
+  '# 怎么写',
+  '- 写成散文段落，不要写成消息对话框，不要用「他说：」这种干巴巴的格式堆砌。',
+  '- 要有三样东西：**动作**（谁做了什么）、**环境**（光线、声音、温度、气味）、**心理**（没说出口的想法）。',
+  '- 你演的是你自己（第一人称「我」或第三人称都行，跟文风走）。用户是「你」。',
+  '- 对白要少而准。一句话能顶十句解释的时候就别解释。',
+  '- 允许留白：不必把每一层心思都写透，读到的人自己会补。',
+  '- 结尾留一个能接下去的钩子 —— 一句话、一个动作、一个没问出口的问题。',
+  '- 不要用 Markdown（**加粗**、# 标题、- 列表都不要）。段落之间正常换行就行。',
+  '',
+  '# 不要做',
+  '- 不要跳出场景做总结、不要写「（未完待续）」之类。',
+  '- 不要代替用户行动或替用户说话 —— 用户下一步做什么由他自己输入。',
+  '- 不要每段都堆形容词。克制比华丽更像文学。'
+].join('\n');
+
+function buildOfflineSystem(cid, outlineOverride) {
+  const c = state.characters.find(x => x.id === cid) || {};
+  const s = state.settings;
+  const o = offlineOf(cid);
+  const [, styleName, styleDesc] = offlineStyle(cid);
+  const L = (s.offline && s.offline.len) || OFFLINE_LEN[0];
+  const lines = [OFFLINE_RULES, '', '---', ''];
+
+  lines.push('# 场景设定');
+  lines.push('文风：' + styleName + '（' + styleDesc + '）');
+  lines.push('这次要写 ' + L[0] + '~' + L[1] + ' 字。');
+
+  lines.push('');
+  lines.push('# 你是谁');
+  lines.push('名字：' + (c.name || '（没填）'));
+  const alias = String(c.alias || '').trim() || String(s.userName || '').trim();
+  if (alias) lines.push('对面这个人叫「' + alias + '」。');
+  if (c.relation) lines.push('你们的关系：' + c.relation);
+  if (c.desc) lines.push('一句话简介：' + c.desc);
+  if (c.persona) lines.push('人设 / 性格 / 说话方式：\n' + c.persona);
+
+  const wbTxt = wbBlock([], c);
+  if (wbTxt) { lines.push(''); lines.push(wbTxt); }
+
+  /* 上下文桥：他在剧场里记得你们线上说过什么吗 */
+  const br = offlineBridgeLines(cid);
+  if (br.length) {
+    const [, bName] = offlineBridge(cid);
+    lines.push('');
+    lines.push('# 你们最近在手机上聊过的（' + bName + '）');
+    lines.push('这些是刚发生的事，你记得。场景里可以自然带出来，但别复述一遍。');
+    br.forEach(x => lines.push('- ' + x));
+  }
+
+  const outline = String(outlineOverride != null ? outlineOverride : o.outline || '').trim();
+  if (outline) {
+    lines.push('');
+    lines.push('# 剧情大纲（照着走，别跑偏）');
+    lines.push(outline);
+  }
+
+  const mem = memories(cid);
+  if (mem.length) {
+    lines.push('');
+    lines.push('# 你记得的事');
+    mem.forEach(m => lines.push('- ' + m.text));
+  }
+
+  const ev = todayEvents();
+  if (ev.length) {
+    lines.push('');
+    lines.push('# 你今天自己的安排');
+    ev.forEach(e => lines.push('- ' + (e.time ? e.time + ' ' : '') + (e.title || '')));
+  }
+
+  return lines.join('\n');
+}
+
+/* 把已有条目摊成给模型看的正文（最近若干条，太长就截） */
+function offlineHistory(cid, keep) {
+  const es = offlineEntries(cid).slice(-(keep || 12));
+  return es.map(e => {
+    const label = e.role === 'me' ? '【我做的】' : e.role === 'narr' ? '【旁白】' : '【' + (e.role === 'char' ? '你' : '场景') + '】';
+    return label + ' ' + e.text;
+  }).join('\n');
+}
+
+/* 让角色把一个场景写出来。返回 {text, choices:[]}。
+   不配接口就返回一段本地演示，保证离线也能玩（跟 askCharacter 一个思路）。 */
+async function askOffline(cid, userAction, opts) {
+  const s = state.settings;
+  const o = offlineOf(cid);
+  const action = String(userAction || '').trim();
+  if (!apiRoot() || !s.apiKey) {
+    const ch = state.characters.find(x => x.id === cid) || {};
+    return {
+      text: '（本地演示）' + (ch.name || '他') + '愣了一下，没立刻接话。\n'
+        + '你刚才做的「' + (action || '什么都没做') + '」，他看在眼里。\n'
+        + '窗外的光慢慢移过桌面。去「设置」里填上接口地址和 Key，这段就会真的写出来。',
+      choices: ['再说点什么', '看着他，不说话', '转身走开']
+    };
+  }
+  if (!s.apiModel) throw new Error('还没挑模型：去「设置」里点一下「拉取模型列表」');
+
+  const style = offlineStyle(cid);
+  const L = (s.offline && s.offline.len) || OFFLINE_LEN[0];
+  const sys = buildOfflineSystem(cid, opts && opts.outline);
+  const lines = [];
+  if (o.outline) lines.push('【当前大纲】\n' + o.outline + '\n');
+  const hist = offlineHistory(cid, 12);
+  if (hist) lines.push('【前面已经发生的】\n' + hist + '\n');
+  if (action) lines.push('【他刚刚做了】\n' + action + '\n');
+  lines.push('接着往下写这一段。写 ' + L[0] + '~' + L[1] + ' 字。');
+  lines.push('');
+  lines.push('写完之后，另起一行，用这个格式给三个「他可以接着做的选择」（每个不超过 15 字）：');
+  lines.push('###CHOICES###');
+  lines.push('1. 第一个选择');
+  lines.push('2. 第二个选择');
+  lines.push('3. 第三个选择');
+
+  const raw = await askOnce(sys, lines.join('\n'));
+  return splitOfflineReply(raw);
+}
+
+/* 拆「正文 + 三个选择」。模型不一定乖乖给 ###CHOICES###，
+   所以几种写法都兜一下；实在没有选择就返回空数组（前端隐藏那一栏）。 */
+function splitOfflineReply(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return { text: '', choices: [] };
+  const m = text.split(/###\s*CHOICES\s*###/i);
+  let body = m[0].trim();
+  let tail = m.slice(1).join('\n').trim();
+  /* 没有分隔符时，试着从末尾找「1. … 2. … 3. …」那一坨 */
+  if (!tail) {
+    const mm = body.match(/(?:^|\n)\s*1[.、)]\s*[^\n]{1,40}\n\s*2[.、)]\s*[^\n]{1,40}\n\s*3[.、)]\s*[^\n]{1,40}\s*$/);
+    if (mm) { tail = mm[0]; body = body.slice(0, mm.index).trim(); }
+  }
+  const choices = tail.split('\n')
+    .map(x => x.replace(/^\s*\d+\s*[.、)]\s*/, '').replace(/^[-*]\s*/, '').trim())
+    .filter(x => x && x.length <= 40)
+    .slice(0, 3);
+  return { text: body, choices };
+}
+
+/* 让模型顺手更新一版大纲。失败不影响正文 —— 大纲是锦上添花。 */
+async function offlineOutline(cid) {
+  const s = state.settings;
+  if (!apiRoot() || !s.apiKey || !s.apiModel) return '';
+  const o = offlineOf(cid);
+  const hist = offlineHistory(cid, 20);
+  if (!hist) return '';
+  const sys = '你在帮一部连载小说维护剧情大纲。读下面已经写好的部分，'
+    + '用**不超过 60 字**概括「到现在为止发生了什么、接下来往哪走」。'
+    + '只输出大纲本身，不要解释、不要 Markdown、不要编号。';
+  const user = (o.outline ? '【旧大纲】\n' + o.outline + '\n\n' : '') + '【已写的内容】\n' + hist;
+  try {
+    const t = await askOnce(sys, user);
+    const clean = String(t || '').trim().replace(/^#+\s*/, '').split('\n')[0].slice(0, 120);
+    if (clean) { o.outline = clean; }
+    return o.outline;
+  } catch (e) { return o.outline || ''; }
 }
 
 async function askGroup(g, history) {
@@ -4981,5 +5579,13 @@ window.SJ = {
   exportState, importState,
   /* 图片仓：字节进 IndexedDB，存档里只留 'idb:' 引用 */
   IMG_REF, BLANK_IMG, imgSrc, putImg, imgBoot, imgSweep, imgClean, imgPurge, imgWipe,
-  storageReport, persistAsk, onSaveError
+  storageReport, persistAsk, onSaveError,
+  /* 主题包：桌面 / 聊天 / 短信 三个槽位分开存、分开导入 */
+  THEME_VARS, THEME_SLOTS, BUILTIN_THEMES,
+  sanitizeThemePack, themesOf, themeIdOf, themeOf, saveThemePack, removeThemePack,
+  pickTheme, applyThemeTo, themePackJson, importThemePack, builtinThemesFor,
+  /* 线下模式「此刻相遇」 */
+  OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN,
+  offlineOf, offlineEntries, offlinePush, offlineClear, offlineStyle, offlineBridge,
+  buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline
 };

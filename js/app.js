@@ -122,6 +122,9 @@ const stack = [];   // [{id, node, onUnmount}]
 const MAX_DEPTH = 8;
 
 /* arg 可选：直接打开某个 App 的深层视图（比如通讯录里点「发消息」直达和那个角色的对话） */
+/* 哪个 App 用哪个槽位的主题。没列在这儿的 App 不套主题，永远用默认那套。 */
+const THEME_APP_SLOT = { home: 'desktop', chat: 'chat', ymessage: 'sms' };
+
 function openApp(id, arg) {
   const def = window.APPS.find(a => a.id === id);
   if (!def) return console.warn('[shell] 没有这个 App:', id);
@@ -136,6 +139,11 @@ function openApp(id, arg) {
 
   stackEl.append(node);
   stack.push(record);
+
+  /* 这个 App 有主题就套上。渲染之后再套 —— 节点得先在树里，
+     而且 App 自己的 render 可能又建了子节点。 */
+  const slot = THEME_APP_SLOT[id];
+  if (slot) SJ.applyThemeTo(node, slot, phone.classList.contains('dark'));
 
   requestAnimationFrame(() => node.classList.add('in'));
   if (stack.length === 1) { homeEl.classList.add('pushed'); phone.classList.add('app-open'); }
@@ -1102,6 +1110,20 @@ function applyLook() {
   ['ink', 'rose', 'ocean', 'forest'].forEach(t => phone.classList.remove('tint-' + t));
 
   phone.style.setProperty('--font', SJ.FONT_STACKS[s.font] || SJ.FONT_STACKS.system);
+
+  /* 主题包：桌面 / 聊天 / 短信 三个槽位，各铺到各自的壳上。
+     为什么不铺在 #phone：--accent 这类是全局令牌，铺上去整台手机一起变
+     （音乐配色就这么翻过一次车）。铺在各自的壳上，一个 App 一套，互不干扰。
+     ⚠️ 桌面不是 .app-view —— #home 是独立的一个 div，别照抄 App 那套选择器。 */
+  {
+    const dark = phone.classList.contains('dark');
+    const map = [
+      ['desktop', [homeEl]],
+      ['chat', [document.querySelector('.app-chat')]],
+      ['sms', [document.querySelector('.app-ymessage')]]
+    ];
+    map.forEach(([slot, els]) => els.forEach(el => { if (el) SJ.applyThemeTo(el, slot, dark); }));
+  }
 }
 
 /* ── 真·系统通知 ──

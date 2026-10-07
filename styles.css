@@ -4050,3 +4050,144 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 群设置里挑头像 */
 .av-pick-row { display: flex; align-items: center; gap: 10px; margin: 0 16px 6px; }
 .av-pick-row .avatar { width: 56px; height: 56px; border-radius: 18px; }
+
+/* ══════════════════════════════════════════════════════
+   主题包：桌面 / 聊天 / 短信 三套分开。
+   变量由 SJ.applyThemeTo() 铺在 .app-view 上，这里只负责「用上」它们。
+   没选主题时这些 var() 全部回落到原来的令牌 —— 所以默认长相一点没变。
+   ══════════════════════════════════════════════════════ */
+
+/* 气泡：只认 --bubble-*，没设就用原来的 accent / card */
+.bubble.me {
+  background: var(--bubble-me, var(--accent));
+  color: var(--bubble-me-ink, #fff);
+}
+.bubble.ta {
+  background: var(--bubble-ta, var(--card));
+  color: var(--bubble-ta-ink, inherit);
+}
+.bubble { border-radius: var(--bubble-radius, 18px); }
+
+/* 主题还能改底色与文字色。铺在 App 壳上，只影响这个 App。 */
+.app-view.themed { background: var(--bg, var(--bg)); }
+.app-view.themed .nav-bar { background: var(--card, var(--card)); border-bottom-color: var(--line, var(--line)); }
+.app-view.themed .nav-title { color: var(--ink, var(--ink)); }
+.app-view.themed .chat-body, .app-view.themed .ym-body { background: var(--bg, var(--bg)); }
+.app-view.themed .chat-input {
+  background: var(--card, var(--card));
+  color: var(--ink, var(--ink));
+  border-color: var(--line, var(--line));
+}
+.app-view.themed .msg-time { color: var(--ink-3, var(--ink-3)); }
+.app-view.themed { color: var(--ink, inherit); }
+
+/* ── 主题包管理页 ── */
+.theme-list { display: grid; gap: 8px; margin: 8px 16px 0; }
+.theme-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 13px; border-radius: 16px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line);
+}
+.theme-row:active { background: var(--bg-2, rgba(0,0,0,.04)); }
+.theme-row.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.theme-swatch {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 12px;
+  border: 1px solid var(--line); display: grid; place-items: center;
+}
+.theme-swatch i { width: 15px; height: 15px; border-radius: 50%; display: block; }
+
+/* ══════════════════════════════════════════════════════
+   线下模式「此刻相遇」：做成书页，不做成聊天气泡。
+   这是它和聊天最大的区别 —— 用户一眼要能看出「换了一种模式」。
+   ══════════════════════════════════════════════════════ */
+.of-page { display: flex; flex-direction: column; padding: 0; }
+.of-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px 10px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+}
+.of-who { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+.of-who .avatar { width: 34px; height: 34px; border-radius: 12px; font-size: 18px; }
+.of-who-main { min-width: 0; }
+.of-who-name { font-size: 14.5px; font-weight: 600; }
+.of-who-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+.of-gear {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-2); font-size: 15px; cursor: pointer;
+}
+
+/* 正文：衬线 + 行距 1.9 + 首行缩进两字。这三条是「像小说」的关键 */
+.of-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px 8px; }
+.of-body { max-width: 640px; }
+.of-p {
+  font-family: var(--of-font, Georgia, "Songti SC", "Noto Serif CJK SC", serif);
+  font-size: 16px; line-height: 1.9; color: var(--ink, #111);
+  text-indent: 2em; margin: 0 0 14px;
+  white-space: pre-wrap; word-break: break-word;
+}
+/* 用户自己的动作：缩进去掉、颜色弱一点、前面加一道竖线，
+   和角色写的正文区分开 —— 但不做成气泡，那样就不是书了 */
+.of-p.me {
+  text-indent: 0; color: var(--ink-2); font-size: 15px;
+  border-left: 3px solid var(--accent, #ccc); padding-left: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  line-height: 1.75;
+}
+.of-p.narr {
+  text-indent: 0; text-align: center; color: var(--ink-3); font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+.of-cg { margin: 4px 0 16px; }
+.of-cg-img { width: 100%; padding-top: 62%; border-radius: 14px; background-size: cover; background-position: center; }
+.of-empty { text-align: center; padding: 54px 20px; }
+.of-empty-t { font-size: 16px; font-weight: 600; }
+.of-empty-s { font-size: 13px; color: var(--ink-3); margin-top: 7px; line-height: 1.7; }
+
+/* 三个可点的回应选择 */
+.of-choices { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 8px; flex: 0 0 auto; }
+.of-choices:empty { display: none; }
+.of-choice {
+  flex: 0 0 auto; max-width: 72%; text-align: left;
+  padding: 9px 14px; border-radius: 13px; font-size: 13.5px; line-height: 1.45;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink);
+  cursor: pointer;
+}
+.of-choice:active { background: var(--accent-soft, rgba(0,0,0,.06)); }
+
+/* 底部输入 */
+.of-dock { display: flex; gap: 9px; padding: 10px 16px 14px; align-items: flex-end; flex: 0 0 auto; }
+.of-input {
+  flex: 1; min-width: 0; resize: none; max-height: 96px;
+  padding: 10px 13px; border-radius: 15px; font: inherit; font-size: 14.5px;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink);
+}
+.of-input:focus { outline: none; border-color: var(--accent, #999); }
+.of-send {
+  flex: 0 0 auto; padding: 10px 17px; border-radius: 15px; border: 0;
+  background: var(--accent, #333); color: #fff; font: inherit; font-size: 14.5px; cursor: pointer;
+}
+.of-send:disabled { opacity: .5; }
+
+/* 线下设置里的文风选项卡 */
+.of-styles { display: grid; gap: 8px; margin: 6px 16px 0; }
+.of-style {
+  text-align: left; padding: 11px 14px; border-radius: 15px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line); font: inherit;
+}
+.of-style.on { border-color: var(--accent, #333); box-shadow: 0 0 0 2px var(--accent-soft, rgba(0,0,0,.06)); }
+.of-style-t { font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.of-style-s { font-size: 12px; color: var(--ink-3); margin-top: 3px; line-height: 1.5; }
+.of-outline {
+  width: 100%; resize: vertical; padding: 11px 13px; border-radius: 15px;
+  font: inherit; font-size: 14px; line-height: 1.6;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink);
+}
+
+/* 桌面主题：#home 不是 .app-view，单独给它一套。
+   只改图标底块和文字色 —— 壁纸是用户自己的，主题不该动它。 */
+#home.themed .app-ico { background: var(--card, var(--app-ico-bg, rgba(255,255,255,.7))); color: var(--ink, inherit); }
+#home.themed .app-name { color: var(--ink, inherit); text-shadow: none; }
+#home.themed .widget { background: var(--card, var(--card)); border-color: var(--line, var(--line)); }
+#home.themed .widget-time, #home.themed .widget-date { color: var(--ink, inherit); }
+#home.themed .dock { background: var(--card, var(--dock-bg, rgba(255,255,255,.42))); }
+#home.themed .page-dot.on { background: var(--accent, #333); }

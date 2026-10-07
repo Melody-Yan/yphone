@@ -2105,6 +2105,164 @@ const APPS = [
           load();
         }
 
+
+      /* ══ 线下模式「此刻相遇」 ══
+         一个阅读器 + 一个输入框。正文用衬线、行距 1.9、首行缩进两字，
+         刻意做成「书页」而不是聊天气泡 —— 这是它和聊天最大的区别。 */
+      function offlineView(cid) {
+        const ch = SJ.state.characters.find(x => x.id === cid);
+        if (!ch) return listView();
+        const pad = subPage('此刻相遇', () => chatView(cid));
+        pad.classList.add('of-page');
+
+        const o = SJ.offlineOf(cid);
+        const body = SJ.el('div', { class: 'of-body' });
+
+        const draw = () => {
+          body.innerHTML = '';
+          o.pages.forEach(pg => {
+            pg.entries.forEach(e => {
+              const cls = e.role === 'me' ? 'of-p me' : e.role === 'narr' ? 'of-p narr' : 'of-p';
+              if (e.cg) {
+                const fig = SJ.el('div', { class: 'of-cg' }, [
+                  SJ.el('div', { class: 'of-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
+                ]);
+                body.append(fig);
+              }
+              body.append(SJ.el('p', { class: cls }, e.text));
+            });
+          });
+          if (!SJ.offlineEntries(cid).length) {
+            body.append(SJ.el('div', { class: 'of-empty' }, [
+              SJ.el('div', { class: 'of-empty-t' }, '你们还没在这里见过面'),
+              SJ.el('div', { class: 'of-empty-s' }, '在下面写一句你想做的动作或想说的话，故事就从这儿开始。')
+            ]));
+          }
+          /* 滚到底：新写的一段总在最后 */
+          requestAnimationFrame(() => { const sc = pad.querySelector('.of-scroll'); if (sc) sc.scrollTop = sc.scrollHeight; });
+        };
+
+        const scroll = SJ.el('div', { class: 'of-scroll' }, [body]);
+
+        /* 三个可点的「回应选择」：点一下就当成一句动作发出去 */
+        const choiceBox = SJ.el('div', { class: 'of-choices' });
+        const setChoices = list => {
+          choiceBox.innerHTML = '';
+          if (!list || !list.length) return;
+          list.forEach(c => choiceBox.append(SJ.el('button', {
+            class: 'of-choice', onclick: () => { input.value = c; send(); }
+          }, c)));
+        };
+
+        const input = SJ.el('textarea', { class: 'of-input', placeholder: '写一句你想做的：我走过去拍了拍他的肩膀…', rows: '2' });
+        const sendBtn = SJ.el('button', { class: 'of-send' }, '下去');
+
+        let busy = false;
+        const syncSend = () => {
+          sendBtn.disabled = busy;
+          sendBtn.textContent = busy ? '写…' : '下去';
+        };
+
+        async function send() {
+          const text = String(input.value || '').trim();
+          if (!text && !SJ.offlineEntries(cid).length) return toast('先写一句你想做什么');
+          if (busy) return;
+          busy = true; syncSend();
+          if (text) { SJ.offlinePush(cid, 'me', text); input.value = ''; }
+          setChoices([]);
+          draw();
+          try {
+            const r = await SJ.askOffline(cid, text);
+            if (r.text) SJ.offlinePush(cid, 'char', r.text);
+            setChoices(r.choices);
+            if (SJ.state.settings.offline.autoOutline !== false) {
+              SJ.offlineOutline(cid).catch(() => {});
+            }
+            SJ.save();
+          } catch (e) {
+            SJ.offlinePush(cid, 'narr', '（这段没写出来）' + e.message);
+          }
+          busy = false; syncSend(); draw();
+        }
+        sendBtn.onclick = send;
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+        syncSend();
+
+        pad.append(
+          SJ.el('div', { class: 'of-bar' }, [
+            SJ.el('div', { class: 'of-who' }, [
+              avatarNode(ch),
+              SJ.el('div', { class: 'of-who-main' }, [
+                SJ.el('div', { class: 'of-who-name' }, ch.name || ''),
+                SJ.el('div', { class: 'of-who-sub' }, (() => {
+                  const [, sn] = SJ.offlineStyle(cid);
+                  const [, bn] = SJ.offlineBridge(cid);
+                  return sn + ' · 带着' + bn + '的近况';
+                })())
+              ])
+            ]),
+            SJ.el('button', { class: 'of-gear', onclick: () => offlineSettings(cid) }, '⚙')
+          ]),
+          scroll,
+          choiceBox,
+          SJ.el('div', { class: 'of-dock' }, [input, sendBtn])
+        );
+        draw();
+      }
+
+      /* 线下模式的设置：文风、上下文桥、长度、大纲 */
+      function offlineSettings(cid) {
+        const pad = subPage('此刻相遇 · 设置', () => offlineView(cid));
+        const S = SJ.state.settings.offline;
+        const o = SJ.offlineOf(cid);
+        const cur = k => (o.style || S.style) === k;
+
+        pad.append(
+          SJ.el('div', { class: 'group-title' }, '文风'),
+          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_STYLES.map(([k, name, desc]) =>
+            SJ.el('button', {
+              class: 'of-style' + (cur(k) ? ' on' : ''),
+              onclick: () => { o.style = k; SJ.save(); offlineSettings(cid); }
+            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+          SJ.el('div', { class: 'group-title' }, '上下文桥'),
+          SJ.el('div', { class: 'hint' }, '他在剧场里能看到多少你们手机上的近况 —— 这一项最影响连贯感。'),
+          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_BRIDGE.map(([k, name, desc]) =>
+            SJ.el('button', {
+              class: 'of-style' + ((S.bridge || 'standard') === k ? ' on' : ''),
+              onclick: () => { S.bridge = k; SJ.save(); offlineSettings(cid); }
+            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+          SJ.el('div', { class: 'group-title' }, '每段长度'),
+          SJ.el('div', { class: 'of-styles' }, SJ.OFFLINE_LEN.map(([a, b], i) =>
+            SJ.el('button', {
+              class: 'of-style' + ((Number(S.len) || 0) === i ? ' on' : ''),
+              onclick: () => { S.len = i; SJ.save(); offlineSettings(cid); }
+            }, [SJ.el('div', { class: 'of-style-t' }, a + '~' + b + ' 字'), SJ.el('div', { class: 'of-style-s' }, ['标准', '短一点', '长一点', '很长'][i] || '')]))),
+
+          SJ.el('div', { class: 'group-title' }, '剧情大纲'),
+          SJ.el('div', { class: 'hint' }, '每段写完之后由 AI 顺手更新一版，防止剧情跑偏。可以自己改。'),
+          rowToggle('自动更新大纲', '关掉就由你手写', S.autoOutline !== false,
+            () => { S.autoOutline = !(S.autoOutline !== false); SJ.save(); offlineSettings(cid); }),
+          (() => {
+            const ta = SJ.el('textarea', { class: 'of-outline', rows: '4', placeholder: '还没写什么。第一段生成完这里就会有一句话的大纲。' });
+            ta.value = o.outline || '';
+            ta.addEventListener('change', () => { o.outline = ta.value.trim(); SJ.save(); });
+            return SJ.el('div', { class: 'pad' }, [ta]);
+          })(),
+
+          SJ.el('div', { class: 'group-title' }, '危险区'),
+          SJ.el('button', {
+            class: 'btn danger',
+            onclick: () => confirmBox('清空和「' + (SJ.state.characters.find(x => x.id === cid) || {}).name + '」的全部线下剧情？', () => {
+              SJ.offlineClear(cid); SJ.save(); offlineView(cid);
+            })
+          }, '清空线下剧情')
+        );
+      }
+
       function chatSettings(id) {
         const c = SJ.state.characters.find(x => x.id === id);
         if (!c) return SJ.isGroup(id) ? groupSettings(id) : listView();
@@ -2159,6 +2317,10 @@ const APPS = [
             () => { c.allowRelation = c.allowRelation !== true; SJ.saveCharacter(c); chatSettings(id); }),
 
           SJ.el('div', { class: 'group-title' }, '内容'),
+          rowGo('此刻相遇（线下）', (() => {
+            const n = SJ.offlineEntries(id).length;
+            return n ? `已经写了 ${n} 段` : '面对面，写成一幕一幕的';
+          })(), () => offlineView(id)),
           rowGo('记忆卡片', memN ? `TA 记得 ${memN} 件事` : '还没记下什么', () => memPage(id)),
           rowGo('语音与通话', (SJ.state.settings.voice !== false ? '语音条已开' : '语音条已关') + ' · 打个电话', () => voicePage(id)),
           rowGo('聊天背景', SJ.chatBgOf(c) ? (c.chatBg ? '这个人单独设的' : '跟着全局那张') : '默认纸色', () => chatBgPage(id)),
@@ -6047,6 +6209,123 @@ const APPS = [
         }
 
         /* 外观与主题：深色模式 + 播放页背景（背景选择器原来在「音乐设置」里，搬过来更顺） */
+
+        /* ── 主题包管理 ──
+           三个槽位（桌面 / 聊天 / 短信）各自一套，选一个换一个，
+           互不影响 —— 用户明确要的就是「分开」。
+           导入导出都是一份 JSON，不引任何库。 */
+        const THEME_SLOT_INFO = [
+          ['desktop', '桌面主题', '壁纸、图标底色、整体配色'],
+          ['chat', '聊天主题', '微信那一套：气泡、底色、强调色'],
+          ['sms', '短信主题', '短信 App 那一套，和微信分开']
+        ];
+
+        function themePackView(slot) {
+          const info = THEME_SLOT_INFO.find(x => x[0] === slot) || THEME_SLOT_INFO[0];
+          const pad = subPage(info[1], () => lookView());
+          const S = SJ.state.settings;
+          const cur = SJ.themeIdOf(slot);
+
+          const listBox = SJ.el('div', { class: 'theme-list' });
+          const draw = () => {
+            listBox.innerHTML = '';
+            /* 「默认」永远排第一个：没有任何主题就是内置那套 */
+            const rows = [{ id: '', name: '默认（内置）', vars: {}, dark: {}, bi: true }]
+              .concat(SJ.builtinThemesFor(slot))
+              .concat(SJ.themesOf(slot));
+            rows.forEach(t => {
+              const on = (t.id || '') === cur;
+              const row = SJ.el('div', { class: 'theme-row' + (on ? ' on' : '') }, [
+                (() => {
+                  /* 预览块：把这个主题的底色 + 强调色画成一个小方块，不用截图 */
+                  const sw = SJ.el('div', { class: 'theme-swatch' });
+                  const v = t.vars || {};
+                  sw.style.background = v.card || v['bubble-ta'] || 'var(--card)';
+                  sw.style.borderColor = v.line || 'var(--line)';
+                  sw.append(SJ.el('i', {
+                    style: { background: v.accent || v['bubble-me'] || 'var(--accent)' }
+                  }));
+                  return sw;
+                })(),
+                SJ.el('div', { class: 'row-main' }, [
+                  SJ.el('div', { class: 'row-title' }, t.name + (on ? '  ✓' : '')),
+                  SJ.el('div', { class: 'row-sub' },
+                    Object.keys(t.vars || {}).length + ' 项' + (t.id && !t.bi ? ' · 自己导入的' : ''))
+                ]),
+                SJ.el('div', { class: 'row-time' }, on ? '在用' : '')
+              ]);
+              row.onclick = () => {
+                SJ.pickTheme(slot, t.id || '');
+                SJ.save();
+                if (window.SHELL) window.SHELL.applyLook();
+                themePackView(slot);
+              };
+              /* 自己导入的才能删（内置的给「隐藏」，不影响别人） */
+              if (t.id && !t.bi) {
+                row.append(SJ.el('div', { class: 'row-out', onclick: e => {
+                  e.stopPropagation();
+                  confirmBox(`删掉主题「${t.name}」？`, () => {
+                    SJ.removeThemePack(slot, t.id); SJ.save();
+                    if (window.SHELL) window.SHELL.applyLook();
+                    themePackView(slot);
+                  });
+                } }, '删'));
+              }
+              listBox.append(row);
+            });
+          };
+          draw();
+
+          /* 导入：一个藏起来的 file input，读文本交给 core 的 importThemePack 洗 */
+          const file = SJ.el('input', {
+            type: 'file', accept: '.json,application/json', class: 'hide'
+          });
+          const impTip = SJ.el('div', { class: 'hint' }, '主题文件是一份 JSON，里面写的是颜色 / 圆角这类变量。');
+          file.onchange = () => {
+            const f = file.files && file.files[0];
+            if (!f) return;
+            const fr = new FileReader();
+            fr.onload = () => {
+              const r = SJ.importThemePack(String(fr.result), slot);
+              file.value = '';
+              if (!r.ok) { impTip.textContent = '导入失败：' + r.error; return; }
+              SJ.save();
+              toast('导入 ' + r.packs.length + ' 个主题');
+              themePackView(slot);
+            };
+            fr.onerror = () => { impTip.textContent = '这个文件读不出来'; };
+            fr.readAsText(f);
+          };
+
+          /* 导出：把当前在用的那个写成 JSON 下载。没有选中的就导一个空壳当模板 */
+          const exportNow = () => {
+            const t = SJ.themeOf(slot) || SJ.builtinThemesFor(slot)[0] || { name: '新主题', vars: {}, dark: {} };
+            const text = t.id
+              ? SJ.themePackJson(slot, t.id)
+              : JSON.stringify({ v: 1, kind: 'yphone-theme', name: t.name, slot, vars: t.vars, dark: t.dark }, null, 2);
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = SJ.el('a', { href: url, download: `yphone-主题-${slot}-${t.name}.json` });
+            document.body.append(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+          };
+
+          pad.append(
+            SJ.el('div', { class: 'hint' }, info[2]),
+            listBox,
+            SJ.el('div', { class: 'group-title' }, '导入 / 导出'),
+            SJ.el('div', { class: 'pad' }, [
+              SJ.el('button', { class: 'btn ghost', onclick: () => file.click() }, '导入主题文件'),
+              SJ.el('button', { class: 'btn ghost', onclick: exportNow }, '导出当前主题'),
+              impTip, file
+            ]),
+            SJ.el('div', { class: 'group-title' }, '自己做一个'),
+            SJ.el('div', { class: 'hint' },
+              '导出一份改颜色就行。能改的只有颜色、圆角、字体这些变量 —— ' +
+              '不开放任意 CSS（主题文件是能互相传的，放开 CSS 等于把整台手机交出去）。')
+          );
+        }
+
         function lookView() {
           root.innerHTML = '';
           const S = SJ.state.settings;

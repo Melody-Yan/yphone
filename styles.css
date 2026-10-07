@@ -3989,12 +3989,32 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* ── 音乐 App 配色（四套） ──
    只覆盖 --accent 系列令牌，组件零改动；深浅两种模式下都要重声明，
    因为令牌是在「定义它的元素」上解析成计算值再继承的。 */
-#phone.tint-rose { --accent: #e05a7a; --accent-ink: #c0335a; --accent-soft: rgba(224, 90, 122, .12); }
-#phone.tint-ocean { --accent: #3f8fd0; --accent-ink: #2a6ea8; --accent-soft: rgba(63, 143, 208, .12); }
-#phone.tint-forest { --accent: #4a9d6a; --accent-ink: #327a4e; --accent-soft: rgba(74, 157, 106, .12); }
-#phone.dark.tint-rose { --accent: #f2789a; --accent-ink: #ff9db5; --accent-soft: rgba(242, 120, 154, .20); }
-#phone.dark.tint-ocean { --accent: #6db3e8; --accent-ink: #8ec7f2; --accent-soft: rgba(109, 179, 232, .20); }
-#phone.dark.tint-forest { --accent: #6dc48c; --accent-ink: #8ed6a6; --accent-soft: rgba(109, 196, 140, .20); }
+/* 只作用在音乐 App 的外壳（.app-view）上，不碰 #phone。
+   --accent 是全局令牌，挂 #phone 等于把聊天气泡、日历、付款键盘、
+   桌面组件一起染色 —— 之前就是这么错的。 */
+.app-view.tint-rose { --accent: #e05a7a; --accent-ink: #c0335a; --accent-soft: rgba(224, 90, 122, .14); --mtint: #e05a7a; }
+.app-view.tint-ocean { --accent: #3f8fd0; --accent-ink: #2a6ea8; --accent-soft: rgba(63, 143, 208, .14); --mtint: #3f8fd0; }
+.app-view.tint-forest { --accent: #4a9d6a; --accent-ink: #327a4e; --accent-soft: rgba(74, 157, 106, .14); --mtint: #4a9d6a; }
+.app-view.tint-ink { --mtint: var(--ink); }
+#phone.dark .app-view.tint-rose { --accent: #f2789a; --accent-ink: #ff9db5; --accent-soft: rgba(242, 120, 154, .22); --mtint: #f2789a; }
+#phone.dark .app-view.tint-ocean { --accent: #6db3e8; --accent-ink: #8ec7f2; --accent-soft: rgba(109, 179, 232, .22); --mtint: #6db3e8; }
+#phone.dark .app-view.tint-forest { --accent: #6dc48c; --accent-ink: #8ed6a6; --accent-soft: rgba(109, 196, 140, .22); --mtint: #6dc48c; }
+
+/* 只换令牌是看不出变化的（用户反馈「好像就返回按钮变了」）。
+   下面这些地方真正把它用上，切配色一眼就能看出来。 */
+.app-view.tint-rose .ymusic-brand,
+.app-view.tint-ocean .ymusic-brand,
+.app-view.tint-forest .ymusic-brand { color: var(--mtint); }
+.app-view .music-tab.on { color: var(--mtint, var(--accent-ink)); }
+.app-view .music-tab.on svg { color: var(--mtint, var(--accent-ink)); }
+.app-view .music-fab { background: var(--mtint, var(--ink)); }
+.app-view .music-player-play { background: var(--mtint, #fff); color: #fff; }
+.app-view .me-stat b { color: var(--mtint, var(--ink)); }
+.app-view .me-avatar { box-shadow: 0 0 0 3px var(--accent-soft), var(--el-1); }
+.app-view .music-detail-add { color: var(--mtint, var(--ink)); border-color: var(--accent-soft); }
+.app-view.tint-rose .music-now, .app-view.tint-ocean .music-now { border-color: var(--accent-soft); }
+.app-view .tint-btn.on { border-color: var(--mtint, var(--accent)); }
+
 
 /* 配色选择器 */
 .tint-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 16px 4px; }

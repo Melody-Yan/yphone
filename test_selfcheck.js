@@ -2682,10 +2682,20 @@ ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.t
     ok('点莓红写进了设置', App.state.settings.musicTint === 'rose', App.state.settings.musicTint);
     const tintsCss = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
     ok('四套配色的令牌都定义了（浅色）',
-      ['ink', 'rose', 'ocean', 'forest'].every(k => k === 'ink' || tintsCss.includes('#phone.tint-' + k)),
-      '缺：' + ['rose', 'ocean', 'forest'].filter(k => !tintsCss.includes('#phone.tint-' + k)).join(','));
+      ['rose', 'ocean', 'forest'].every(k => tintsCss.includes('.app-view.tint-' + k)),
+      '缺：' + ['rose', 'ocean', 'forest'].filter(k => !tintsCss.includes('.app-view.tint-' + k)).join(','));
     ok('深色下也各有一套',
-      ['rose', 'ocean', 'forest'].every(k => tintsCss.includes('#phone.dark.tint-' + k)));
+      ['rose', 'ocean', 'forest'].every(k => tintsCss.includes('#phone.dark .app-view.tint-' + k)));
+    /* 配色只能作用在音乐 App 上。挂 #phone 会把聊天气泡、日历、付款键盘、
+       桌面组件一起染色 —— 用户当场就发现过这个问题，别再退回去。 */
+    ok('配色不再挂在 #phone 上（不然整个手机都变色）',
+      !/#phone(\.dark)?\.tint-(rose|ocean|forest)/.test(tintsCss),
+      '#phone.tint-* 又出现了');
+    ok('CSS 里配色选择器都带 .app-view 前缀',
+      (tintsCss.match(/\.tint-(rose|ocean|forest)\b/g) || []).length ===
+      (tintsCss.match(/\.app-view\.tint-(rose|ocean|forest)\b/g) || []).length +
+      (tintsCss.match(/#phone\.dark \.app-view\.tint-(rose|ocean|forest)\b/g) || []).length,
+      '有裸的 .tint-* 选择器漏到全局了');
     App.state.settings.musicTint = 'ink';
   }
 
@@ -2794,6 +2804,35 @@ ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.t
     App.state.music.listened = 0;
     App.musicListen(1); App.musicListen(1); App.musicListen(1);
     ok('musicListen 会累加秒数', App.state.music.listened === 3, String(App.state.music.listened));
+    /* 「一刷新就归零」的真因：migrate 重建 out.music 时没把 listened / recent 列进去，
+       等于每次读存档都被抹掉。这里开一个独立的沙箱读同一份 store，等于真刷新一次
+       —— 不能调 boot()，那会把当前沙箱换掉、后面的用例全垮。
+       也不能用 load()：它只是「读出来返回」，不会改 state。 */
+    {
+      const saved = JSON.parse(JSON.stringify(App.state.music));
+      App.state.music.listened = 4242;
+      App.state.music.recent = ['x1', 'x2'];
+      App.save();
+      const freshBoot = () => {
+        const sb = makeSandbox();
+        const ctx = vm.createContext(sb);
+        for (const f of SRC) vm.runInContext(fs.readFileSync(path.join(DIR, f), 'utf8'), ctx, { filename: f });
+        return sb.SJ;
+      };
+      ok('刷新之后听歌时长还在（不能一刷新就归零）',
+        freshBoot().state.music.listened === 4242, String(freshBoot().state.music.listened));
+      ok('刷新之后「最近播放」也还在',
+        (r => Array.isArray(r.music.recent) && r.music.recent.length === 2)(freshBoot().state));
+      /* 脏数据（存档被手改过 / 老版本）不能把统计搞成 NaN */
+      const raw = JSON.parse(store.get('xiaoshouji.v1'));
+      raw.music = { listened: 'abc', recent: 'nope' };
+      store.set('xiaoshouji.v1', JSON.stringify(raw));
+      const bad = freshBoot().state.music;
+      ok('存档里的脏时长不会变成 NaN',
+        bad.listened === 0 && Array.isArray(bad.recent), String(bad.listened));
+      App.state.music = saved;
+      App.save();
+    }
     const show = openFresh('music');
     const tabBtn = walk(show).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的');
     if (tabBtn) tabBtn.click();

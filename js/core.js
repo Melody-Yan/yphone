@@ -417,7 +417,15 @@ function migrate(saved) {
     to: String(dl.to || '')
   };
   const mu = (out.music && typeof out.music === 'object' && !Array.isArray(out.music)) ? out.music : {};
-  out.music = { tracks: normalizeTracks(mu.tracks), playlists: normalizePlaylists(mu.playlists, mu.tracks), now: String(mu.now || '') };
+      out.music = {
+        tracks: normalizeTracks(mu.tracks),
+        playlists: normalizePlaylists(mu.playlists, mu.tracks),
+        now: String(mu.now || ''),
+        /* ⚠️ 这两项以前没列在这儿，等于每次读存档都被抹掉 ——
+           听歌时长「一刷新就归零」就是这么来的（recent 也一起丢）。 */
+        recent: Array.isArray(mu.recent) ? mu.recent.map(String).slice(0, 50) : [],
+        listened: (n => (isFinite(n) && n > 0) ? Math.floor(n) : 0)(Number(mu.listened))
+      };
   /* 商城：同样是导入存档的信任边界 */
   const ml = (out.mall && typeof out.mall === 'object' && !Array.isArray(out.mall)) ? out.mall : {};
   out.mall = {
@@ -3484,6 +3492,9 @@ function musicListen(sec) {
   state.music.listened = Math.min(86400 * 365, Number(state.music.listened || 0) + n);
   return state.music.listened;
 }
+/* 打点归打点，落盘另外来 —— 每加一次就 save() 太费（一秒一次），
+   交给调用方按批存。这个函数是给「离开/切后台」这类时刻兜底用的。 */
+function musicListenFlush() { save(); return state.music.listened || 0; }
 /* 失效的歌：没有链接，或者链接指向的字节已经不在仓里（清图片会连音频一起清掉 —— 共用同一个仓）。
    不去联网试探：跨域音频服务器不给 CORS 时 fetch 也会失败，那样会把能放的歌误删。 */
 async function musicBroken() {
@@ -4952,7 +4963,7 @@ window.SJ = {
   parsePlaylist, parseNetEasePlaylist, netEasePlaylistId, playlistNameFromInput, normalizeNetEasePlaylist, importNetEasePlaylist, normalizeTracks, musicTracks, MUSIC_BGS, musicPlaylists, musicPlaylist, musicAddPlaylist, musicRemovePlaylist, musicPlaylistSetTrack, matchLocalTrack, musicAdd, musicRemove, musicRemoveTracks, musicToggleFav, musicCreatePlaylist, musicListen, musicRecent, musicBroken, parseImportFile, parseLRC,
   wbBooks, wbBook, wbPriLabel, wbPriOf, wbPriToOrder, wbAutoKeys, wbKeyList,
   wbPackBooks, wbUnpackBooks, wbBookJson, wbFromBookJson,
-  musicClear, musicNow, musicSetNow,
+  musicClear, musicNow, musicSetNow, musicListenFlush,
   PERSONA_GENDERS, PERSONA_AGES, PERSONA_RELS, PERSONA_MBTI, PERSONA_MAX,
   personaList, personaById, activePersona, personaOf, makePersona, savePersona,
   removePersona, setActivePersona, zodiacOf, personaPrompt, personaSummary,

@@ -5759,10 +5759,24 @@ const APPS = [
             if (!a || a.paused || a.ended) return;
             if (a.readyState && a.readyState < 3) return;   /* 还在缓冲，不算听 */
             /* 已经离开播放页：停表并落盘 */
-            if (!listenAlive()) { clearInterval(listenTimer); listenTimer = null; SJ.save(); return; }
+            if (!listenAlive()) { clearInterval(listenTimer); listenTimer = null; SJ.musicListenFlush(); return; }
             SJ.musicListen(1);
-            if (++listenTick % 15 === 0) SJ.save();
+            /* 每 5 秒落一次盘。不每秒写 localStorage（费），但也不能只在离开时写 ——
+               直接关标签页/切后台是没机会走收尾逻辑的，那听的就白听了。 */
+            if (++listenTick % 5 === 0) SJ.musicListenFlush();
           }, 1000);
+        }
+
+        /* 切后台、关页面：定时器可能被系统直接冻住，这里再保一次底。
+           用 window 上的开关防止重复绑（这段代码每次重绘都会跑到）。
+           自检那个极简 DOM 里 window 没有 addEventListener，所以得逐项判断着绑。 */
+        if (!window.__musicFlushBound) {
+          window.__musicFlushBound = true;
+          const flush = () => { try { SJ.musicListenFlush(); } catch (e) {} };
+          if (document.addEventListener) {
+            document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+          }
+          if (window.addEventListener) window.addEventListener('pagehide', flush);
         }
 
         function bindEnded(again) {
@@ -5779,8 +5793,15 @@ const APPS = [
           };
           a.addEventListener('ended', a._ended);
         }
+        /* 音乐配色挂在这一层（root 就是音乐 App 的 .app-view）。
+           挂 #phone 上会漏到聊天气泡、日历、付款键盘、桌面组件 —— 试过，被骂了。 */
+        function paintTint() {
+          const t = SJ.state.settings.musicTint || 'ink';
+          ['ink', 'rose', 'ocean', 'forest'].forEach(k => root.classList.toggle('tint-' + k, k === t));
+        }
         function musicShell(self) {
           bindEnded(self || listView);
+          paintTint();
           root.append(SJ.el('div', { class: 'music-bottom' }, [
 
             SJ.el('button', { class: 'music-tab on', onclick: listView }, [svgNode('music', 18), SJ.el('span', {}, '音乐库')]),

@@ -1095,9 +1095,12 @@ function applyLook() {
   phone.style.setProperty('--av-k', s.avSize === 's' ? '.88' : s.avSize === 'l' ? '1.18' : '1');
   phone.style.setProperty('--av-r',
     s.avShape === 'round' ? '50%' : s.avShape === 'square' ? '18%' : '34%');
-  /* 音乐 App 的点缀色：四种，挂类换令牌，组件一行都不用改。
-     先清掉上一个，否则会累积成两个类同时生效。 */
-  ['ink', 'rose', 'ocean', 'forest'].forEach(t => phone.classList.toggle('tint-' + t, s.musicTint === t));
+  /* 音乐配色不再挂在 #phone 上 —— --accent 是全局令牌，
+     挂这儿等于把聊天气泡、日历、付款键盘、桌面组件一起染色（用户当场就发现了）。
+     改由音乐 App 自己挂到它的根节点上，见 apps.js 的 musicShell。
+     这里只负责把旧的清掉，免得老存档里残留的类还生效。 */
+  ['ink', 'rose', 'ocean', 'forest'].forEach(t => phone.classList.remove('tint-' + t));
+
   phone.style.setProperty('--font', SJ.FONT_STACKS[s.font] || SJ.FONT_STACKS.system);
 }
 

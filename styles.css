@@ -4214,23 +4214,12 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2 { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ── 全屏底图：模糊 + 遮罩，保证文字读得清 ── */
-.of2-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: var(--bg); }
-.of2-bg-img {
-  position: absolute; inset: -18%;
-  background-size: cover; background-position: center;
-  filter: blur(20px) saturate(1.15);
-  transform: scale(1.08);
-}
-.of2-bg::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(255,255,255,.40), rgba(255,255,255,.22) 40%, rgba(255,255,255,.46));
-}
-.of2.has-img .of2-bg::after {
-  background: linear-gradient(180deg, rgba(255,255,255,.50), rgba(255,255,255,.28) 42%, rgba(255,255,255,.56));
-}
-#phone.dark .of2-bg::after {
-  background: linear-gradient(180deg, rgba(20,19,18,.62), rgba(20,19,18,.44) 40%, rgba(20,19,18,.70));
-}
+.of2-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: #fff; }
+/* 原本这里是「全屏模糊底图 + 白色遮罩」，用户要纯白底，所以整套撤掉。
+   节点和 has-img 类都留着，以后想加个「用剧情图当背景」的开关时不用重写。 */
+.of2-bg-img { display: none; }
+.of2-bg::after { content: none; }
+#phone.dark .of2-bg { background: #1b1a19; }
 
 /* ── 顶栏：左返回、中间浮动卡、右菜单 ── */
 .of2-top {
@@ -4241,32 +4230,22 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-round {
   flex: none; width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center; cursor: pointer;
-  background: rgba(255,255,255,.58);
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  border: 1px solid rgba(255,255,255,.66);
+  background: #f4f2f0;
+  border: 1px solid rgba(0,0,0,.05);
   color: var(--ink);
-  box-shadow: 0 2px 10px rgba(0,0,0,.06);
 }
+.of2-round:hover { background: #ecebe9; }
 .of2-round:active { transform: scale(.94); }
-#phone.dark .of2-round {
-  background: rgba(46,44,42,.62); border-color: rgba(255,255,255,.14); color: var(--ink);
-}
+#phone.dark .of2-round { background: #2b2927; border-color: rgba(255,255,255,.09); color: var(--ink); }
 
 /* 浮动状态卡：地点 + 时间 + 天气。沿用桌面插件那套毛玻璃 */
 .of2-card {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px;
   padding: 9px 14px; border-radius: 24px;
-  background: rgba(255,255,255,.46);
-  backdrop-filter: blur(24px) saturate(1.15);
-  -webkit-backdrop-filter: blur(24px) saturate(1.15);
-  border: 1px solid rgba(255,255,255,.62);
-  box-shadow: 0 4px 18px rgba(0,0,0,.07), inset 0 1px 0 rgba(255,255,255,.85);
+  background: #f7f6f4;
+  border: 1px solid rgba(0,0,0,.05);
 }
-#phone.dark .of2-card {
-  background: rgba(46,44,42,.54); border-color: rgba(255,255,255,.13);
-  box-shadow: 0 4px 18px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);
-}
+#phone.dark .of2-card { background: #262523; border-color: rgba(255,255,255,.08); }
 .of2-card-ico { flex: none; opacity: .5; display: grid; place-items: center; }
 .of2-card-main { min-width: 0; }
 .of2-card-place {
@@ -4304,7 +4283,8 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-scroll {
   position: relative; z-index: 2; flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 6px 22px 14px;
+  /* 左边只留 34（正好放一个头像），右边留 22 —— 头像就贴在屏幕左缘了 */
+  padding: 6px 22px 14px 34px;
 }
 .of2-flow { max-width: 660px; margin: 0 auto; }
 .of2-blk { position: relative; margin-bottom: 4px; }
@@ -4312,10 +4292,10 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 旁白：斜体、深灰、字号略小、大缩进 */
 .of2-narr {
   margin: 0 0 12px; padding-left: 14px;
-  font-size: 14.5px; line-height: 1.95; font-style: italic;
+  font-size: var(--of-size, 14.5px); line-height: 1.95; font-style: italic;
   color: #4a4a4a; text-indent: 0;
-  /* 底图上光靠颜色不够稳，给一层极淡的白当作「纸」 */
-  text-shadow: 0 1px 0 rgba(255,255,255,.5);
+  /* 白底上不需要描边。之前那句 text-shadow 就是「重影」的来源，别再加回来。 */
+  text-shadow: none;
   white-space: pre-wrap; word-break: break-word;
 }
 #phone.dark .of2-narr {
@@ -4326,9 +4306,9 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 对白：加粗、略大、暖色高亮 */
 .of2-say {
   margin: 0 0 16px; padding-left: 14px;
-  font-size: 17px; line-height: 1.75; font-weight: 600;
+  font-size: calc(var(--of-size, 14.5px) * 1.17); line-height: 1.75; font-weight: 600;
   color: #8a5a12; letter-spacing: -.01em;
-  text-shadow: 0 1px 0 rgba(255,255,255,.55);
+  text-shadow: none;
   white-space: pre-wrap; word-break: break-word;
 }
 #phone.dark .of2-say { color: #eec27a; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
@@ -4346,23 +4326,19 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .of2-wm .avatar { width: 34px; height: 34px; border-radius: 12px; font-size: 17px; }
 #phone.dark .of2-wm { opacity: .55; box-shadow: 0 0 0 2px rgba(0,0,0,.28); }
-/* 头像栏：滚动区左边留 60px，带头像的块再自缩 44px。
-   这样头像占 60~94，正文从 118 起 —— 两边不打架。
-   （之前头像和正文的 left 都是 60，34 宽的头像正好压在字上。） */
-.of2-scroll { padding-left: 60px; }
-.of2-blk.has-wm { padding-left: 44px; }
-/* 头像 absolute 在块的左上角，正好落在 60 那个位置 */
-.of2-wm { left: 0; }
+/* 头像栏：滚动区左边留 34px（正好一个头像的宽），带头像的块再自缩 48px。
+   头像占 0~34，正文从 34+48+14 = 96 起。
+   （用户说头像太靠右 —— 之前滚动区左边留了 60，头像就跟着右移了。） */
+.of2-blk.has-wm { padding-left: 48px; }
 
 /* 用户自己的动作：右对齐的一小条，不做成气泡 */
 .of2-me { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 .of2-me-t {
   max-width: 78%; padding: 8px 14px; border-radius: 16px;
-  background: rgba(255,255,255,.5); border: 1px solid rgba(255,255,255,.6);
-  font-size: 14px; line-height: 1.6; color: var(--ink-2);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background: #f4f2f0; border: 1px solid rgba(0,0,0,.05);
+  font-size: calc(var(--of-size, 14.5px) - 0.5px); line-height: 1.6; color: var(--ink-2);
 }
-#phone.dark .of2-me-t { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.12); }
+#phone.dark .of2-me-t { background: #2b2927; border-color: rgba(255,255,255,.09); }
 
 .of2-cg { margin: 6px 0 16px; }
 .of2-cg-img { width: 100%; padding-top: 62%; border-radius: 20px; background-size: cover; background-position: center; }
@@ -4387,13 +4363,13 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-choices:empty { display: none; }
 .of2-choice {
   flex: 0 0 auto; max-width: 74%; text-align: left;
-  padding: 10px 15px; border-radius: 16px; font-size: 13.5px; line-height: 1.45;
-  background: rgba(255,255,255,.6); border: 1px solid rgba(255,255,255,.7);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  padding: 10px 15px; border-radius: 16px;
+  font-size: calc(var(--of-size, 14.5px) - 1px); line-height: 1.45;
+  background: #f4f2f0; border: 1px solid rgba(0,0,0,.05);
   color: var(--ink); cursor: pointer;
 }
 .of2-choice:active { transform: scale(.97); }
-#phone.dark .of2-choice { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.12); }
+#phone.dark .of2-choice { background: #2b2927; border-color: rgba(255,255,255,.09); }
 
 .of2-dock {
   position: relative; z-index: 2; flex: none;
@@ -4403,16 +4379,13 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-input {
   flex: 1; min-width: 0; resize: none; max-height: 96px;
   padding: 11px 17px; border-radius: 22px;
-  font: inherit; font-size: 14.5px; line-height: 1.5;
-  background: rgba(255,255,255,.62); color: var(--ink);
-  border: 1px solid rgba(255,255,255,.72);
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  box-shadow: 0 3px 14px rgba(0,0,0,.06);
+  font: inherit; font-size: var(--of-size, 14.5px); line-height: 1.5;
+  background: #f4f2f0; color: var(--ink);
+  border: 1px solid rgba(0,0,0,.05);
 }
 .of2-input:focus { outline: none; border-color: var(--accent, #bbb); }
 .of2-input::placeholder { color: var(--ink-3); }
-#phone.dark .of2-input { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.13); }
+#phone.dark .of2-input { background: #2b2927; border-color: rgba(255,255,255,.09); }
 .of2-send {
   flex: none; width: 42px; height: 42px; border-radius: 50%; border: 0;
   display: grid; place-items: center; cursor: pointer;

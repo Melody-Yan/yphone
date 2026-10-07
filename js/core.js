@@ -191,7 +191,7 @@ const DEFAULTS = {
     themePick: { desktop: '', chat: '', sms: '' },
     /* 线下模式：文风 / 上下文桥 / 自动更新大纲 / 每段字数档位（索引进 OFFLINE_LEN） */
     /* base/key/model 留空 = 线下跟聊天用同一套接口；填了就单独走 */
-  offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0, base: '', key: '', model: '' },
+  offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0, fontSize: 1, base: '', key: '', model: '' },
   ofModelList: [],
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
@@ -384,6 +384,8 @@ function migrate(saved) {
       base: strOf(of.base, 200),
       key: strOf(of.key, 200),
       model: strOf(of.model, 120),
+      /* 字号是档位索引，越界就回默认那档 */
+      fontSize: (Number(of.fontSize) >= 0 && Number(of.fontSize) <= 4) ? Number(of.fontSize) : 1,
       autoOutline: of.autoOutline !== false,
       choices: of.choices !== false,
       len: (ln === 1 || ln === 2 || ln === 3) ? ln : 0
@@ -5057,6 +5059,10 @@ const OFFLINE_BRIDGE = [
   ['all', '极深', '全部未总结的聊天']
 ];
 
+/* 正文字号档位。存的是索引，不用 px —— 以后想微调数值不用改存档。
+   1 是默认（14.5），跟改版前一致。 */
+const OFFLINE_SIZE = [13, 14.5, 16, 18, 20];
+
 const OFFLINE_LEN = [[100, 500], [60, 200], [200, 800], [400, 1500]];
 
 function offlineOf(cid) {
@@ -5763,7 +5769,7 @@ window.SJ = {
   sanitizeThemePack, themesOf, themeIdOf, themeOf, saveThemePack, removeThemePack,
   pickTheme, applyThemeTo, themePackJson, importThemePack, builtinThemesFor,
   /* 线下模式「此刻相遇」 */
-  OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN,
+  OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN, OFFLINE_SIZE,
   offlineOf, offlineEntries, offlinePush, offlineClear, offlineStyle, offlineBridge,
   buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline,
   parseScene, cleanLine, offlineScene, setOfflineScene,

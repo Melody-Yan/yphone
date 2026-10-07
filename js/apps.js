@@ -7032,8 +7032,8 @@ const APPS = [
             SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) }))
         }));
         const box = SJ.el('div', { class: 'list' });
-        box.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } },
-          '当面见他的时候，说的话就不再是一条条消息了 —— 是一幕一幕写下来的。'));
+        box.append(SJ.el('div', { class: 'hint of-lead', style: { padding: '4px 20px 14px' } },
+          '把没说出口的，写在同一个地方。'));
 
         /* 总览：写了多少段、跟谁写得最多。没有就不显示，省得空着占地方 */
         const totalSeg = list().reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
@@ -7159,6 +7159,22 @@ const APPS = [
               class: 'of-style' + ((S.bridge || 'standard') === k ? ' on' : ''),
               onclick: () => { S.bridge = k; SJ.save(); settingsView(); }
             }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+          SJ.el('div', { class: 'group-title' }, '字号'),
+          SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_SIZE.map((px, i) =>
+            SJ.el('button', {
+              class: 'of-style' + ((Number(S.fontSize) || 0) === i ? ' on' : ''),
+              onclick: () => { S.fontSize = i; SJ.save(); offlineView(cid, root, typeof listView === 'function' ? listView : null); }
+            }, [SJ.el('div', { class: 'of-style-t', style: { fontSize: px + 'px' } }, '字'),
+                SJ.el('div', { class: 'of-style-s' }, ['小', '标准', '大', '更大', '最大'][i] || (px + 'px'))]))),
+
+          SJ.el('div', { class: 'group-title' }, '默认字号'),
+          SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_SIZE.map((px, i) =>
+            SJ.el('button', {
+              class: 'of-style' + ((Number(S.fontSize) || 0) === i ? ' on' : ''),
+              onclick: () => { S.fontSize = i; SJ.save(); settingsView(); }
+            }, [SJ.el('div', { class: 'of-style-t', style: { fontSize: px + 'px' } }, '字'),
+                SJ.el('div', { class: 'of-style-s' }, ['小', '标准', '大', '更大', '最大'][i] || (px + 'px'))]))),
 
           SJ.el('div', { class: 'group-title' }, '默认长度'),
           SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_LEN.map(([a, b], i) =>
@@ -8319,21 +8335,20 @@ const APPS = [
     root.append(wrap);
 
     const o = SJ.offlineOf(cid);
+    /* 正文字号走 CSS 变量，设置页改一下整个剧场跟着缩放 */
+    const SZ = [13, 14.5, 16, 18, 20];
+    const applySize = () => {
+      const i = Number((SJ.state.settings.offline || {}).fontSize);
+      const px = SZ[i >= 0 && i < SZ.length ? i : 1];
+      wrap.style.setProperty('--of-size', px + 'px');
+    };
     const body = SJ.el('div', { class: 'of2-flow' });
     const scroller = SJ.el('div', { class: 'of2-scroll' }, [body]);
     let busy = false;
 
-    /* ── 背景：拿场景图 / 角色头像撑一张全屏模糊底 ── */
+    /* 背景要纯白（用户明确要求）。底图那套先留着不铺 ——
+       节点还在，以后想加「用剧情图当背景」的开关时不用重写。 */
     const bg = SJ.el('div', { class: 'of2-bg' });
-    const bg2 = SJ.el('div', { class: 'of2-bg-img' });
-    bg.append(bg2);
-    const paintBg = () => {
-      const sc = SJ.offlineScene(cid);
-      const src = (sc && sc.img) ? sc.img : (ch.chatBg || ch.avatarImg || '');
-      const url = src ? SJ.imgSrc(src) : '';
-      bg2.style.backgroundImage = url ? 'url("' + url + '")' : '';
-      bg.classList.toggle('has-img', !!url);
-    };
 
     /* ── 浮动状态卡：地点 / 时间 / 天气 ── */
     const cardPlace = SJ.el('div', { class: 'of2-card-place' });
@@ -8553,7 +8568,7 @@ const APPS = [
     const origRedo = menu.children[0];
     origRedo.onclick = () => { closeMenu(); redoLast(); send(true); };
 
-    paintBg(); paintCard();
+    applySize(); paintCard();
     draw();
   }
 

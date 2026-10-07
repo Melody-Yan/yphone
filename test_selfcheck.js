@@ -7263,13 +7263,24 @@ console.log('\n[103] 剧场视觉：沉浸式排版');
   ok('对白是加粗暖色高亮',
     /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css) &&
     /\.of2-say\s*\{[^}]*color:\s*#[0-9a-f]{6}/i.test(css));
-  /* 底图：blur(20px) */
-  ok('底图是 blur(20px)', /\.of2-bg-img\s*\{[^}]*blur\(20px\)/.test(css));
+  /* 背景：用户明确要纯白，所以那套「模糊底图 + 白遮罩」全撤了。
+     底图节点留着（display:none），以后想加开关不用重写。 */
+  ok('背景是纯白（不再铺底图）',
+    /\.of2-bg\s*\{[^}]*background:\s*#fff/.test(css) && /\.of2-bg-img\s*\{\s*display:\s*none/.test(css));
+
+  /* 重影的来源就是 text-shadow。白底上不需要，谁加回来谁就是 bug。 */
+  const narrRule2 = (css.match(/\.of2-narr\s*\{[^}]*\}/) || [''])[0];
+  const sayRule2 = (css.match(/\.of2-say\s*\{[^}]*\}/) || [''])[0];
+  ok('旁白没有文字描边（重影的来源）', /text-shadow:\s*none/.test(narrRule2), narrRule2.match(/text-shadow:[^;]*/)?.[0]);
+  ok('对白没有文字描边', /text-shadow:\s*none/.test(sayRule2), sayRule2.match(/text-shadow:[^;]*/)?.[0]);
+
+  /* 字号要可调：正文尺寸走 CSS 变量，档位由 OFFLINE_SIZE 提供 */
+  ok('旁白字号走 --of-size 变量', /font-size:\s*var\(--of-size/.test(narrRule2));
+  ok('对白字号跟着一起缩放', /font-size:\s*calc\(var\(--of-size/.test(sayRule2));
   /* 状态卡：大圆角 + 毛玻璃 + 柔和阴影 */
   const cardRule = (css.match(/\.of2-card\s*\{[^}]*\}/) || [''])[0];
-  ok('状态卡是大圆角 + 毛玻璃 + 柔和阴影',
-    /border-radius:\s*2[0-9]px/.test(cardRule) && /backdrop-filter:/.test(cardRule) && /box-shadow:/.test(cardRule),
-    cardRule.slice(0, 60));
+  ok('状态卡是大圆角（毛玻璃随底图一起撤了）',
+    /border-radius:\s*2[0-9]px/.test(cardRule), cardRule.slice(0, 60));
   /* 圆角 24px（用户点名要的边缘 24px 圆角） */
   ok('卡片边缘就是 24px 圆角', /\.of2-card\s*\{[^}]*border-radius:\s*24px/.test(css));
   /* 打字机 / 渐入 */
@@ -7417,12 +7428,9 @@ console.log('\n[106] 剧场的可读性：对比度和头像不打架');
     ratio(hex(sayHex), BG) > 4.5 && /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css));
 
   /* 遮罩别把底色洗得太白 —— 那正是「背景和字体太相近」的成因 */
-  const ov = (css.match(/\.of2-bg::after\s*\{[^}]*linear-gradient\(([^)]*\)[^;]*)\)/i) || [])[1] || '';
-  const alphas = (ov.match(/rgba\(255,\s*255,\s*255,\s*([\d.]+)\)/g) || [])
-    .map(x => Number(x.match(/([\d.]+)\)$/)[1]));
-  ok('遮罩读得到', alphas.length > 0, JSON.stringify(alphas));
-  ok('遮罩没有把背景洗白（最大的白色透明度 ≤ .5）',
-    Math.max(...alphas) <= 0.5, 'max=' + Math.max(...alphas));
+  /* 底图那层遮罩已经不要了；现在只要求底是干净的白（暗色另有深底） */
+  ok('遮罩已撤掉（不再叠白）', /\.of2-bg::after\s*\{\s*content:\s*none/.test(css));
+  ok('暗色模式下有对应的深底', /#phone\.dark \.of2-bg\s*\{\s*background:\s*#/.test(css));
 
   /* 头像水印：以前是 30px / opacity .2，还被后面的 <p> 盖住。
      现在要大一点、明显一点，并且有 z-index 压住文字。 */
@@ -7440,14 +7448,64 @@ console.log('\n[106] 剧场的可读性：对比度和头像不打架');
   ok('JS 真的会给带头像的块加上 has-wm', /holder\.classList\.add\('has-wm'\)/.test(src));
   ok('头像贴块的最左边（left: 0）', /\.of2-wm\s*\{[^}]*left:\s*0/.test(css));
 
-  /* padding-left 的账要算得过来：scroll 的 60 + has-wm 的 44 + p 的 14 > 头像的 34 */
-  const scrollPad = Number((css.match(/\.of2-scroll\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
+  /* padding-left 的账要算得过来：scroll 的左留白 + has-wm 的缩进 + p 的 14 > 头像宽 */
+  const scrollSide = (css.match(/\.of2-scroll\s*\{[^}]*padding:\s*\d+px\s+\d+px\s+\d+px\s+(\d+)px/) || [])[1];
   const wmPad = Number((css.match(/\.of2-blk\.has-wm\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
   const pPad = Number((css.match(/\.of2-narr\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
   const wmW = Number((css.match(/\.of2-wm\s*\{[^}]*width:\s*(\d+)px/) || [])[1]);
   ok('头像和正文之间有实实在在的空隙',
     (wmPad + pPad) > wmW,
-    'wm=' + wmW + ' 正文相对偏移=' + (wmPad + pPad) + '（scroll ' + scrollPad + ' 是共同的底）');
+    'wm=' + wmW + ' 正文相对偏移=' + (wmPad + pPad));
+  /* 用户说头像太靠右 —— scroll 的左留白不该超过一个头像的宽 */
+  ok('头像贴在左边（滚动区左留白 ≤ 头像宽）',
+    scrollSide !== undefined && Number(scrollSide) <= wmW,
+    'scroll左侧=' + scrollSide + ' 头像宽=' + wmW);
+}
+
+console.log('\n[107] 字号可调 + 白底 + 列表页那句开场');
+
+{
+  const A = sandbox.SJ;
+  const S = A.state.settings;
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+
+  /* 字号是档位制，存索引不存 px —— 数值以后想微调不用动存档 */
+  ok('OFFLINE_SIZE 导出了而且是从小到大',
+    Array.isArray(A.OFFLINE_SIZE) && A.OFFLINE_SIZE.length >= 3 &&
+    A.OFFLINE_SIZE[0] < A.OFFLINE_SIZE[A.OFFLINE_SIZE.length - 1],
+    JSON.stringify(A.OFFLINE_SIZE));
+  ok('默认字号是「标准」那档（14.5，跟改版前一致）',
+    A.OFFLINE_SIZE[A.DEFAULTS.settings.offline.fontSize] === 14.5,
+    String(A.OFFLINE_SIZE[A.DEFAULTS.settings.offline.fontSize]));
+
+  /* migrate：越界 / 脏数据要回落到默认档，不然字号会变成 undefined */
+  const boot2 = (of) => {
+    const saved = JSON.parse(store.get('xiaoshouji.v1') || '{}');
+    saved.settings = Object.assign({}, saved.settings, { offline: Object.assign({}, saved.settings && saved.settings.offline, of) });
+    store.set('xiaoshouji.v1', JSON.stringify(saved));
+    boot(); return sandbox.SJ;
+  };
+  const big = boot2({ fontSize: 99 });
+  ok('字号越界会回落到默认档', big.state.settings.offline.fontSize === 1, String(big.state.settings.offline.fontSize));
+  const neg = boot2({ fontSize: -3 });
+  ok('字号负数也回落到默认档', neg.state.settings.offline.fontSize === 1, String(neg.state.settings.offline.fontSize));
+  const junk = boot2({ fontSize: 'big' });
+  ok('字号是垃圾值时回落（Number("big") 是 NaN，别让它过）',
+    junk.state.settings.offline.fontSize === 1, String(junk.state.settings.offline.fontSize));
+
+  /* 剧场要真的把 --of-size 挂到 wrap 上 */
+  ok('剧场按设置写 --of-size',
+    /wrap\.style\.setProperty\('--of-size'/.test(src) && /applySize\(\)/.test(src));
+  ok('旁白和对白都跟着这个变量走',
+    /font-size:\s*var\(--of-size/.test(fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8')));
+
+  /* 两处设置页都要有字号入口 */
+  const sizeRows = (src.match(/SJ\.OFFLINE_SIZE\.map/g) || []).length;
+  ok('单角色页和全局页都有字号选项', sizeRows === 2, '出现 ' + sizeRows + ' 次');
+
+  /* 那句「人机感」的提示语没了 */
+  ok('列表页不再解释「一条条消息 / 一幕一幕」', !src.includes('一幕一幕写下来'));
+  ok('换成一句不解释功能的话', src.includes('把没说出口的，写在同一个地方。'));
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

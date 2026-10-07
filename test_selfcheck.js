@@ -7164,6 +7164,123 @@ console.log('\n[101] 图标必须有文件 + 此刻相遇的设置页');
     ['rowGo', 'rowToggle', 'subPageOf'].map(n => n + '=' + indOfFn(n)).join(' '));
 }
 
+console.log('\n[102] 剧场排版：结构化解析');
+
+{
+  const A = sandbox.SJ;
+
+  /* parseScene：模型输出要能被拆成旁白 / 对白，前端才有得分层排版 */
+  const b1 = A.parseScene('[旁白]雨点打在铁栏杆上。\n\n[你说]你来了。\n\n[旁白]他没有回头。');
+  ok('旁白和对白能分开', b1.length === 3 && b1[0].kind === 'narr' && b1[1].kind === 'char' && b1[2].kind === 'narr',
+    JSON.stringify(b1.map(x => x.kind)));
+  ok('台词文本里不留标记', b1[1].text === '你来了。', b1[1].text);
+  ok('留白空行不会变成空块', b1.every(x => x.text.length > 0));
+
+  /* 模型不听话的几种写法都要兜住 */
+  const b2 = A.parseScene('**旁白** 他走进来。\n**你说** 好久不见。');
+  ok('星号包着的标记也认', b2.length === 2 && b2[1].kind === 'char', JSON.stringify(b2.map(x => x.kind)));
+  const b3 = A.parseScene('【旁白】天黑了。\n【你说】走吧。');
+  ok('方头括号的标记也认', b3.length === 2 && b3[0].kind === 'narr' && b3[1].kind === 'char',
+    JSON.stringify(b3.map(x => x.kind)));
+  const b4 = A.parseScene('旁白：风很大。\n你说：关门。');
+  ok('带全角冒号的标记也认', b4.length === 2 && b4[1].kind === 'char', JSON.stringify(b4.map(x => x.kind)));
+  /* 别名：模型经常会写「环境」「动作」代替「旁白」，「台词」代替「你说」。
+     台词那一路最关键 —— 认不出来就会被当成旁白，整句对白排版全错。
+     注意这不是靠兜底过的：兜底只会把认不出的都算成旁白，
+     所以必须显式验「台词」真的变成 char。 */
+  const bAlias = A.parseScene('[环境]路灯忽明忽暗。\n[动作]他把外套脱了。\n[台词]等我一下。');
+  ok('环境 / 动作 都当旁白',
+    bAlias.length === 3 && bAlias[0].kind === 'narr' && bAlias[1].kind === 'narr',
+    JSON.stringify(bAlias.map(x => x.kind)));
+  ok('「台词」必须认成对白而不是旁白（认错整句排版就废了）',
+    bAlias.length === 3 && bAlias[2].kind === 'char',
+    JSON.stringify(bAlias.map(x => x.kind + ':' + x.text)));
+  const bChar = A.parseScene('[char]hello\n[你说]world');
+  ok('英文 char 标记也认成对白', bChar.every(x => x.kind === 'char'), JSON.stringify(bChar.map(x => x.kind)));
+
+  /* 一个标记都没有 —— 不能丢内容，得整段当旁白 */
+  const b5 = A.parseScene('他就站在那里，什么也没说。\n\n风吹了很久。');
+  ok('完全没标记时整段当旁白，不吞内容',
+    b5.length === 2 && b5.every(x => x.kind === 'narr') && /站在那里/.test(b5[0].text),
+    JSON.stringify(b5));
+  ok('空输入不炸', A.parseScene('').length === 0 && A.parseScene(null).length === 0);
+
+  /* 台词自带的引号要去掉（前端统一加「」），不然会出现「「你好」」 */
+  ok('台词自带引号会被剥掉', A.cleanLine('「你好」') === '你好' && A.cleanLine('"hi"') === 'hi',
+    A.cleanLine('「你好」'));
+
+  /* splitOfflineReply：场景头要被摘出来，且不能留在正文里 */
+  const r = A.splitOfflineReply('###SCENE### 他家阳台 | 傍晚 | 小雨\n\n[旁白]天暗了。\n\n###CHOICES###\n1. 进去\n2. 站着\n3. 走开');
+  ok('场景头拆出来了', r.scene && r.scene.place === '他家阳台' && r.scene.time === '傍晚' && r.scene.weather === '小雨',
+    JSON.stringify(r.scene));
+  ok('场景头不会漏进正文', !/###SCENE###/.test(r.text), r.text.slice(0, 40));
+  ok('选择和正文也还是分得开', r.choices.length === 3, r.choices.join('|'));
+
+  /* 没有场景头也不能炸 */
+  const r2 = A.splitOfflineReply('[旁白]只有正文。');
+  ok('没有场景头时 scene 是 null，不编一个假的出来', r2.scene === null, JSON.stringify(r2.scene));
+  ok('只有地点也能用', (() => {
+    const x = A.splitOfflineReply('###SCENE### 天台\n[旁白]风大。');
+    return x.scene && x.scene.place === '天台' && x.scene.time === '';
+  })());
+
+  /* 场景头要能存下来给卡片读 */
+  const ch0 = A.state.characters[0];
+  A.state.offline = {};
+  ok('刚开时没有场景头', A.offlineScene(ch0.id) === null);
+  A.setOfflineScene(ch0.id, { place: '海边栈道', time: '深夜', weather: '起风' });
+  ok('存进去了', A.offlineScene(ch0.id).place === '海边栈道', JSON.stringify(A.offlineScene(ch0.id)));
+  A.setOfflineScene(ch0.id, null);
+  ok('传 null 不会把现有的抹掉', A.offlineScene(ch0.id).place === '海边栈道');
+  A.offlineClear(ch0.id);
+  ok('清空剧情时场景头一起清', A.offlineScene(ch0.id) === null);
+
+  /* 提示词必须教模型用这套标记，否则前端排版没素材 */
+  const sys = A.buildOfflineSystem(ch0.id);
+  ok('提示词教了三种标记', /\[旁白\]/.test(sys) && /\[你说\]/.test(sys) && /\[我说\]/.test(sys));
+  ok('提示词要了场景头', /###SCENE###/.test(sys));
+  ok('提示词说明了前端的「」不要自己加', /前端会自己加/.test(sys));
+}
+
+console.log('\n[103] 剧场视觉：沉浸式排版');
+
+{
+  const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  /* 旁白：斜体 + #666 + 比正文小 */
+  ok('旁白是斜体深灰', /\.of2-narr\s*\{[^}]*font-style:\s*italic/.test(css) && /\.of2-narr\s*\{[^}]*color:\s*#666/.test(css));
+  /* 对白：加粗 + 高亮暖色 + 比旁白大 */
+  ok('对白是加粗暖色高亮', /\.of2-say\s*\{[^}]*font-weight:\s*600/.test(css) && /\.of2-say\s*\{[^}]*#b07d2e/.test(css));
+  /* 底图：blur(20px) */
+  ok('底图是 blur(20px)', /\.of2-bg-img\s*\{[^}]*blur\(20px\)/.test(css));
+  /* 状态卡：大圆角 + 毛玻璃 + 柔和阴影 */
+  const cardRule = (css.match(/\.of2-card\s*\{[^}]*\}/) || [''])[0];
+  ok('状态卡是大圆角 + 毛玻璃 + 柔和阴影',
+    /border-radius:\s*2[0-9]px/.test(cardRule) && /backdrop-filter:/.test(cardRule) && /box-shadow:/.test(cardRule),
+    cardRule.slice(0, 60));
+  /* 圆角 24px（用户点名要的边缘 24px 圆角） */
+  ok('卡片边缘就是 24px 圆角', /\.of2-card\s*\{[^}]*border-radius:\s*24px/.test(css));
+  /* 打字机 / 渐入 */
+  ok('新内容有渐入动画（不是瞬间全显示）',
+    /@keyframes of2fade/.test(css) && /\.of2-blk\.in-now\s*\{[^}]*animation:/.test(css));
+  ok('尊重系统的「减少动态效果」', /prefers-reduced-motion:\s*reduce/.test(css) && /of2-blk\.in-now\s*\{\s*animation:\s*none/.test(css));
+  /* 胶囊输入 */
+  ok('输入框是胶囊形', /\.of2-input\s*\{[^}]*border-radius:\s*2[0-9]px/.test(css));
+  ok('占位符文案就是用户要的那句',
+    /描述你的行动，或开口说话……/.test(fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8')));
+
+  /* 图标是细线条（fill:none + stroke:currentColor），不是实心块 */
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  ['cloud', 'feather', 'more', 'back'].forEach(n => {
+    ok('新图标 ' + n + ' 真的定义了', new RegExp('\\n  ' + n + ": '").test(src));
+  });
+  const feather = (src.match(/\n  feather: '([^']+)'/) || [])[1] || '';
+  ok('纸飞机/羽毛笔是线条画（没有 fill 属性）', feather && !/fill=/.test(feather), feather.slice(0, 40));
+
+  /* 三个操作都要在菜单里 */
+  ok('菜单里有重 Roll / 编辑 / 结束场景',
+    /重 Roll 这段/.test(src) && /编辑最后一段/.test(src) && /结束场景/.test(src));
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

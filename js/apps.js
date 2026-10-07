@@ -55,6 +55,10 @@ check: '<path d="M20 6 9 17l-5-5" />',
   bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />',
   video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /> <rect x="2" y="6" width="14" height="12" rx="2" />',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" />',
+  cloud: '<path d="M17.5 19a4.5 4.5 0 0 0 .7-8.95A6.5 6.5 0 0 0 5.2 11.2A3.9 3.9 0 0 0 6 19z" />',
+  feather: '<path d="M20.2 3.8a5.4 5.4 0 0 0-7.6 0L4 12.4V19h6.6l8.6-8.6a5.4 5.4 0 0 0 0-7.6z" /><path d="M16 8 4.5 19.5" /><path d="M14.5 12.5H9" />',
+  more: '<circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />',
+  back: '<path d="M15 5 8 12l7 7" />',
   pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" />',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1" /> <path d="M12 8v13" /> <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /> <path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" />',
   ticket: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" />',
@@ -7016,7 +7020,7 @@ const APPS = [
     name: '此刻相遇',
     icon: 'heart',
     art: '1F3AD',
-    color: 'linear-gradient(150deg,#e8ddd4,#b8a294)',
+    color: 'linear-gradient(150deg,#f0e2cd,#c9a87e)',
     render(root) {
       const list = () => (SJ.state.characters || []).filter(c => !SJ.isGroup(c.id));
 
@@ -8234,67 +8238,150 @@ const APPS = [
   function offlineView(cid, root) {
     const ch = SJ.state.characters.find(x => x.id === cid);
     if (!ch) return listView();
-    const pad = subPageOf(root, '此刻相遇', () => offlineBack(cid));
-    pad.classList.add('of-page');
+    /* 不套 subPageOf：剧场要全屏沉浸，不要那层 .pad 的边距和普通导航栏 */
+    root.innerHTML = '';
+    const wrap = SJ.el('div', { class: 'of2' });
+    root.append(wrap);
 
     const o = SJ.offlineOf(cid);
-    const body = SJ.el('div', { class: 'of-body' });
+    const body = SJ.el('div', { class: 'of2-flow' });
+    const scroller = SJ.el('div', { class: 'of2-scroll' }, [body]);
+    let busy = false;
 
-    const draw = () => {
-      body.innerHTML = '';
-      o.pages.forEach(pg => {
-        pg.entries.forEach(e => {
-          const cls = e.role === 'me' ? 'of-p me' : e.role === 'narr' ? 'of-p narr' : 'of-p';
-          if (e.cg) {
-            const fig = SJ.el('div', { class: 'of-cg' }, [
-              SJ.el('div', { class: 'of-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
-            ]);
-            body.append(fig);
-          }
-          body.append(SJ.el('p', { class: cls }, e.text));
-        });
-      });
-      if (!SJ.offlineEntries(cid).length) {
-        body.append(SJ.el('div', { class: 'of-empty' }, [
-          SJ.el('div', { class: 'of-empty-t' }, '你们还没在这里见过面'),
-          SJ.el('div', { class: 'of-empty-s' }, '在下面写一句你想做的动作或想说的话，故事就从这儿开始。')
-        ]));
-      }
-      /* 滚到底：新写的一段总在最后 */
-      requestAnimationFrame(() => { const sc = pad.querySelector('.of-scroll'); if (sc) sc.scrollTop = sc.scrollHeight; });
+    /* ── 背景：拿场景图 / 角色头像撑一张全屏模糊底 ── */
+    const bg = SJ.el('div', { class: 'of2-bg' });
+    const bg2 = SJ.el('div', { class: 'of2-bg-img' });
+    bg.append(bg2);
+    const paintBg = () => {
+      const sc = SJ.offlineScene(cid);
+      const src = (sc && sc.img) ? sc.img : (ch.chatBg || ch.avatarImg || '');
+      const url = src ? SJ.imgSrc(src) : '';
+      bg2.style.backgroundImage = url ? 'url("' + url + '")' : '';
+      bg.classList.toggle('has-img', !!url);
     };
 
-    const scroll = SJ.el('div', { class: 'of-scroll' }, [body]);
+    /* ── 浮动状态卡：地点 / 时间 / 天气 ── */
+    const cardPlace = SJ.el('div', { class: 'of2-card-place' });
+    const cardMeta = SJ.el('div', { class: 'of2-card-meta' });
+    const card = SJ.el('div', { class: 'of2-card' }, [
+      SJ.el('div', { class: 'of2-card-ico', html: svg('pin', 15) }),
+      SJ.el('div', { class: 'of2-card-main' }, [cardPlace, cardMeta])
+    ]);
+    const paintCard = () => {
+      const sc = SJ.offlineScene(cid) || {};
+      const wIcon = /雨|雪|雷/.test(sc.weather || '') ? 'cloud'
+        : /晴|阳/.test(sc.weather || '') ? 'sun' : 'cloud';
+      cardPlace.textContent = sc.place || (ch.name ? '和 ' + ch.name + '在一起' : '此刻');
+      cardMeta.innerHTML = '';
+      const bits = [];
+      if (sc.time) bits.push({ t: sc.time, i: 'clock' });
+      if (sc.weather) bits.push({ t: sc.weather, i: wIcon });
+      if (!bits.length) bits.push({ t: '还没开始', i: 'clock' });
+      bits.forEach((b, i2) => {
+        if (i2) cardMeta.append(SJ.el('span', { class: 'of2-dot' }, '·'));
+        cardMeta.append(SJ.el('span', { class: 'of2-meta-i', html: svg(b.i, 12) }));
+        cardMeta.append(SJ.el('span', { class: 'of2-meta-t' }, b.t));
+      });
+    };
 
-    /* 三个可点的「回应选择」：点一下就当成一句动作发出去 */
-    const choiceBox = SJ.el('div', { class: 'of-choices' });
+    /* 右上角菜单里的三项操作 */
+    const menu = SJ.el('div', { class: 'of2-menu' });
+    const closeMenu = () => { menu.classList.remove('on'); };
+    document.addEventListener('click', closeMenu);
+    const openMenu = e => { e.stopPropagation(); menu.classList.toggle('on'); };
+
+    /* ── 渲染正文：一行一行按 kind 排版 ── */
+    const draw = (animateFrom) => {
+      body.innerHTML = '';
+      const all = SJ.offlineEntries(cid);
+      if (!all.length) {
+        body.append(SJ.el('div', { class: 'of2-empty' }, [
+          SJ.el('div', { class: 'of2-empty-t' }, '你们还没在这里见过面'),
+          SJ.el('div', { class: 'of2-empty-s' }, '在下面写一句你想做的，故事就从这儿开始。')
+        ]));
+      }
+      let idx = 0;
+      o.pages.forEach(pg => {
+        pg.entries.forEach(e => {
+          const isNew = animateFrom != null && idx >= animateFrom;
+          idx++;
+          const holder = SJ.el('div', { class: 'of2-blk' + (isNew ? ' in-now' : '') });
+          /* 用户自己的动作：右对齐的一小条，跟旁白分开 */
+          if (e.role === 'me') {
+            holder.className = 'of2-blk of2-me' + (isNew ? ' in-now' : '');
+            holder.append(SJ.el('div', { class: 'of2-me-t' }, e.text));
+            body.append(holder);
+            return;
+          }
+          if (e.cg) {
+            holder.append(SJ.el('div', { class: 'of2-cg' }, [
+              SJ.el('div', { class: 'of2-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
+            ]));
+          }
+          /* 角色那段：先拆成 [旁白]/[你说]/[我说]，各排各的 */
+          const blocks = (e.role === 'narr')
+            ? [{ kind: 'narr', text: e.text }]
+            : SJ.parseScene(e.text);
+          blocks.forEach((b, bi) => {
+            /* 头像水印：每个角色分段的第一行前面放一个小头像 */
+            if (bi === 0 && e.role !== 'narr') {
+              holder.append(SJ.el('div', { class: 'of2-wm' }, [avatarNode(ch)]));
+            }
+            if (b.kind === 'char') {
+              holder.append(SJ.el('p', { class: 'of2-say' }, '「' + b.text + '」'));
+            } else if (b.kind === 'me') {
+              holder.append(SJ.el('p', { class: 'of2-say me' }, '「' + b.text + '」'));
+            } else {
+              holder.append(SJ.el('p', { class: 'of2-narr' }, b.text));
+            }
+          });
+          body.append(holder);
+        });
+      });
+      if (animateFrom != null) {
+        /* 打字机/渐入：交给 CSS 的 animation，按块的先后给一点延迟 */
+        const news = body.querySelectorAll('.in-now');
+        news.forEach((n, i2) => { n.style.animationDelay = (i2 * 0.22) + 's'; });
+      }
+      requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
+    };
+
+    /* ── 底部：三个回应选择 + 胶囊输入 ── */
+    const choiceBox = SJ.el('div', { class: 'of2-choices' });
     const setChoices = list => {
       choiceBox.innerHTML = '';
       if (!list || !list.length) return;
       list.forEach(c => choiceBox.append(SJ.el('button', {
-        class: 'of-choice', onclick: () => { input.value = c; send(); }
+        class: 'of2-choice', onclick: () => { input.value = c; send(); }
       }, c)));
     };
 
-    const input = SJ.el('textarea', { class: 'of-input', placeholder: '写一句你想做的：我走过去拍了拍他的肩膀…', rows: '2' });
-    const sendBtn = SJ.el('button', { class: 'of-send' }, '下去');
+    const input = SJ.el('textarea', {
+      class: 'of2-input', rows: '1',
+      placeholder: '描述你的行动，或开口说话……'
+    });
+    const sendBtn = SJ.el('button', { class: 'of2-send', html: svg('feather', 18) });
+    const syncSend = () => { sendBtn.disabled = busy; sendBtn.classList.toggle('busy', busy); };
 
-    let busy = false;
-    const syncSend = () => {
-      sendBtn.disabled = busy;
-      sendBtn.textContent = busy ? '写…' : '下去';
+    /* 输入框跟着内容长高，最多 4 行 */
+    const autoGrow = () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 96) + 'px';
     };
+    input.addEventListener('input', autoGrow);
 
-    async function send() {
-      const text = String(input.value || '').trim();
-      if (!text && !SJ.offlineEntries(cid).length) return toast('先写一句你想做什么');
+    async function send(redo) {
+      const text = redo ? '' : String(input.value || '').trim();
+      if (!redo && !text && !SJ.offlineEntries(cid).length) return toast('先写一句你想做什么');
       if (busy) return;
       busy = true; syncSend();
-      if (text) { SJ.offlinePush(cid, 'me', text); input.value = ''; }
+      let from = SJ.offlineEntries(cid).length;
+      if (text) { SJ.offlinePush(cid, 'me', text); input.value = ''; autoGrow(); }
       setChoices([]);
-      draw();
+      draw(text ? from : null);
       try {
         const r = await SJ.askOffline(cid, text);
+        if (r.scene) { SJ.setOfflineScene(cid, r.scene); paintCard(); }
         if (r.text) SJ.offlinePush(cid, 'char', r.text);
         setChoices(SJ.state.settings.offline.choices === false ? [] : r.choices);
         if (SJ.state.settings.offline.autoOutline !== false) {
@@ -8304,33 +8391,72 @@ const APPS = [
       } catch (e) {
         SJ.offlinePush(cid, 'narr', '（这段没写出来）' + e.message);
       }
-      busy = false; syncSend(); draw();
+      busy = false; syncSend();
+      draw(from);
     }
-    sendBtn.onclick = send;
+
+    sendBtn.onclick = () => send(false);
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(false); }
     });
     syncSend();
 
-    pad.append(
-      SJ.el('div', { class: 'of-bar' }, [
-        SJ.el('div', { class: 'of-who' }, [
-          avatarNode(ch),
-          SJ.el('div', { class: 'of-who-main' }, [
-            SJ.el('div', { class: 'of-who-name' }, ch.name || ''),
-            SJ.el('div', { class: 'of-who-sub' }, (() => {
-              const [, sn] = SJ.offlineStyle(cid);
-              const [, bn] = SJ.offlineBridge(cid);
-              return sn + ' · 带着' + bn + '的近况';
-            })())
-          ])
-        ]),
-        SJ.el('button', { class: 'of-gear', onclick: () => offlineSettings(cid, root) }, '⚙')
-      ]),
-      scroll,
-      choiceBox,
-      SJ.el('div', { class: 'of-dock' }, [input, sendBtn])
+    /* ── 顶栏 ── */
+    const top = SJ.el('div', { class: 'of2-top' }, [
+      SJ.el('button', { class: 'of2-round', title: '返回', html: svg('back', 19), onclick: () => offlineBack(cid) }),
+      card,
+      SJ.el('div', { class: 'of2-actions' }, [
+        SJ.el('button', { class: 'of2-round', title: '更多', html: svg('more', 19), onclick: openMenu }),
+        menu
+      ])
+    ]);
+    menu.append(
+      SJ.el('button', { class: 'of2-mi', onclick: () => { closeMenu(); send(true); } }, '重 Roll 这段'),
+      SJ.el('button', { class: 'of2-mi', onclick: () => { closeMenu(); editLast(); } }, '编辑最后一段'),
+      SJ.el('button', { class: 'of2-mi warn', onclick: () => { closeMenu(); endScene(); } }, '结束场景')
     );
+
+    /* 重 Roll：把最后那条角色输出删掉重写 */
+    function redoLast() {
+      const all = SJ.offlineEntries(cid);
+      for (let i = all.length - 1; i >= 0; i--) {
+        if (all[i].role !== 'me') {
+          o.pages.forEach(pg => { pg.entries = pg.entries.filter(x => x.id !== all[i].id); });
+          break;
+        }
+      }
+      SJ.save();
+    }
+
+    /* 编辑最后一段：直接弹输入框改文字 */
+    function editLast() {
+      const all = SJ.offlineEntries(cid);
+      const last = all[all.length - 1];
+      if (!last) return toast('还没有内容可以改');
+      SJ.askText('改这一段', last.text, v => {
+        const t = String(v || '').trim();
+        if (!t) return;
+        o.pages.forEach(pg => pg.entries.forEach(x => { if (x.id === last.id) x.text = t; }));
+        SJ.save(); draw();
+      });
+    }
+
+    /* 结束场景：收起输入区，留一个「继续」按钮 */
+    function endScene() {
+      wrap.classList.add('ended');
+      SJ.save();
+      toast('场景结束了。想接着写就点下面的「继续」。');
+    }
+
+    wrap.append(bg, top, scroller, choiceBox, SJ.el('div', { class: 'of2-dock' }, [
+      input, sendBtn
+    ]), SJ.el('button', { class: 'of2-resume', onclick: () => wrap.classList.remove('ended') }, '继续这个场景'));
+
+    /* 重 Roll 得先删再重发，所以单独接一下 */
+    const origRedo = menu.children[0];
+    origRedo.onclick = () => { closeMenu(); redoLast(); send(true); };
+
+    paintBg(); paintCard();
     draw();
   }
 

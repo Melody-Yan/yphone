@@ -376,6 +376,14 @@ function migrate(saved) {
   }
   /* 线下正文：必须是对象。里面每一页由 offlineOf() 按需修正 */
   out.offline = (out.offline && typeof out.offline === 'object' && !Array.isArray(out.offline)) ? out.offline : {};
+  /* 每页的 entries、每人的 scene 都得是能用的形状，别让一行坏数据把剧场渲染崩了 */
+  Object.keys(out.offline).forEach(k => {
+    const o = out.offline[k];
+    if (!o || typeof o !== 'object') { delete out.offline[k]; return; }
+    if (!Array.isArray(o.pages)) o.pages = [];
+    o.pages = o.pages.filter(pg => pg && typeof pg === 'object' && Array.isArray(pg.entries));
+    if (o.scene && (typeof o.scene !== 'object' || Array.isArray(o.scene))) o.scene = null;
+  });
   if (['auto', 'always', 'never'].indexOf(out.settings.imgFake) < 0) out.settings.imgFake = 'auto';
   /* 主题槽位：只留三个认识的键，值必须是字符串。存档里塞别的键名不该被带进 state */
   {
@@ -5006,12 +5014,13 @@ const OFFLINE_LEN = [[100, 500], [60, 200], [200, 800], [400, 1500]];
 function offlineOf(cid) {
   if (!state.offline || typeof state.offline !== 'object') state.offline = {};
   if (!state.offline[cid] || typeof state.offline[cid] !== 'object') {
-    state.offline[cid] = { pages: [], outline: '', style: '', turn: 0 };
+    state.offline[cid] = { pages: [], outline: '', style: '', turn: 0, scene: null };
   }
   const o = state.offline[cid];
   if (!Array.isArray(o.pages)) o.pages = [];
   if (typeof o.outline !== 'string') o.outline = '';
   if (typeof o.turn !== 'number') o.turn = 0;
+  if (o.scene && typeof o.scene !== 'object') o.scene = null;
   return o;
 }
 
@@ -5044,8 +5053,23 @@ function offlinePush(cid, role, text, extra) {
   return e;
 }
 
+/* 最近一次的场景头（地点/时间/天气）。挂在角色身上，卡片随时读得到 */
+function offlineScene(cid) {
+  const o = offlineOf(cid);
+  return (o.scene && typeof o.scene === 'object') ? o.scene : null;
+}
+function setOfflineScene(cid, sc) {
+  if (!sc) return;
+  const o = offlineOf(cid);
+  o.scene = {
+    place: String(sc.place || '').slice(0, 24),
+    time: String(sc.time || '').slice(0, 16),
+    weather: String(sc.weather || '').slice(0, 12)
+  };
+}
+
 function offlineClear(cid) {
-  state.offline[cid] = { pages: [], outline: '', style: offlineOf(cid).style, turn: 0 };
+  state.offline[cid] = { pages: [], outline: '', style: offlineOf(cid).style, turn: 0, scene: null };
   return true;
 }
 
@@ -5081,20 +5105,90 @@ const OFFLINE_RULES = [
   '你在写一段**面对面的相处场景**（不是聊天记录）。',
   '他和你就站在同一个空间里，能看见彼此、能碰到彼此。',
   '',
+  '# 输出格式（很重要，前端靠它排版）',
+  '用下面三种行来写，每种行都以标记开头，标记后面直接接内容：',
+  '',
+  '  [旁白] 环境、动作、神态、没说出口的心理。',
+  '  [你说] 你说出口的话。',
+  '  [我说] 对方（用户）说的话 —— 只在用户自己说了话、你顺着接的时候用。',
+  '',
+  '规则：',
+  '- 每一行只写一句话或一个短段落，不要太长。行与行之间空一行。',
+  '- 一段回复里通常 2~5 个 [旁白] + 1~3 个 [你说]，别全是旁白，也别全是对话。',
+  '- [你说] 里的台词不要加引号，前端会自己加「」。',
+  '- 不要用 Markdown（**加粗**、# 标题、- 列表都不要）。',
+  '- 不要写「他说：」「我说道」这类提示语，[你说] 这个标记本身就说明是谁在说。',
+  '',
+  '# 开头先交代场景',
+  '正文之前，先用这一行写此刻的地点 / 时间 / 天气（三个词，用 | 隔开，不要加别的字）：',
+  '###SCENE### 地点 | 时间 | 天气',
+  '地点要具体：不是「房间」，是「他家阳台」。时间像「傍晚六点」「深夜」。天气像「小雨」「闷热」。',
+  '',
   '# 怎么写',
-  '- 写成散文段落，不要写成消息对话框，不要用「他说：」这种干巴巴的格式堆砌。',
   '- 要有三样东西：**动作**（谁做了什么）、**环境**（光线、声音、温度、气味）、**心理**（没说出口的想法）。',
-  '- 你演的是你自己（第一人称「我」或第三人称都行，跟文风走）。用户是「你」。',
+  '- 你演的是你自己。用户是「你」。',
   '- 对白要少而准。一句话能顶十句解释的时候就别解释。',
   '- 允许留白：不必把每一层心思都写透，读到的人自己会补。',
   '- 结尾留一个能接下去的钩子 —— 一句话、一个动作、一个没问出口的问题。',
-  '- 不要用 Markdown（**加粗**、# 标题、- 列表都不要）。段落之间正常换行就行。',
   '',
   '# 不要做',
   '- 不要跳出场景做总结、不要写「（未完待续）」之类。',
-  '- 不要代替用户行动或替用户说话 —— 用户下一步做什么由他自己输入。',
+  '- 不要代替用户行动或替用户说话（[我说] 只用于承接用户已经说出口的话）。',
   '- 不要每段都堆形容词。克制比华丽更像文学。'
 ].join('\n');
+
+/* 把模型输出切成一行一行分好类的块。
+   认三种标记，也容忍模型写成 **旁白** / 【旁白】 / 旁白： 这几种变体 ——
+   各家模型对「标记」的理解不一样，硬认一种会有一半内容掉进兜底里。 */
+const SCENE_KINDS = {
+  '旁白': 'narr', 'narr': 'narr', 'n': 'narr', '环境': 'narr', '动作': 'narr',
+  '你说': 'char', 'char': 'char', 'c': 'char', '台词': 'char',
+  '我说': 'me', 'me': 'me', '我': 'me'
+};
+function parseScene(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  const out = [];
+  /* 先按标记切。标记可能带 ** 【 】 [] 或全角冒号 */
+  const re = /(?:^|\n)\s*(?:\*\*|【|\[|) *(旁白|narr|你说|char|台词|我说|me|环境|动作) *(?:\*\*|】|\]|)\s*[：:]?\s*/gi;
+  /* 没有任何标记：整段当旁白，别丢内容 */
+  if (!re.test(text)) {
+    return text.split(/\n{2,}/).map(x => x.trim()).filter(Boolean)
+      .map(x => ({ kind: guessKind(x), text: cleanLine(x) }));
+  }
+  const parts = [];
+  let m, last = 0, lastKind = null;
+  re.lastIndex = 0;
+  while ((m = re.exec(text))) {
+    if (lastKind) parts.push({ kind: lastKind, body: text.slice(last, m.index) });
+    lastKind = SCENE_KINDS[String(m[1]).toLowerCase()] || SCENE_KINDS[m[1]] || 'narr';
+    last = re.lastIndex;
+  }
+  if (lastKind) parts.push({ kind: lastKind, body: text.slice(last) });
+  parts.forEach(pt => {
+    const body = pt.body.trim();
+    if (!body) return;
+    /* 一段里如果空行分了几个小段，各自成行，读起来才不挤 */
+    body.split(/\n{2,}/).map(x => x.trim()).filter(Boolean).forEach(x => {
+      out.push({ kind: pt.kind, text: cleanLine(x) });
+    });
+  });
+  return out.length ? out : [{ kind: 'narr', text: cleanLine(text) }];
+}
+
+/* 去掉台词自带的引号（前端会统一加「」），以及残留的标记符号 */
+function cleanLine(x) {
+  return String(x || '')
+    .replace(/^\s*(?:\*\*|【|\[)?\s*(?:旁白|你说|我说|台词|环境|动作)\s*(?:\*\*|】|\])?\s*[：:]?\s*/, '')
+    .replace(/^["'“”「」『』]+|["'“”「」『』]+$/g, '')
+    .trim();
+}
+
+/* 没标记时猜一行是旁白还是台词：有引号、或很短又像话的，当台词 */
+function guessKind(x) {
+  if (/[「『“"]/.test(x)) return 'char';
+  return 'narr';
+}
 
 function buildOfflineSystem(cid, outlineOverride) {
   const c = state.characters.find(x => x.id === cid) || {};
@@ -5175,6 +5269,7 @@ async function askOffline(cid, userAction, opts) {
       text: '（本地演示）' + (ch.name || '他') + '愣了一下，没立刻接话。\n'
         + '你刚才做的「' + (action || '什么都没做') + '」，他看在眼里。\n'
         + '窗外的光慢慢移过桌面。去「设置」里填上接口地址和 Key，这段就会真的写出来。',
+      scene: { place: '窗边', time: '傍晚', weather: '晴' },
       choices: ['再说点什么', '看着他，不说话', '转身走开']
     };
   }
@@ -5190,7 +5285,9 @@ async function askOffline(cid, userAction, opts) {
   if (action) lines.push('【他刚刚做了】\n' + action + '\n');
   lines.push('接着往下写这一段。写 ' + L[0] + '~' + L[1] + ' 字。');
   lines.push('');
-  lines.push('写完之后，另起一行，用这个格式给三个「他可以接着做的选择」（每个不超过 15 字）：');
+  lines.push('记住开头先写 ###SCENE### 那一行，正文按 [旁白] / [你说] / [我说] 写。');
+  lines.push('');
+  lines.push('最后另起一行，用这个格式给三个「他可以接着做的选择」（每个不超过 15 字）：');
   lines.push('###CHOICES###');
   lines.push('1. 第一个选择');
   lines.push('2. 第二个选择');
@@ -5200,11 +5297,11 @@ async function askOffline(cid, userAction, opts) {
   return splitOfflineReply(raw);
 }
 
-/* 拆「正文 + 三个选择」。模型不一定乖乖给 ###CHOICES###，
+/* 拆「场景头 + 正文 + 三个选择」。模型不一定乖乖给 ###CHOICES###，
    所以几种写法都兜一下；实在没有选择就返回空数组（前端隐藏那一栏）。 */
 function splitOfflineReply(raw) {
   const text = String(raw || '').trim();
-  if (!text) return { text: '', choices: [] };
+  if (!text) return { text: '', choices: [], scene: null };
   const m = text.split(/###\s*CHOICES\s*###/i);
   let body = m[0].trim();
   let tail = m.slice(1).join('\n').trim();
@@ -5217,7 +5314,19 @@ function splitOfflineReply(raw) {
     .map(x => x.replace(/^\s*\d+\s*[.、)]\s*/, '').replace(/^[-*]\s*/, '').trim())
     .filter(x => x && x.length <= 40)
     .slice(0, 3);
-  return { text: body, choices };
+
+  /* 场景头：###SCENE### 地点 | 时间 | 天气。
+     模型经常不写，或者把整行塞在正文里，所以两种都从 body 里摘掉。 */
+  let scene = null;
+  const sm = body.match(/###\s*SCENE\s*###\s*([^\n]{1,80})/i);
+  if (sm) {
+    const parts = sm[1].split(/[|｜]/).map(x => x.trim()).filter(Boolean);
+    if (parts.length) {
+      scene = { place: parts[0] || '', time: parts[1] || '', weather: parts[2] || '' };
+    }
+    body = (body.slice(0, sm.index) + body.slice(sm.index + sm[0].length)).trim();
+  }
+  return { text: body, choices, scene };
 }
 
 /* 让模型顺手更新一版大纲。失败不影响正文 —— 大纲是锦上添花。 */
@@ -5588,5 +5697,6 @@ window.SJ = {
   /* 线下模式「此刻相遇」 */
   OFFLINE_STYLES, OFFLINE_BRIDGE, OFFLINE_LEN,
   offlineOf, offlineEntries, offlinePush, offlineClear, offlineStyle, offlineBridge,
-  buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline
+  buildOfflineSystem, askOffline, splitOfflineReply, offlineOutline,
+  parseScene, cleanLine, offlineScene, setOfflineScene
 };

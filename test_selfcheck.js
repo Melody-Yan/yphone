@@ -7113,6 +7113,57 @@ console.log('\n[100] 此刻相遇是一个真的 App');
   ok('App 里的入口也在', /offlineFrom = 'app'; offlineView\(c\.id, root\)/.test(src));
 }
 
+console.log('\n[101] 图标必须有文件 + 此刻相遇的设置页');
+
+{
+  /* 用户报过「没有图标啊」—— 根因是我给 offline 编了个 art: '1F3AD'，
+     但 icons/om 里只有固定的那十几个 svg，浏览器拿到的是 404，
+     桌面格子就空着。这条断言把「每个 App 的 art 都真有文件」钉死。 */
+  const artDir = path.join(DIR, 'icons', 'om');
+  const have = new Set(fs.readdirSync(artDir).filter(f => f.endsWith('.svg')).map(f => f.replace(/\.svg$/, '')));
+  const missing = sandbox.window.APPS
+    .filter(a => a.art && !have.has(String(a.art)))
+    .map(a => a.id + ':' + a.art);
+  ok('每个 App 的 art 在 icons/om 里都有对应文件（没有就是空白图标）',
+    missing.length === 0, missing.join(', '));
+  ok('此刻相遇的图标文件真的在', have.has('1F3AD'), 'icons/om 里没有 1F3AD');
+
+  /* 设置页：navBar 上得有齿轮，点了能进 */
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const appSeg = src.slice(src.indexOf("id: 'offline',"), src.indexOf("id: 'persona',"));
+  ok('此刻相遇列表页头上有设置按钮',
+    /onclick: \(\) => settingsView\(\)/.test(appSeg) && /title: '设置'/.test(appSeg));
+  ok('设置页管的是全局默认值（角色那边可各自覆盖）', /function settingsView\(\)/.test(appSeg));
+  ok('设置页能选默认文风 / 上下文桥 / 长度',
+    /默认文风/.test(appSeg) && /上下文桥/.test(appSeg) && /默认长度/.test(appSeg));
+  ok('设置页有两个生成开关（自动大纲 / 三个回应选择）',
+    /自动更新大纲/.test(appSeg) && /每次给三个回应选择/.test(appSeg));
+  ok('设置页能一次清空全部剧情', /清空全部剧情/.test(appSeg));
+
+  /* 「每次给三个回应选择」这个开关必须真的接到生成流程上，不能只是个摆设 */
+  ok('关掉「三个回应选择」以后真的不给选择',
+    /settings\.offline\.choices === false \? \[\] : r\.choices/.test(src));
+  ok('choices 有默认值且在 migrate 里归一',
+    /choices: true/.test(fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8')) &&
+    /choices: of\.choices !== false/.test(fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8')));
+
+  /* 同一个坑踩了第二遍：subPage / rowToggle 都定义在聊天 App 的 render 闭包里，
+     顶层的新代码够不着 → 设置页一打开就 ReferenceError、整页空白。
+     这条断言把「顶层视图只用得到顶层的东西」钉死。 */
+  const indOfFn = name => {
+    const m = src.match(new RegExp('\\n( *)(?:function |const )' + name + '\\b'));
+    return m ? m[1].length : -1;
+  };
+  ok('顶层有共用的 rowGo / rowToggle（不再只存在于闭包里）',
+    indOfFn('rowGo') === 0 && indOfFn('rowToggle') === 0,
+    'rowGo=' + indOfFn('rowGo') + ' rowToggle=' + indOfFn('rowToggle'));
+  ok('离线那两个视图也都在顶层', indOfFn('offlineView') === 2 && indOfFn('offlineSettings') === 2);
+  /* settingsView 是 App render 的内层函数（缩进 6），它只能调顶层的东西 */
+  ok('settingsView 用到的辅助函数都在顶层',
+    ['rowGo', 'rowToggle', 'subPageOf'].every(n => indOfFn(n) === 0),
+    ['rowGo', 'rowToggle', 'subPageOf'].map(n => n + '=' + indOfFn(n)).join(' '));
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

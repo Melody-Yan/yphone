@@ -190,7 +190,7 @@ const DEFAULTS = {
     /* 每个槽位选了哪个主题包（'' = 内置默认）。三套分开选，换桌面不影响聊天 */
     themePick: { desktop: '', chat: '', sms: '' },
     /* 线下模式：文风 / 上下文桥 / 自动更新大纲 / 每段字数档位（索引进 OFFLINE_LEN） */
-    offline: { style: 'novel', bridge: 'standard', autoOutline: true, len: 0 },
+    offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0 },
     /* 记忆与世界书 */
     wbOn: true,          // 世界书总开关
     scanDepth: 4,        // 关键词只在最近几条消息里找
@@ -370,6 +370,7 @@ function migrate(saved) {
       style: ['novel', 'script', 'first', 'trans', 'weibo'].indexOf(of.style) >= 0 ? of.style : 'novel',
       bridge: ['off', 'light', 'standard', 'deep', 'all'].indexOf(of.bridge) >= 0 ? of.bridge : 'standard',
       autoOutline: of.autoOutline !== false,
+      choices: of.choices !== false,
       len: (ln === 1 || ln === 2 || ln === 3) ? ln : 0
     };
   }

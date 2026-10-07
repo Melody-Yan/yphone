@@ -4191,3 +4191,15 @@ input.field[type="range"]::-webkit-slider-thumb {
 #home.themed .widget-time, #home.themed .widget-date { color: var(--ink, inherit); }
 #home.themed .dock { background: var(--card, var(--dock-bg, rgba(255,255,255,.42))); }
 #home.themed .page-dot.on { background: var(--accent, #333); }
+
+/* 此刻相遇：列表顶上的总览条 */
+.of-overview {
+  margin: 4px 16px 12px; padding: 14px 16px; border-radius: 18px;
+  background: var(--card); border: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.of-ov-n { font-size: 26px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.of-ov-t { font-size: 12.5px; color: var(--ink-3); }
+
+/* 设置页里的选择卡：单列铺满，比剧场里那个窄版好点 */
+.of-styles.wide { margin-left: 16px; margin-right: 16px; }

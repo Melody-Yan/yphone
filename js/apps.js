@@ -110,6 +110,25 @@ function appIcon(app, size = 36) {
 /* subPage 定义在聊天 App 的 render 闭包里（捕获了那个 App 的 root）。
    线下模式的视图在 IIFE 顶层够不着它，这里补一个显式传 root 的版本。
    ponytail: 没去动原 subPage —— 它在那个闭包里被十几处用着，改它比加这 6 行危险。 */
+/* rowGo / rowToggle 原来在聊天和商城两个 render 闭包里各抄了一份。
+   线下模式的设置页在顶层，两处都够不着 —— 干脆提到顶层做一份共用的。
+   ponytail: 没去删那两个旧副本（各自闭包里还有别的用法，一起改风险大），
+   只是让顶层的新代码有得用。 */
+const rowGo = (title, sub, go) => SJ.el('div', { class: 'row', onclick: go }, [
+  SJ.el('div', { class: 'row-main' }, [
+    SJ.el('div', { class: 'row-title' }, title),
+    sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+  ]),
+  SJ.el('div', { class: 'row-time' }, '›')
+]);
+const rowToggle = (title, sub, on, flip) => SJ.el('div', { class: 'row', onclick: flip }, [
+  SJ.el('div', { class: 'row-main' }, [
+    SJ.el('div', { class: 'row-title' }, title),
+    sub ? SJ.el('div', { class: 'row-sub' }, sub) : null
+  ]),
+  SJ.el('div', { class: 'row-time' }, on ? '已开启 ›' : '已关闭 ›')
+]);
+
 function subPageOf(root, title, back) {
   root.innerHTML = '';
   root.append(navBar(title, { back }));
@@ -7004,10 +7023,22 @@ const APPS = [
       /* 客人列表：谁写过、写了多少段，一眼能看出来 */
       function listView() {
         root.innerHTML = '';
-        root.append(navBar('此刻相遇'));
+        root.append(navBar('此刻相遇', {
+          right: SJ.el('button', { class: 'nav-btn', title: '设置', onclick: () => settingsView() },
+            SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) }))
+        }));
         const box = SJ.el('div', { class: 'list' });
         box.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } },
           '当面见他的时候，说的话就不再是一条条消息了 —— 是一幕一幕写下来的。'));
+
+        /* 总览：写了多少段、跟谁写得最多。没有就不显示，省得空着占地方 */
+        const totalSeg = list().reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
+        if (totalSeg) {
+          const ob = SJ.el('div', { class: 'of-overview' });
+          ob.append(SJ.el('div', { class: 'of-ov-n' }, String(totalSeg)));
+          ob.append(SJ.el('div', { class: 'of-ov-t' }, '段 · 和 ' + list().filter(c => SJ.offlineEntries(c.id).length).length + ' 个人写过'));
+          box.append(ob);
+        }
 
         const all = list();
         if (!all.length) {
@@ -7032,6 +7063,69 @@ const APPS = [
             SJ.el('div', { class: 'row-time' }, n ? '›' : '去见他')
           ]));
         });
+        root.append(box);
+      }
+
+      /* ── 此刻相遇 · 全局设置 ──
+         这里管的是**所有**角色的默认值（角色那边可以各自覆盖）。
+         跟进入剧场后的那个 ⚙ 不是一回事：那个是「这一段怎么写」，
+         这个是「以后都怎么写」。 */
+      function settingsView() {
+        root.innerHTML = '';
+        root.append(navBar('设置', { back: () => listView() }));
+        const box = SJ.el('div', { class: 'list' });
+        const S = SJ.state.settings.offline;
+
+        box.append(
+          SJ.el('div', { class: 'group-title' }, '默认文风'),
+          SJ.el('div', { class: 'hint' }, '新开的剧场用哪种写法。单个角色可以在自己的设置里改。'),
+          SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_STYLES.map(([k, name, desc]) =>
+            SJ.el('button', {
+              class: 'of-style' + ((S.style || 'novel') === k ? ' on' : ''),
+              onclick: () => { S.style = k; SJ.save(); settingsView(); }
+            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+          SJ.el('div', { class: 'group-title' }, '上下文桥'),
+          SJ.el('div', { class: 'hint' }, '他在剧场里能看到多少你们手机上的近况 —— 这一项最影响连贯感。'),
+          SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_BRIDGE.map(([k, name, desc]) =>
+            SJ.el('button', {
+              class: 'of-style' + ((S.bridge || 'standard') === k ? ' on' : ''),
+              onclick: () => { S.bridge = k; SJ.save(); settingsView(); }
+            }, [SJ.el('div', { class: 'of-style-t' }, name), SJ.el('div', { class: 'of-style-s' }, desc)]))),
+
+          SJ.el('div', { class: 'group-title' }, '默认长度'),
+          SJ.el('div', { class: 'of-styles wide' }, SJ.OFFLINE_LEN.map(([a, b], i) =>
+            SJ.el('button', {
+              class: 'of-style' + ((Number(S.len) || 0) === i ? ' on' : ''),
+              onclick: () => { S.len = i; SJ.save(); settingsView(); }
+            }, [SJ.el('div', { class: 'of-style-t' }, a + '~' + b + ' 字'),
+                SJ.el('div', { class: 'of-style-s' }, ['标准', '短一点', '长一点', '很长'][i] || '')]))),
+
+          SJ.el('div', { class: 'group-title' }, '生成'),
+          rowToggle('自动更新大纲', '每段写完后由 AI 顺手概括一版，防止剧情跑偏',
+            S.autoOutline !== false,
+            () => { S.autoOutline = !(S.autoOutline !== false); SJ.save(); settingsView(); }),
+          rowToggle('每次给三个回应选择', '写完之后附三条「你可以接着做的」，点一下就用',
+            S.choices !== false,
+            () => { S.choices = !(S.choices !== false); SJ.save(); settingsView(); }),
+
+          SJ.el('div', { class: 'group-title' }, '全部剧情'),
+          (() => {
+            const all = list().filter(c => SJ.offlineEntries(c.id).length);
+            if (!all.length) return SJ.el('div', { class: 'hint' }, '还没跟谁写过。');
+            return SJ.el('div', { class: 'pad' }, [
+              SJ.el('div', { class: 'hint', style: { marginBottom: '10px' } },
+                all.length + ' 个人，共 ' + all.reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0) + ' 段。'),
+              SJ.el('button', {
+                class: 'btn danger',
+                onclick: () => confirmBox('清空所有人的线下剧情？聊天记录不受影响。', () => {
+                  all.forEach(c => SJ.offlineClear(c.id));
+                  SJ.save(); toast('已清空'); settingsView();
+                })
+              }, '清空全部剧情')
+            ]);
+          })()
+        );
         root.append(box);
       }
 
@@ -8202,7 +8296,7 @@ const APPS = [
       try {
         const r = await SJ.askOffline(cid, text);
         if (r.text) SJ.offlinePush(cid, 'char', r.text);
-        setChoices(r.choices);
+        setChoices(SJ.state.settings.offline.choices === false ? [] : r.choices);
         if (SJ.state.settings.offline.autoOutline !== false) {
           SJ.offlineOutline(cid).catch(() => {});
         }

@@ -7508,6 +7508,38 @@ console.log('\n[107] 字号可调 + 白底 + 列表页那句开场');
   ok('换成一句不解释功能的话', src.includes('把没说出口的，写在同一个地方。'));
 }
 
+console.log('\n[108] 剧场的返回栈：别把 App 压两层');
+
+{
+  /* 这个坑已经咬了三次：openApp() 是**压栈**，不是换页。
+     离线模式里凡是「回到上一层」都不能用它。
+     这次的症状是「剧场返回进列表、列表返回又回到剧场」。 */
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+
+  const fn = src.slice(src.indexOf('function offlineBack'), src.indexOf('function navBar'));
+  ok('offlineBack 收一个 listBack 用来就地回列表', /function offlineBack\(cid, listBack\)/.test(fn));
+  ok('回列表走 listBack，不是 openApp', /typeof listBack === 'function'\) return listBack\(\)/.test(fn));
+  ok('openApp 只留给「回聊天」那条路（那是另一个 App）',
+    fn.indexOf("offlineFrom === 'chat'") < fn.indexOf("openApp('chat'"),
+    'chat 分支在前');
+
+  /* 剧场的返回按钮真的把 listBack 递进去了 */
+  ok('剧场返回按钮传了 listBack',
+    /title: '返回'[\s\S]{0,120}offlineBack\(cid, typeof listBack === 'function' \? listBack : listView\)/.test(src));
+
+  /* 反向：offlineView 里每一处 openApp('offline') 都必须排在 listBack 之后 ——
+     也就是只能当「拿不到 listBack」时的兜底，不能当主路径。
+     （以前就是主路径，所以剧场返回会压出第二层。） */
+  const viewSeg = src.slice(src.indexOf('function offlineView(cid, root, listBack)'), src.indexOf('function offlineSettings('));
+  const uses = [];
+  let at = viewSeg.indexOf("openApp('offline')");
+  while (at >= 0) { uses.push(at); at = viewSeg.indexOf("openApp('offline')", at + 1); }
+  ok('offlineView 里 openApp 只作为兜底（每处都排在 listBack 判断之后）',
+    uses.every(i => viewSeg.lastIndexOf('listBack', i) > viewSeg.lastIndexOf('function', i) - 1 &&
+                    viewSeg.slice(Math.max(0, i - 260), i).includes('listBack')),
+    '共 ' + uses.length + ' 处');
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

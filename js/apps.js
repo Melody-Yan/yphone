@@ -141,12 +141,19 @@ function subPageOf(root, title, back) {
   return pad;
 }
 
-/* 「返回」往哪走：从聊天设置进来的回聊天，从 App 进来的回 App 列表。
-   记在调用栈里最省事，但这儿就一个入口，用个变量就够了。 */
+/* 「返回」往哪走：从聊天设置进来的回聊天，从 App 列表进来的回列表。
+   记在调用栈里最省事，但这儿就一个入口，用个变量就够了。
+
+   ⚠️ 这里以前写的是 openApp('offline')，那等于**再压一个 App 上去**，
+   不是在同一个 App 里换页 —— 表现就是「剧场返回进列表、列表返回又回到剧场」。
+   列表和剧场本来就是同一个 root，回列表要就地重画。 */
 let offlineFrom = '';
-function offlineBack(cid) {
-  if (offlineFrom === 'chat' && window.SHELL) window.SHELL.openApp('chat', cid);
-  else if (window.SHELL) window.SHELL.openApp('offline');
+function offlineBack(cid, listBack) {
+  /* 从聊天设置进来的，回的是聊天 App（另一个 App，只能 openApp） */
+  if (offlineFrom === 'chat' && window.SHELL) return window.SHELL.openApp('chat', cid);
+  /* 否则回列表：就地重画。别再 openApp('offline') —— 那是压栈不是换页。 */
+  if (typeof listBack === 'function') return listBack();
+  if (window.SHELL) window.SHELL.openApp('offline');
 }
 
 function navBar(title, { back = null, left = null, right = null } = {}) {
@@ -8496,7 +8503,8 @@ const APPS = [
 
     /* ── 顶栏 ── */
     const top = SJ.el('div', { class: 'of2-top' }, [
-      SJ.el('button', { class: 'of2-round', title: '返回', html: svg('back', 19), onclick: () => offlineBack(cid) }),
+      SJ.el('button', { class: 'of2-round', title: '返回', html: svg('back', 19),
+        onclick: () => offlineBack(cid, typeof listBack === 'function' ? listBack : listView) }),
       card,
       SJ.el('div', { class: 'of2-actions' }, [
         SJ.el('button', { class: 'of2-round', title: '设置', html: svg('gear', 18), onclick: () => openSettings() }),

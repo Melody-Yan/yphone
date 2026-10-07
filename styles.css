@@ -2945,11 +2945,18 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* ── 我的（主页）：名片 + 三个数 + 方图墙 ──
    参考 ins 的账号页：先给一组数（有信息量，不是装饰），再给作品墙。
    方图墙用 aspect-ratio 保证永远是正方形，图片 object-fit: cover 才不拉变形。 */
+/* 三个统计各是一块独立卡片，外面不再套一整条白底 ——
+   原来三块挤在一张通栏白卡里，中间只有文字分隔，看着像一整块。 */
 .me-stats {
-  display: flex; margin: var(--sp-1) var(--sp-4) var(--sp-3); padding: 14px 0;
-  background: var(--card); border-radius: var(--r-m); box-shadow: var(--el-1), var(--edge);
+  display: flex; gap: 8px;
+  margin: var(--sp-1) var(--sp-4) var(--sp-3);
+  background: none; box-shadow: none; padding: 0;
 }
-.me-stat { flex: 1; text-align: center; }
+.me-stat {
+  flex: 1; min-width: 0; padding: 13px 6px; text-align: center;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-m); box-shadow: var(--el-1), var(--edge);
+}
 .me-stat b {
   display: block; font-size: var(--fs-lg); font-weight: 600;
   letter-spacing: -.2px; font-variant-numeric: tabular-nums;
@@ -3363,7 +3370,16 @@ input.field[type="range"]::-webkit-slider-thumb {
 /* 压暗层：.5 太重，白字是清楚了但背景也黑没了。改成上深下浅的渐变 ——
    文字主要在上半部分（封面/歌词），底部留给背景透色，沉浸感更好。 */
 .music-player::after { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,.26) 42%, rgba(0,0,0,.34) 100%); }
-.music-disc { width: min(72vw, 280px); aspect-ratio: 1 / 1; height: auto; flex: 0 0 auto; padding: 0; overflow: hidden; border: 5px solid #202020; border-radius: 50%; background: #222; box-shadow: 0 22px 55px rgba(0,0,0,.55), inset 0 0 0 1px #fff2; cursor: pointer; animation: musicRotate 16s linear infinite; }
+/* 投影别给 55% 的大黑：压在深色背景上就是一团糊影，看不清边缘。
+   收成贴边的柔和一圈，圆盘本身才有轮廓。 */
+.music-disc { width: min(72vw, 280px); aspect-ratio: 1 / 1; height: auto; flex: 0 0 auto; padding: 0; overflow: hidden; border: 5px solid #202020; border-radius: 50%; background: #222; box-shadow: 0 10px 28px rgba(0,0,0,.34), inset 0 0 0 1px #fff2; cursor: pointer; animation: musicRotate 16s linear infinite; }
+/* 没封面时别用 #222 死黑：那和「模糊黑影」长得一样。改成深灰渐变的占位盘。 */
+.music-disc.no-art {
+  background: radial-gradient(circle at 50% 38%, #3a3a3c, #1e1e20 72%);
+  border-color: #2a2a2c;
+  box-shadow: 0 10px 28px rgba(0,0,0,.3), inset 0 0 0 1px #fff1;
+  color: #ffffff8c;
+}
 .music-disc img { display: block; width: 100%; aspect-ratio: 1 / 1; height: auto; border-radius: 50%; object-fit: cover; }
 .music-disc.hide { display: none; }
 .music-lyrics { display: none; width: 100%; max-height: 360px; overflow: auto; }
@@ -3969,3 +3985,27 @@ input.field[type="range"]::-webkit-slider-thumb {
   to { opacity: 1; transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) { .card-mask .sheet { animation: none; } }
+
+/* ── 音乐 App 配色（四套） ──
+   只覆盖 --accent 系列令牌，组件零改动；深浅两种模式下都要重声明，
+   因为令牌是在「定义它的元素」上解析成计算值再继承的。 */
+#phone.tint-rose { --accent: #e05a7a; --accent-ink: #c0335a; --accent-soft: rgba(224, 90, 122, .12); }
+#phone.tint-ocean { --accent: #3f8fd0; --accent-ink: #2a6ea8; --accent-soft: rgba(63, 143, 208, .12); }
+#phone.tint-forest { --accent: #4a9d6a; --accent-ink: #327a4e; --accent-soft: rgba(74, 157, 106, .12); }
+#phone.dark.tint-rose { --accent: #f2789a; --accent-ink: #ff9db5; --accent-soft: rgba(242, 120, 154, .20); }
+#phone.dark.tint-ocean { --accent: #6db3e8; --accent-ink: #8ec7f2; --accent-soft: rgba(109, 179, 232, .20); }
+#phone.dark.tint-forest { --accent: #6dc48c; --accent-ink: #8ed6a6; --accent-soft: rgba(109, 196, 140, .20); }
+
+/* 配色选择器 */
+.tint-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 16px 4px; }
+.tint-btn {
+  display: grid; gap: 6px; padding: 12px 4px; place-items: center;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+  font: inherit; font-size: var(--fs-cap); color: var(--ink-2); cursor: pointer;
+}
+.tint-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.tint-dot { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+.tint-dot.tint-ink { background: linear-gradient(140deg, #6b6b6b, #2b2b2b); }
+.tint-dot.tint-rose { background: linear-gradient(140deg, #f2909f, #c0335a); }
+.tint-dot.tint-ocean { background: linear-gradient(140deg, #8ec7f2, #2a6ea8); }
+.tint-dot.tint-forest { background: linear-gradient(140deg, #9ad6ae, #327a4e); }

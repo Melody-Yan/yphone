@@ -222,7 +222,7 @@ const DEFAULTS = {
     /* 聊天增强 */
     chatBg: '',          // 聊天背景（图片仓引用），空 = 默认纸色；角色自己的 c.chatBg 优先
     /* 播放页背景：'' = 跟随歌曲封面；'img/...' = 内置；'idb:xxx' = 自己传的 */
-    musicBg: '',
+musicBg: '', musicTint: 'ink',
     /* 播放行为：循环模式 + 音量。放 settings 不放 music —— 这是偏好，不是曲库数据 */
     musicLoop: 'list',   // list | one | shuffle
     musicVol: 1,
@@ -478,7 +478,8 @@ function migrate(saved) {
   /* 播放页背景多认一种：内置素材是相对路径（img/...），bgOk 会把它当垃圾丢掉 */
   out.settings.musicBg = /^(idb:[\w-]+|data:image\/|https?:|img\/)/.test(String(out.settings.musicBg || '')) ? String(out.settings.musicBg) : '';
   /* 循环模式和音量也是存档边界：老存档没这两个键，乱值要退回默认 */
-  out.settings.musicLoop = ['list', 'one', 'shuffle'].indexOf(out.settings.musicLoop) >= 0 ? out.settings.musicLoop : 'list';
+      out.settings.musicLoop = ['list', 'one', 'shuffle'].indexOf(out.settings.musicLoop) >= 0 ? out.settings.musicLoop : 'list';
+      out.settings.musicTint = ['ink', 'rose', 'ocean', 'forest'].indexOf(out.settings.musicTint) >= 0 ? out.settings.musicTint : 'ink';
   const mvol = Number(out.settings.musicVol);
   out.settings.musicVol = isFinite(mvol) && mvol >= 0 && mvol <= 1 ? mvol : 1;
 

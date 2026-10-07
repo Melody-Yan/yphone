@@ -2653,6 +2653,27 @@ ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.t
     return walk(s2).filter(n => n._class.has('music-bg')).length >= 5;
   })());
 
+  /* 配色：四套，点一下换令牌（深浅都要有覆盖） */
+  {
+    const s3 = openFresh('music');
+    (walk(s3).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的') || { click: function(){} }).click();
+    (walk(s3).find(n => n._class.has('row') && /外观与主题/.test(n.textContent)) || { click: function(){} }).click();
+    const tints = walk(s3).filter(n => n._class.has('tint-btn'));
+    ok('配色有四套可选', tints.length === 4, tints.map(n => n.textContent).join(' | '));
+    ok('默认选中墨黑', tints.filter(n => n._class.has('on')).length === 1 &&
+      /墨黑/.test((tints.find(n => n._class.has('on')) || {}).textContent || ''));
+    const rose = tints.find(n => /莓红/.test(n.textContent));
+    if (rose) rose.click();
+    ok('点莓红写进了设置', App.state.settings.musicTint === 'rose', App.state.settings.musicTint);
+    const tintsCss = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+    ok('四套配色的令牌都定义了（浅色）',
+      ['ink', 'rose', 'ocean', 'forest'].every(k => k === 'ink' || tintsCss.includes('#phone.tint-' + k)),
+      '缺：' + ['rose', 'ocean', 'forest'].filter(k => !tintsCss.includes('#phone.tint-' + k)).join(','));
+    ok('深色下也各有一套',
+      ['rose', 'ocean', 'forest'].every(k => tintsCss.includes('#phone.dark.tint-' + k)));
+    App.state.settings.musicTint = 'ink';
+  }
+
   fetchImpl = null;
 
   /* ── 歌单名：接口给的原名不能被「网易云歌单」这个占位盖掉 ── */
@@ -2737,6 +2758,34 @@ ok('接口设置是独立页面', walk(playerApp).some(n => n.textContent && n.t
   ok('三个统计卡片', meStats.length === 3, meStats.join(' | '));
   ok('统计数字对得上（时长/歌曲/歌单）',
     meStats[0].includes('2 分') && meStats[1].includes('2 首') && meStats[2].includes('1 个'), meStats.join(' | '));
+
+  /* 三个统计是各自独立的卡片，外面不再套一整条白底（用户明确说那样不好看） */
+  {
+    const statsCss = (() => { const t = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+      const i = t.indexOf('.me-stats {'); return i < 0 ? '' : t.slice(i, t.indexOf('}', i)); })();
+    const statCss = (() => { const t = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+      const i = t.indexOf('.me-stat {'); return i < 0 ? '' : t.slice(i, t.indexOf('}', i)); })();
+    ok('.me-stats 自己不再画背景', /background:\s*none/.test(statsCss), statsCss.replace(/\s+/g, ' ').slice(0, 70));
+    ok('.me-stat 每块自己是卡片（有背景和描边）',
+      /background:\s*var\(--card\)/.test(statCss) && /border:\s*1px/.test(statCss),
+      statCss.replace(/\s+/g, ' ').slice(0, 70));
+  }
+
+  /* 听歌时长：不足一分钟报秒，别让听了 40 秒的人看到「0 分」以为没生效 */
+  {
+    const t = App.musicTracks()[0];
+    App.musicSetNow(t.id);
+    const before = App.state.music.listened;
+    App.state.music.listened = 0;
+    App.musicListen(1); App.musicListen(1); App.musicListen(1);
+    ok('musicListen 会累加秒数', App.state.music.listened === 3, String(App.state.music.listened));
+    const show = openFresh('music');
+    const tabBtn = walk(show).find(n => n.tagName === 'BUTTON' && n.textContent.trim() === '我的');
+    if (tabBtn) tabBtn.click();
+    const stats = walk(show).filter(n => n._class.has('me-stat')).map(n => n.textContent);
+    ok('听歌时长不足一分钟显示秒（不是 0 分）', /秒/.test(stats[0] || ''), stats[0]);
+    App.state.music.listened = before;
+  }
   ok('四个快捷入口', ['我的收藏', '最近播放', '导入管理', '睡眠定时'].every(t =>
     walk(meApp).some(n => n._class.has('me-grid-btn') && n.textContent.includes(t))));
   ok('菜单四项', ['播放与音效', '外观与主题', '清理失效歌曲', '关于 ymusic'].every(t =>

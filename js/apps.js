@@ -5655,6 +5655,27 @@ const APPS = [
            要重画的正是用户眼前这一屏（列表/歌单/我的…），不是写死的音乐库。 */
         /* 一首放完自动接下一首。audio 只有一个，而页面会重画很多次 ——
            每次渲染都把监听换成「当前这页怎么重画」那一份，后渲染的页面接管。 */
+        /* ── 听歌时长 ──
+           musicListen() 早写好了却没人调，统计才永远是 0。
+           不靠 timeupdate：后台/无头时不响，seek 还会虚报。按秒打点，
+           只在真在播（没暂停、没缓冲、播放页还在）时 +1；每 15 秒落一次盘。
+           用「页面还在不在」判断而不是靠退出钩子：播放页有好几个出口
+           （返回、右上角齿轮、底部页签…），逐个挂钩子迟早漏一个。 */
+        let listenTimer = null, listenTick = 0;
+        const listenAlive = () => !!root.querySelector('.music-player');
+        function listenStart() {
+          if (listenTimer) return;
+          listenTimer = setInterval(() => {
+            const a = getPlayer();
+            if (!a || a.paused || a.ended) return;
+            if (a.readyState && a.readyState < 3) return;   /* 还在缓冲，不算听 */
+            /* 已经离开播放页：停表并落盘 */
+            if (!listenAlive()) { clearInterval(listenTimer); listenTimer = null; SJ.save(); return; }
+            SJ.musicListen(1);
+            if (++listenTick % 15 === 0) SJ.save();
+          }, 1000);
+        }
+
         function bindEnded(again) {
           if (!a) return;
           if (a._ended) a.removeEventListener('ended', a._ended);
@@ -5771,7 +5792,10 @@ const APPS = [
           const bgRef = String(SJ.state.settings.musicBg || '');
           const bgImg = bgRef ? SJ.imgSrc(bgRef) : (t.cover || '');
           const player = SJ.el('div', { class: 'music-player', style: { backgroundImage: bgImg ? `url(${bgImg})` : '' } });
-          const disc = SJ.el('div', { class: 'music-disc' }, [t.cover ? SJ.el('img', { src: t.cover, alt: '' }) : svgNode('music', 42)]);
+/* 没封面别留纯黑圆盘：.music-disc 本身 background:#222 + 55% 黑投影，
+   压在深色背景上就是一团糊影。没封面挂 no-art，颜色和投影交给 CSS 收。 */
+          const disc = SJ.el('div', { class: 'music-disc' + (t.cover ? '' : ' no-art') },
+            [t.cover ? SJ.el('img', { src: t.cover, alt: '' }) : svgNode('music', 42)]);
           const lyricBox = SJ.el('div', { class: 'music-lyrics' });
           /* 可点的是整个舞台，不是黑胶本身 —— 以前黑胶一切到歌词就 display:none 了，
              于是屏幕上没有任何东西可以点回去。舞台一直在，歌词这块也能点回封面。 */
@@ -5879,6 +5903,7 @@ const APPS = [
           if(a&&a._trackId!==t.id) loadTrack(t);
           syncPlayIcon();
           bindEnded(nx => playerView(nx.id));
+          listenStart();
         }
 
         /* 播放页背景：跟随封面 / 内置几张 / 自己传一张。上传复用聊天背景那套 pickToStore。 */
@@ -5924,10 +5949,23 @@ const APPS = [
                 lookView();
               }
             }, label)));
+          const TINTS = [['ink', '墨黑'], ['rose', '莓红'], ['ocean', '雾蓝'], ['forest', '苔绿']];
+          const tintRow = SJ.el('div', { class: 'tint-row' }, TINTS.map(([k, label]) =>
+            SJ.el('button', {
+              class: 'tint-btn' + ((SJ.state.settings.musicTint || 'ink') === k ? ' on' : ''),
+              onclick: () => {
+                SJ.state.settings.musicTint = k; SJ.save();
+                if (window.SHELL) window.SHELL.applyLook();
+                lookView();
+              }
+            }, [SJ.el('span', { class: 'tint-dot tint-' + k }), SJ.el('span', {}, label)])));
           root.append(navBar('外观与主题', { back: meView }), SJ.el('div', { class: 'music-me' }, [
             SJ.el('div', { class: 'group-title' }, '深色模式'),
             seg,
             SJ.el('div', { class: 'hint' }, '深色只改界面，不动你挑的壁纸和桌面图标。'),
+            SJ.el('div', { class: 'group-title' }, '配色'),
+            tintRow,
+            SJ.el('div', { class: 'hint' }, '换的是整个音乐 App 的点缀色，深浅模式都跟着走。'),
             SJ.el('div', { class: 'group-title' }, '播放页背景'),
             SJ.el('div', { class: 'field-wrap' }, [bgStrip()]),
             SJ.el('div', { class: 'hint' }, '跟随当前歌曲封面，或者挑一张内置的 / 从手机传一张。')
@@ -5970,7 +6008,11 @@ const APPS = [
            复用全局的昵称/头像：settings.userName / myAvatarImg —— 不再另起一套「音乐昵称」，
            用户改一个地方就够了。 */
         const fmtListen = sec => {
-          const m = Math.floor((Number(sec) || 0) / 60);
+          const n = Number(sec) || 0;
+          /* 不足一分钟报秒：听了 40 秒还显示「0 分」，看着跟统计坏了一样
+             （之前统计真的全是 0，更容易误会成没修）。 */
+          if (n < 60) return n + ' 秒';
+          const m = Math.floor(n / 60);
           return m < 60 ? m + ' 分' : Math.floor(m / 60) + ' 时 ' + (m % 60) + ' 分';
         };
         const loopName = () => ({ list: '列表循环', one: '单曲循环', shuffle: '随机播放' })[SJ.state.settings.musicLoop || 'list'];

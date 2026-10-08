@@ -5351,8 +5351,15 @@ function buildOfflineSystem(cid, outlineOverride) {
 }
 
 /* 把已有条目摊成给模型看的正文（最近若干条，太长就截） */
-function offlineHistory(cid, keep) {
-  const es = offlineEntries(cid).slice(-(keep || 12));
+function offlineHistory(cid, keep, upto) {
+  let es = offlineEntries(cid);
+  /* upto：只要这一条之前的。重写中间某段时用得上 ——
+     否则拿「最近 12 条」喂进去，模型看到的是这段之后发生的事。 */
+  if (upto != null) {
+    const at = es.findIndex(e => e.id === upto);
+    es = at > 0 ? es.slice(0, at) : [];
+  }
+  es = es.slice(-(keep || 12));
   return es.map(e => {
     const label = e.role === 'me' ? '【我做的】' : e.role === 'narr' ? '【旁白】' : '【' + (e.role === 'char' ? '你' : '场景') + '】';
     return label + ' ' + e.text;
@@ -5382,10 +5389,17 @@ async function askOffline(cid, userAction, opts) {
   const sys = buildOfflineSystem(cid, opts && opts.outline);
   const lines = [];
   if (o.outline) lines.push('【当前大纲】\n' + o.outline + '\n');
-  const hist = offlineHistory(cid, 12);
+  const hist = offlineHistory(cid, 12, opts && opts.upto);
   if (hist) lines.push('【前面已经发生的】\n' + hist + '\n');
   if (action) lines.push('【他刚刚做了】\n' + action + '\n');
-  lines.push('接着往下写这一段。写 ' + L[0] + '~' + L[1] + ' 字。');
+  if (opts && opts.upto) {
+    /* 重写模式：不说清楚的话，模型会以为你在让它续写，于是把后面的剧情
+       也一起编了 —— 用户看到的就变成「重写一段，多出一段」。 */
+    lines.push('把**刚刚那一段**重新写一遍。不要往下续写新的剧情，'
+      + '也不要重复后面的内容，就只写这一段。写 ' + L[0] + '~' + L[1] + ' 字。');
+  } else {
+    lines.push('接着往下写这一段。写 ' + L[0] + '~' + L[1] + ' 字。');
+  }
   lines.push('');
   lines.push('记住开头先写 ###SCENE### 那一行，正文按 [旁白] / [你说] / [我说] 写。');
   lines.push('');

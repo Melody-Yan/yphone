@@ -8498,6 +8498,12 @@ const APPS = [
               SJ.el('div', { class: 'of2-cg-img', style: { backgroundImage: 'url("' + SJ.imgSrc(e.cg) + '")' } })
             ]));
           }
+          /* 长按这一段：重新写（别的段不动）。角色自己写的才有得重写 ——
+             用户动手写的那条是「我做了什么」，重写它没有意义。 */
+          if (e.role !== 'me') {
+            holder.dataset.entry = e.id;
+            holdToRedo(holder, e);
+          }
           /* 角色那段：先拆成 [旁白]/[你说]/[我说]，各排各的 */
           const blocks = (e.role === 'narr')
             ? [{ kind: 'narr', text: e.text }]
@@ -8631,6 +8637,88 @@ const APPS = [
       SJ.save();
     }
 
+    /* 长按一段 → 只重写这一段。
+       跟菜单里的「重 Roll 这段」不是一回事：那个只管最后一段（删了重来），
+       这个能改中间任何一段，而且**后面的内容留着不动**。 */
+    function holdToRedo(holder, e) {
+      let timer = null, fired = false;
+      const start = () => {
+        fired = false;
+        timer = setTimeout(() => {
+          fired = true;
+          if (navigator.vibrate) navigator.vibrate(12);
+          askRedoOne(e);
+        }, 520);
+      };
+      const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+      holder.addEventListener('touchstart', start, { passive: true });
+      holder.addEventListener('touchend', stop);
+      holder.addEventListener('touchmove', stop, { passive: true });
+      /* 桌面上没法长按，右键顶上 */
+      holder.addEventListener('contextmenu', ev => {
+        ev.preventDefault();
+        askRedoOne(e);
+      });
+      /* 长按之后那一下 click 别再触发别的东西 */
+      holder.addEventListener('click', ev => { if (fired) { ev.preventDefault(); ev.stopPropagation(); } }, true);
+    }
+
+    function askRedoOne(e) {
+      const i = SJ.offlineEntries(cid).findIndex(x => x.id === e.id);
+      if (i < 0) return;
+      window.popover([
+        { label: '重写这一段', hint: '这一段的旁白和对话都重来，后面的不动',
+          run: () => redoOne(e.id) },
+        { label: '改几个字', hint: '自己动手改，不调接口',
+          run: () => SJ.askText('改这一段', e.text, '改完按「就这些」', v => {
+            const t = String(v || '').trim();
+            if (!t) return;
+            o.pages.forEach(pg => pg.entries.forEach(x => { if (x.id === e.id) x.text = t; }));
+            SJ.save(); draw();
+          }, '就这些') }
+      ]);
+    }
+
+    /* 真正重写：把这一段之前的内容当上文，重新问一次。
+       后面已有的内容不删 —— 用户要改的是这一段，不是把后面的也推倒。 */
+    async function redoOne(id) {
+      if (busy) return toast('正在写，等一下');
+      const all = SJ.offlineEntries(cid);
+      const at = all.findIndex(x => x.id === id);
+      if (at < 0) return;
+      const target = all[at];
+      busy = true;
+      toast('重写这一段…');
+      let raw;
+      try {
+        /* opts.upto 让 core 只取这一段**之前**的剧情当上文 ——
+           不然模型会看到这段之后发生的事，重写出来前后打架。
+           userAction 传前面最近一次我做的动作：正式请求里它本来就在上文里，
+           但没配接口时本地演示那段会直接引用它，空着就会说「你刚才做的『什么都没做』」。 */
+        const before = SJ.offlineEntries(cid).slice(0, at).reverse().find(x => x.role === 'me');
+        raw = await SJ.askOffline(cid, before ? before.text : '', { upto: id });
+      } catch (err) {
+        busy = false;
+        return toast('没连上：' + err.message);
+      }
+      busy = false;
+      /* askOffline 可能两种返回：正常是**字符串**（要自己拆），
+         没配接口时是**已经拆好的对象**（本地演示）。两种都得认 ——
+         不然 splitOfflineReply(对象) 会 String() 成 "[object Object]" 存进去。 */
+      const parts = (raw && typeof raw === 'object')
+        ? { text: raw.text, choices: raw.choices, scene: raw.scene }
+        : SJ.splitOfflineReply(raw);
+      const t = String(parts.text || '').trim();
+      if (!t) return toast('这次没写出来，再试一次');
+      /* 就地替换文字，id / role / at 都留着 —— 位置不能变 */
+      o.pages.forEach(pg => pg.entries.forEach(x => { if (x.id === id) x.text = t; }));
+      if (parts.scene) SJ.setOfflineScene(cid, parts.scene);
+      SJ.save();
+      paintCard();
+      draw();
+      toast('这一段重写好了');
+    }
+
     /* 编辑最后一段：直接弹输入框改文字 */
     function editLast() {
       const all = SJ.offlineEntries(cid);
@@ -8655,12 +8743,59 @@ const APPS = [
       input, sendBtn
     ]), SJ.el('button', { class: 'of2-resume', onclick: () => wrap.classList.remove('ended') }, '继续这个场景'));
 
-    /* 重 Roll 得先删再重发，所以单独接一下 */
-    const origRedo = menu.children[0];
-    origRedo.onclick = () => { closeMenu(); redoLast(); send(true); };
+    /* 重 Roll 得先删再重发，所以单独接一下。
+       ⚠️ 别用 menu.children[0] —— 那是「设置（文风 / 接口）」。
+       以前按序号取，点设置会变成「删掉最后一段再重新生成」：
+       白烧一次接口，还凭空多出一段剧情。按名字找，菜单顺序以后怎么变都不会错。 */
+    const origRedo = Array.from(menu.children).find(b => /重 Roll/.test(b.textContent));
+    if (origRedo) origRedo.onclick = () => { closeMenu(); redoLast(); send(true); };
 
     applySize(); paintCard();
     draw();
+  }
+
+  /* 导出成 Markdown。用 Blob + a[download] —— 平台原生的下载，
+     不引任何库。手机上会走系统的「存储 / 分享」。 */
+  function exportScene(id) {
+    const c = SJ.state.characters.find(x => x.id === id);
+    const all = SJ.offlineEntries(id);
+    if (!all.length) return toast('这一段还没写什么');
+    const o2 = SJ.offlineOf(id);
+    const sc = SJ.offlineScene(id);
+    const L = [];
+    L.push('# ' + ((c && c.name) || '他'));
+    if (sc) {
+      L.push('');
+      L.push('> ' + [sc.place, sc.time, sc.weather].filter(Boolean).join(' · '));
+    }
+    if (o2.outline) {
+      L.push('');
+      L.push('**大纲**：' + o2.outline);
+    }
+    L.push('');
+    all.forEach(e => {
+      if (e.role === 'me') { L.push('', '（' + e.text + '）'); return; }
+      if (e.role === 'narr') { L.push('', '*' + e.text + '*'); return; }
+      L.push('');
+      /* 跟屏幕上一模一样的拆法：旁白用斜体，说话用「」 */
+      SJ.parseScene(e.text).forEach(b => {
+        if (b.kind === 'narr') L.push('*' + b.text + '*');
+        else L.push('「' + b.text + '」');
+      });
+    });
+    L.push('');
+    const name = ((c && c.name) || '此刻相遇').replace(/[\\/:*?"<>|]/g, '') + '.md';
+    const blob = new Blob([L.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    /* 挂到文档里再点 —— 有些浏览器对游离节点的 download 不认 */
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('导出好了：' + name);
   }
 
   /* 线下模式的设置：文风、上下文桥、长度、大纲 */
@@ -8700,9 +8835,28 @@ const APPS = [
       (() => {
         const ta = SJ.el('textarea', { class: 'of-outline', rows: '4', placeholder: '还没写什么。第一段生成完这里就会有一句话的大纲。' });
         ta.value = o.outline || '';
-        ta.addEventListener('change', () => { o.outline = ta.value.trim(); SJ.save(); });
+        /* input + 防抖：change 只在失焦时触发，写一半直接切页就丢了。
+           600ms 够人停一下手，又不会每敲一个字就写一次盘。 */
+        let t = null;
+        const saveOutline = () => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => {
+            o.outline = String(ta.value || '').trim();
+            SJ.save();
+          }, 600);
+        };
+        ta.addEventListener('input', saveOutline);
+        ta.addEventListener('blur', () => {
+          if (t) { clearTimeout(t); t = null; }
+          o.outline = String(ta.value || '').trim();
+          SJ.save();
+        });
         return SJ.el('div', { class: 'pad' }, [ta]);
       })(),
+
+      SJ.el('div', { class: 'group-title' }, '这段剧情'),
+      SJ.el('button', { class: 'btn', onclick: () => exportScene(cid) }, '导出成 Markdown'),
+      SJ.el('div', { class: 'hint' }, '整段剧情（含场景头和大纲）导成一个 .md 文件，存下来或者拿去别处接着写。'),
 
       SJ.el('div', { class: 'group-title' }, '危险区'),
       SJ.el('button', {

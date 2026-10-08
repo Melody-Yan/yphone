@@ -7644,6 +7644,121 @@ console.log('\n[109] 邀约相遇：聊天里约见面 → 进剧场');
     'closeTop=' + /closeTop\(\)/.test(fnCode) + ' openAppChat=' + /openApp\('chat'/.test(fnCode));
 }
 
+console.log('\n[110] 剧场：重写单段 / 导出 Markdown / 手改大纲');
+
+{
+  const A = sandbox.SJ;
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const core = fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8');
+
+  const ch = A.state.characters[0];
+  A.state.chats = {};
+  A.offlineClear(ch.id);
+  A.offlinePush(ch.id, 'me', '在江边等他');
+  const e2 = A.offlinePush(ch.id, 'char', '###SCENE### 江边 | 傍晚 | 细雨\n[旁白] 他撑伞走过来。\n[我说] 等很久了？');
+  A.offlinePush(ch.id, 'char', '###SCENE### 江边 | 傍晚 | 雨停了\n[旁白] 雨停了。');
+  A.save();
+
+  /* ── 重写单段：只换那一段，别的不动 ── */
+  ok('长按接到每一段上（带 entry id）', /holder\.dataset\.entry = e\.id/.test(src));
+  ok('长按有重新写和手改两个选项',
+    /label: '重写这一段'/.test(src) && /label: '改几个字'/.test(src));
+  ok('用户自己写的那条不挂长按（重写它没意义）',
+    /if \(e\.role !== 'me'\) \{[\s\S]{0,80}holdToRedo/.test(src));
+
+  /* 重写的核心不变量：id / 位置 / 后面那些都不动 */
+  ok('重写是就地换文字（按 id 找回去，不是删了重插）',
+    /x\.id === id\) x\.text = t;/.test(src));
+  ok('重写不会删掉后面的内容', !/redoOne[\s\S]{0,900}?entries\.(pop|splice|filter)/.test(src));
+
+  /* ── upto：重写中间某段时，上文只能到它之前 ── */
+  ok('offlineHistory 收 upto 参数', /function offlineHistory\(cid, keep, upto\)/.test(core));
+  ok('upto 会真的截断（slice 到那一条之前）',
+    /if \(upto != null\) \{[\s\S]{0,160}es = at > 0 \? es\.slice\(0, at\) : \[\];/.test(core));
+  ok('askOffline 把 upto 传下去了', /offlineHistory\(cid, 12, opts && opts\.upto\)/.test(core));
+  ok('重写时提示词明说是「重写」而不是「续写」（不然会多编一段）',
+    /重新写一遍/.test(core) && /不要往下续写/.test(core));
+  ok('重写走 opts.upto', /askOffline\(cid, [^)]*\{ upto: id \}\)/.test(src));
+
+  /* askOffline 两种返回都要认 —— 只认字符串会把 [object Object] 存进正文 */
+  /* 先证明这道守卫是必要的：把一个**已拆好的对象**喂给 splitOfflineReply，
+     拿到的是 "[object Object]" —— 直接存进正文就是这个鬼样子。 */
+  const objIn = A.splitOfflineReply({ text: '他要说的话', choices: [], scene: null });
+  ok('把对象喂给 splitOfflineReply 会变成 [object Object]（所以必须有那道守卫）',
+    String(objIn.text).indexOf('[object Object]') >= 0, String(objIn.text).slice(0, 40));
+  ok('重写同时接受「字符串」和「已拆好的对象」两种返回（守卫真的在）',
+    /const parts = \(raw && typeof raw === 'object'\)[\s\S]{0,160}splitOfflineReply\(raw\)/.test(src));
+  ok('本地演示那段不再说「什么都没做」',
+    /before \? before\.text : ''/.test(src));
+
+  /* ── 导出 Markdown ── */
+  ok('设置页有导出入口', /导出成 Markdown/.test(src));
+  ok('导出用 Blob + a[download]，没引库',
+    /new Blob\(/.test(src) && /a\.download = name/.test(src) && !/html2canvas|jspdf|jszip/i.test(src));
+  /* exportScene 必须够得着：它是从 offlineSettings 调的，而 offlineSettings 在
+     offlineView 外面。放进 offlineView 的闭包里就是 ReferenceError（踩过）。 */
+  /* 真正要保证的：exportScene 在 offlineView 的花括号**之外**。
+     只看缩进不够（缩进错了函数还在闭包里，照样 ReferenceError）。 */
+  const offViewAt = src.indexOf('function offlineView(cid, root, listBack)');
+  const expAt = src.indexOf('function exportScene(id)');
+  const setAt = src.indexOf('function offlineSettings(cid, root)');
+  const between = src.slice(offViewAt, expAt);
+  const outside = expAt > 0 && between.indexOf('\n  }\n') >= 0;
+  ok('exportScene 在 offlineView 闭包外面（否则 offlineSettings 调用会 ReferenceError）',
+    outside && setAt > expAt, 'exp@' + expAt + ' set@' + setAt + ' closed=' + outside);
+  ok('文件名会去掉路径非法字符', /replace\(\/\[\\\\\/:\*\?"<>\|\]\/g, ''\)/.test(src));
+
+  /* ── 手改大纲：input + 防抖，不能只靠 change（那只在失焦时触发）── */
+  ok('大纲框有 input 监听（写一半切走不会丢）',
+    /addEventListener\('input', saveOutline\)/.test(src));
+  ok('大纲有防抖，不是每敲一个字就写盘', /setTimeout\([\s\S]{0,120}600\)/.test(src));
+  ok('失焦时立刻落盘（清掉待执行的防抖）',
+    /addEventListener\('blur'[\s\S]{0,160}SJ\.save\(\)/.test(src));
+
+  /* 导出内容本身：旁白斜体、对话「」、场景头引用 */
+  const md = (function () {
+    /* 复刻 exportScene 的组装规则，断言屏幕上看到的样子和导出来的一致 */
+    const L = [];
+    A.offlineEntries(ch.id).forEach(e => {
+      if (e.role === 'me') { L.push('（' + e.text + '）'); return; }
+      if (e.role === 'narr') { L.push('*' + e.text + '*'); return; }
+      A.parseScene(e.text).forEach(b => {
+        L.push(b.kind === 'narr' ? '*' + b.text + '*' : '「' + b.text + '」');
+      });
+    });
+    return L.join('\n');
+  })();
+  ok('导出的对话用「」包着', md.indexOf('「等很久了？」') >= 0, md.slice(0, 80));
+  ok('导出的旁白是斜体', md.indexOf('*他撑伞走过来。*') >= 0, md.slice(0, 80));
+  ok('导出的动作是括号', md.indexOf('（在江边等他）') >= 0);
+}
+
+console.log('\n[111] 剧场的菜单不许按序号取按钮');
+
+{
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+
+  /* menu.children[0] 是「设置（文风 / 接口）」，不是「重 Roll 这段」。
+     按序号取按钮，一旦菜单加项或换序就会指错 —— 这里指错的后果是
+     **点设置会变成「删掉最后一段重新生成」**：白烧一次接口、还凭空多一段剧情。
+     这是我改菜单顺序时暴露出来的老 bug（HEAD 里就已经是错的）。 */
+  const menuAt = src.indexOf('menu.append(');
+  const menuSeg = src.slice(menuAt, menuAt + 900);
+  const items = (menuSeg.match(/\}, '([^']+)'\)/g) || []).map(x => x.slice(4, -2));
+  ok('菜单第 0 项是「设置」，所以按序号取会指错（这条记录事实）',
+    items.length >= 2 && items[0].indexOf('设置') === 0, '第0项=' + items[0] + ' 共' + items.length + '项');
+
+  ok('重 Roll 的接线按名字找，不按序号',
+    /origRedo = Array\.from\(menu\.children\)\.find\([^)]*重 Roll/.test(src));
+  /* 注释里正提到这个错法，断言前先剥掉注释 —— 不然量的是注释不是代码 */
+  ok('代码里不再出现 menu.children[0]',
+    !/menu\.children\[0\]/.test(src.replace(/\/\*[\s\S]*?\*\//g, '')));
+  ok('重 Roll 仍然真的会 redoLast（删掉最后一段再重发）',
+    /origRedo\.onclick = \(\) => \{ closeMenu\(\); redoLast\(\); send\(true\); \}/.test(src));
+  ok('找不到按钮时不炸（加项/改名也不至于白屏）',
+    /if \(origRedo\) origRedo\.onclick/.test(src));
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

@@ -8537,6 +8537,14 @@ const APPS = [
     document.addEventListener('click', closeMenu);
     const openMenu = e => { e.stopPropagation(); menu.classList.toggle('on'); };
 
+    /* 对白引号：模型有时自己带引号，有时被 cleanLine 摘掉半截。
+       先统一成全角引号，再按情况补全，避免出现「…”」这种半截引号。 */
+    const quotize = t => {
+      const raw = String(t == null ? '' : t).trim().replace(/[“『]/g, '「').replace(/[”』]/g, '」');
+      if (/^「/.test(raw)) return raw;
+      return /[」]/.test(raw) ? '「' + raw : '「' + raw + '」';
+    };
+
     /* ── 渲染正文：一行一行按 kind 排版 ── */
     const draw = (animateFrom) => {
       body.innerHTML = '';
@@ -8585,7 +8593,7 @@ const APPS = [
               holder.append(SJ.el('div', { class: 'of2-wm' }, [avatarNode(ch)]));
             }
             if (b.kind === 'char') {
-              const p = SJ.el('p', { class: 'of2-say' }, '「' + b.text + '」');
+              const p = SJ.el('p', { class: 'of2-say' }, quotize(b.text));
               /* 划线评机制：若剧情里带有短评标记 [评:xxx] 或特定长句时带出微短评徽章 */
               if (b.mark || (b.text && b.text.length > 25 && bi === 0)) {
                 const markBadge = SJ.el('span', { class: 'of2-mark-badge' }, '💬 划线心声');
@@ -8593,7 +8601,7 @@ const APPS = [
               }
               holder.append(p);
             } else if (b.kind === 'me') {
-              holder.append(SJ.el('p', { class: 'of2-say me' }, '「' + b.text + '」'));
+              holder.append(SJ.el('p', { class: 'of2-say me' }, quotize(b.text)));
             } else {
               holder.append(SJ.el('p', { class: 'of2-narr' }, b.text));
             }

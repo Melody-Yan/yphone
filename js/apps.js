@@ -3752,7 +3752,9 @@ const APPS = [
     }
   },
 
-  /* ── 备忘录：演示「增删改 + 刷新后还在」── */
+  /* ── 备忘录：便签 + 待办 ──
+     便签还是按天分组的双列墙；待办是一份独立清单，勾选后沉底。
+     便签另给一个「时间线」看法：单列一条竖线串起来，按时间倒着排。 */
   {
     id: 'notes',
     name: '备忘录',
@@ -3760,38 +3762,139 @@ const APPS = [
     art: '1F4DD',
     color: 'linear-gradient(150deg,#f0dcbb,#dcbf93)',
     render(root, close) {
+
+      /* 页签和看法只在这一次打开里有效 —— 跟时钟那个 App 一样，重进回到默认，
+         不为一个看一眼的偏好往存档里塞字段。 */
+      let tab = 'note';        // 'note' | 'todo'
+      let view = 'group';      // 'group' | 'time'
+
+      const todoList = () => (SJ.state.todos = Array.isArray(SJ.state.todos) ? SJ.state.todos : []);
+
+      /* 时间线上要的是「几月几号 几点」而不是「3 分钟前」：
+         「刚刚 / 2 小时前」堆成一列是读不出先后节奏的。 */
+      function whenText(ts) {
+        const t = Number(ts);
+        if (!Number.isFinite(t) || t <= 0) return '没记时间';
+        const d = new Date(t);
+        const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        return d.toDateString() === new Date().toDateString()
+          ? '今天 ' + hm : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+      }
+
       function listView() {
         root.innerHTML = '';
+        /* 便签页右上角两个按钮：换看法 + 新建。待办页的新建就是顶上那条输入，
+           所以那一页不放 ＋，免得同一个动作有两个入口。 */
         root.append(navBar('备忘录', {
-          right: SJ.el('button', { class: 'nav-btn', onclick: editView.bind(null, null) }, '＋')
+          right: tab !== 'note' ? null : SJ.el('div', { class: 'nav-right' }, [
+            SJ.el('button', {
+              class: 'nav-btn', title: view === 'group' ? '按时间线看' : '按分组看',
+              onclick: () => { view = view === 'group' ? 'time' : 'group'; listView(); }
+            }, view === 'group' ? '时间线' : '分组'),
+            SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null) }, '＋')
+          ])
         }));
+        root.append(SJ.el('div', { class: 'seg' }, [
+          SJ.el('button', { class: tab === 'note' ? 'on' : '', onclick: () => { tab = 'note'; listView(); } }, '便签'),
+          SJ.el('button', { class: tab === 'todo' ? 'on' : '', onclick: () => { tab = 'todo'; listView(); } }, '待办')
+        ]));
         const box = SJ.el('div', { class: 'list note-list' });
-        if (!SJ.state.notes.length) {
+        root.append(box);
+        if (tab === 'todo') return paintTodos(box);
+
+        const all = SJ.state.notes.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        if (!all.length) {
           box.append(emptyState('note', '还没有备忘录', '写点要记住的事，改起来随时能改', '写第一条',
             () => editView(null)));
-        } else {
-          /* 按天分组：分组标题本身带信息（今天有几条），不是装饰。
-             卡片是两列便签墙 —— 高度随内容变，不是一排等高的格子。 */
-          const all = SJ.state.notes.slice().sort((a, b) => b.ts - a.ts);
-          const day = ts => Math.floor((Date.now() - ts) / 86400000);
-          const BUCKETS = [['今天', n => day(n.ts) < 1], ['昨天', n => day(n.ts) < 2],
-                           ['这一周', n => day(n.ts) < 7], ['更早', () => true]];
-          let rest = all;
-          BUCKETS.forEach(([label, hit]) => {
-            const part = rest.filter(hit);
-            if (!part.length) return;
-            rest = rest.filter(n => part.indexOf(n) < 0);
-            box.append(SJ.el('div', { class: 'group-title' }, label + ' · ' + part.length));
-            const grid = SJ.el('div', { class: 'note-grid' });
-            part.forEach(n => grid.append(SJ.el('div', { class: 'note-card', onclick: () => editView(n.id) }, [
-              SJ.el('div', { class: 'nc-title' }, n.title || '无标题'),
-              n.body ? SJ.el('div', { class: 'nc-body' }, n.body) : null,
-              SJ.el('div', { class: 'nc-time' }, SJ.fmtAgo(n.ts) || '刚刚')
-            ].filter(Boolean))));
-            box.append(grid);
-          });
+          return;
         }
-        root.append(box);
+        if (view === 'time') {
+          const tl = SJ.el('div', { class: 'tl' });
+          all.forEach(n => tl.append(SJ.el('div', { class: 'tl-item', onclick: () => editView(n.id) }, [
+            SJ.el('span', { class: 'tl-dot' }),
+            SJ.el('div', { class: 'tl-card' }, [
+              SJ.el('div', { class: 'tl-time' }, whenText(n.ts)),
+              SJ.el('div', { class: 'tl-title' }, n.title || '无标题'),
+              n.body ? SJ.el('div', { class: 'tl-body' }, n.body) : null
+            ].filter(Boolean))
+          ])));
+          box.append(tl);
+          return;
+        }
+        /* 按天分组：分组标题本身带信息（今天有几条），不是装饰。
+           卡片是两列便签墙 —— 高度随内容变，不是一排等高的格子。
+           按自然日分，不按「距今多少小时」：凌晨三点看的时候，昨晚十一点的便签
+           属于「昨天」。不然分组说今天、时间线写 10月9日，两边对不上。 */
+        const midnight = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+        const daysAgo = ts => Math.round((midnight(Date.now()) - midnight(ts)) / 86400000);
+        const BUCKETS = [['今天', n => daysAgo(n.ts) < 1], ['昨天', n => daysAgo(n.ts) < 2],
+                         ['这一周', n => daysAgo(n.ts) < 7], ['更早', () => true]];
+        let rest = all;
+        BUCKETS.forEach(([label, hit]) => {
+          const part = rest.filter(hit);
+          if (!part.length) return;
+          rest = rest.filter(n => part.indexOf(n) < 0);
+          box.append(SJ.el('div', { class: 'group-title' }, label + ' · ' + part.length));
+          const grid = SJ.el('div', { class: 'note-grid' });
+          part.forEach(n => grid.append(SJ.el('div', { class: 'note-card', onclick: () => editView(n.id) }, [
+            SJ.el('div', { class: 'nc-title' }, n.title || '无标题'),
+            n.body ? SJ.el('div', { class: 'nc-body' }, n.body) : null,
+            SJ.el('div', { class: 'nc-time' }, SJ.fmtAgo(n.ts) || '刚刚')
+          ].filter(Boolean))));
+          box.append(grid);
+        });
+      }
+
+      /* 待办清单：顶上一行输入，下面未完成在上、已完成沉底。 */
+      function paintTodos(box) {
+        const rows = todoList();
+        const input = SJ.el('input', { class: 'field', placeholder: '加一条待办…' });
+        const add = () => {
+          const text = input.value.trim();
+          if (!text) return;   // 空着点加 = 什么也没发生，不留一条点不动的空行
+          rows.push({ id: SJ.uid(), text: text.slice(0, 200), done: false, ts: Date.now(), doneAt: 0 });
+          SJ.save();
+          listView();
+        };
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+        box.append(SJ.el('div', { class: 'td-add' }, [
+          input,
+          SJ.el('button', { class: 'td-add-btn', title: '添加', html: svg('plus', 20), onclick: add })
+        ]));
+        if (!rows.length) {
+          box.append(emptyState('note', '还没有待办', '把要做的事写在这儿，做完打个勾', null, null));
+          return;
+        }
+        const open = rows.filter(t => !t.done);
+        const done = rows.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+        const rowOf = t => SJ.el('div', { class: 'td-row' + (t.done ? ' done' : '') }, [
+          SJ.el('button', {
+            class: 'td-check' + (t.done ? ' on' : ''), title: t.done ? '标记未完成' : '标记完成',
+            onclick: () => {
+              t.done = !t.done;
+              t.doneAt = t.done ? Date.now() : 0;
+              SJ.save(); listView();
+            }
+          }, t.done ? '✓' : ''),
+          SJ.el('div', { class: 'td-text' }, t.text),
+          SJ.el('button', {
+            class: 'td-del', title: '删除待办',
+            onclick: () => {
+              SJ.state.todos = rows.filter(x => x.id !== t.id);
+              SJ.save(); listView();
+            }
+          }, '×')
+        ]);
+        box.append(SJ.el('div', { class: 'group-title' }, open.length ? open.length + ' 件要做' : '都做完了'));
+        const openBox = SJ.el('div', { class: 'td-list' });
+        open.forEach(t => openBox.append(rowOf(t)));
+        box.append(openBox);
+        if (done.length) {
+          box.append(SJ.el('div', { class: 'group-title' }, '已完成 · ' + done.length));
+          const doneBox = SJ.el('div', { class: 'td-list' });
+          done.forEach(t => doneBox.append(rowOf(t)));
+          box.append(doneBox);
+        }
       }
 
       function editView(id) {

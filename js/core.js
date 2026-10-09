@@ -163,6 +163,9 @@ const DEFAULTS = {
   layout: [],            // 桌面图标顺序：[appId, ...]，空数组=用注册表默认顺序
   split: [],             // 每页放几个图标：[n0, n1, n2]，空数组=自动排（每页 24）
   notes: [],             // 备忘录：[{id,title,body,ts}, ...]
+  /* 待办：[{id,text,done,ts,doneAt}]。没有标题/正文，勾掉之后还得留在原地 ——
+     形状跟便签不一样，所以另开一份，不塞进 notes 里。 */
+  todos: [],
   settings: {
     /* 深色主题：'light' | 'dark' | 'auto' */
     theme: 'light',      // light | dark（莫兰迪浅色是默认）
@@ -318,6 +321,7 @@ musicBg: '', musicTint: 'ink',
 const SCHEMA = {
   wallpaper: 'string', wallRev: 'number', lock: 'boolean', password: 'string', layout: 'array', split: 'array',
   notes: 'array', characters: 'array', chats: 'object',
+  todos: 'array',
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
   personas: 'array', personaId: 'string', sms: 'object', longMem: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
@@ -519,6 +523,18 @@ function migrate(saved) {
       done: !!e.done
     }))
     .filter(e => /^\d{4}-\d{2}-\d{2}$/.test(e.date));
+  // 待办：和日程一样逐条归一。空文字条的丢掉 —— 列表里会出现一条勾不掉也删不明的空行。
+  out.todos = (Array.isArray(out.todos) ? out.todos : [])
+    .filter(t => t && typeof t === 'object')
+    .slice(0, 500)
+    .map((t, i) => ({
+      id: String(t.id || ('td-' + i)),
+      text: String(t.text || '').slice(0, NAME_MAX),
+      done: !!t.done,
+      ts: Number(t.ts) || 0,
+      doneAt: Number(t.doneAt) || 0
+    }))
+    .filter(t => t.text);
   // 桌面插件：按页归一。认不出的 type 直接丢掉（渲染层也判，但状态里别留垃圾）。
   // 同样不能用 uid()（TDZ），id 用 'wg-页码-序号'。
   const knownWg = WIDGET_TYPES.map(w => w.type);

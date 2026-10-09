@@ -7754,6 +7754,103 @@ console.log('\n[111] 剧场的菜单不许按序号取按钮');
     /if \(origRedo\) origRedo\.onclick/.test(src));
 }
 
+/* 112. 备忘录：待办清单 + 时间线 */
+console.log('\n[112] 备忘录：待办清单 + 时间线');
+{
+  const A = sandbox.SJ;
+  const src = fs.readFileSync(path.join(DIR, 'js/apps.js'), 'utf8');
+  const core = fs.readFileSync(path.join(DIR, 'js/core.js'), 'utf8');
+
+  /* ── 存档三件套：默认值 / SCHEMA / migrate 归一 ── */
+  ok('DEFAULTS 里有 todos', /^\s*todos: \[\],$/m.test(core));
+  ok('SCHEMA 认 todos', /todos: 'array'/.test(core));
+  ok('migrate 逐条归一，空文字条丢掉',
+    /out\.todos = \(Array\.isArray\(out\.todos\) \? out\.todos : \[\]\)[\s\S]{0,500}?\.filter\(t => t\.text\)/.test(core));
+
+  /* ── 界面：便签 / 待办两个页签，便签另有「时间线」看法 ── */
+  A.state.notes = [{ id: 'n-a', title: '要记住的事', body: '一句正文', ts: Date.now() }];
+  A.state.todos = [];
+  A.save();
+  S.openApp('notes');
+  const v = S.SHELL.stack[0].node;
+  ok('备忘录顶上有「便签 / 待办」两个页签',
+    !!findBtn(v, '便签') && !!findBtn(v, '待办'));
+  ok('便签页右上角有「时间线」这个看法开关', !!findBtn(v, '时间线'));
+  ok('便签页还是 ＋ 新建（没被页签挤掉）', !!findBtn(v, '＋'));
+
+  const grid0 = walk(v).find(n => n._class.has('note-grid'));
+  ok('默认是分组看：便签墙在', !!grid0 && !!grid0.children.length);
+
+  findBtn(v, '时间线').click();
+  ok('点「时间线」换成时间线视图（便签墙藏起来）',
+    !!walk(v).find(n => n._class.has('tl')) && !walk(v).find(n => n._class.has('note-grid')));
+  ok('时间线上一条便签一个节点', walk(v).filter(n => n._class.has('tl-item')).length === 1);
+  const tlTime = walk(v).find(n => n._class.has('tl-time'));
+  ok('时间线写的是绝对时间（今天 14:32），不是「刚刚」',
+    !!tlTime && /^今天 \d{2}:\d{2}$/.test(tlTime.textContent), tlTime && tlTime.textContent);
+  findBtn(v, '分组').click();
+  ok('切回分组还是便签墙', !!walk(v).find(n => n._class.has('note-grid')));
+
+  /* ── 待办：加 / 勾 / 沉底 / 取消 / 删 ── */
+  findBtn(v, '待办').click();
+  ok('待办页有输入框', !!walk(v).find(n => n.tagName === 'INPUT'));
+  walk(v).find(n => n.tagName === 'INPUT').value = '买牛奶';
+  walk(v).find(n => n._class.has('td-add-btn')).click();
+  ok('加一条待办 → 真的多了一条',
+    A.state.todos.length === 1 && A.state.todos[0].text === '买牛奶', JSON.stringify(A.state.todos));
+  ok('待办落盘（刷新不丢）', /买牛奶/.test(store.get('xiaoshouji.v1') || ''));
+  ok('新加的默认是没做完', A.state.todos[0].done === false && A.state.todos[0].doneAt === 0);
+  ok('列表上看得见这一条', !!walk(v).find(n => n._class.has('td-row')));
+
+  walk(v).find(n => n._class.has('td-check')).click();
+  ok('点一下勾上（done + doneAt 都写了）',
+    A.state.todos[0].done === true && A.state.todos[0].doneAt > 0);
+  ok('勾掉的行加了 done（划线靠它）', !!walk(v).find(n => n._class.has('td-row') && n._class.has('done')));
+  ok('勾掉的沉到「已完成」那一组',
+    walk(v).some(n => n._class.has('group-title') && n.textContent.indexOf('已完成') === 0));
+  walk(v).find(n => n._class.has('td-check')).click();
+  ok('再点一下取消勾选（doneAt 清回 0）',
+    A.state.todos[0].done === false && A.state.todos[0].doneAt === 0);
+  walk(v).find(n => n._class.has('td-del')).click();
+  ok('点 × 删掉那一条', A.state.todos.length === 0, JSON.stringify(A.state.todos));
+
+  /* 空文字不落盘：不然列表里会多一条勾不掉也删不明的空行 */
+  walk(v).find(n => n.tagName === 'INPUT').value = '   ';
+  walk(v).find(n => n._class.has('td-add-btn')).click();
+  ok('空白不落盘', A.state.todos.length === 0);
+  S.closeTop(true);
+
+  /* ── 分组的口径：按自然日，不按「距今多少小时」──
+     凌晨三点看，昨晚十一点写的那条该在「昨天」。要是它被算进今天，
+     「昨天」这一组根本不会出现。 */
+  {
+    const m = new Date(); m.setHours(0, 0, 0, 0);
+    A.state.notes = [
+      { id: 'n-t', title: '今天写的', body: '', ts: m.getTime() + 60000 },
+      { id: 'n-y', title: '昨晚写的', body: '', ts: m.getTime() - 60000 }
+    ];
+    A.save();
+    S.openApp('notes');
+    const v2 = S.SHELL.stack[0].node;
+    const groups = walk(v2).filter(n => n._class.has('group-title')).map(n => n.textContent);
+    ok('跨天的便签按自然日归组（昨晚那条没被算进今天）',
+      groups.some(t => t.indexOf('今天') === 0) && groups.some(t => t.indexOf('昨天') === 0),
+      groups.join(' / '));
+    S.closeTop(true);
+  }
+
+  /* ── 坏存档：这最后一段会把存档换成导入的那份，所以放在末尾 ── */
+  const rt = A.importState(JSON.stringify({ todos: [
+    { text: '没写 id', done: true, ts: 5 }, { text: '' }, null, '字符串', { id: 'keep', text: '留着' } ] }));
+  const td = A.state.todos;
+  ok('导入时坏条目丢掉、id 补上、空文字丢掉',
+    rt.ok === true && td.length === 2 && td[0].id === 'td-0' && td[0].done === true && td[1].id === 'keep',
+    JSON.stringify(td));
+  const rt2 = A.importState(JSON.stringify({ todos: '我不是数组' }));
+  ok('todos 类型不对就回落成空数组，而不是把手机搞坏',
+    rt2.ok === true && Array.isArray(A.state.todos) && A.state.todos.length === 0);
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

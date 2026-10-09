@@ -4379,8 +4379,8 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-scroll {
   position: relative; z-index: 2; flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
-  /* 左边只留 34（正好放一个头像），右边留 22 —— 头像就贴在屏幕左缘了 */
-  padding: 6px 22px 14px 34px;
+  /* 左右对称 20：正文铺满整宽。头像已经搬到正文上方那一行，不再占左边的栏位。 */
+  padding: 8px 20px 14px;
 }
 .of2-flow { max-width: 660px; margin: 0 auto; }
 /* 场景氛围标签：地点 · 时间 · 天气（对齐原型 .novel-title-tag） */
@@ -4392,7 +4392,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 
 /* 旁白：斜体、深灰、字号略小、大缩进 */
 .of2-narr {
-  margin: 0 0 14px; padding-left: 4px; text-indent: 2em;
+  margin: 0 0 14px; padding-left: 0; text-indent: 2em;
   font-family: 'PingFang SC', 'Songti SC', serif;
   font-size: var(--of-size, 14.5px); line-height: 1.85; font-style: italic;
   color: #333333;
@@ -4424,22 +4424,24 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone.dark .of2-top { border-bottom-color: rgba(255,255,255,.08); }
 .of2-say.me { color: var(--ink-2); font-weight: 500; }
 
-/* 每个角色分段左边那枚小头像。
-   原来是 absolute + opacity .2，被后面的 <p> 盖住了（量出来 elementFromPoint
-   命中的是 .of2-narr），而且 0.2 太淡基本看不见。
-   现在：抬 z-index 压住文字、放大到 34、提到 .5，再给一圈白边把轮廓托出来。 */
-.of2-wm {
-  position: absolute; left: 0; top: 1px; z-index: 2;
-  width: 34px; height: 34px; opacity: .5;
-  pointer-events: none; border-radius: 12px;
-  box-shadow: 0 0 0 2px rgba(255,255,255,.5);
+/* 头像 + 名字：正文上方单独一行，右对齐。
+   以前它 absolute 挂在左边那条 34px 的空白里、透明度 .5，
+   正文还得再让出 48px —— 三个代价换一个看不出是谁的水印。
+   现在正文铺满整宽，头像回到「谁在说」该在的位置。 */
+.of2-head {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  margin: 0 0 10px;
 }
-.of2-wm .avatar { width: 34px; height: 34px; border-radius: 12px; font-size: 17px; }
-#phone.dark .of2-wm { opacity: .55; box-shadow: 0 0 0 2px rgba(0,0,0,.28); }
-/* 头像栏：滚动区左边留 34px（正好一个头像的宽），带头像的块再自缩 48px。
-   头像占 0~34，正文从 34+48+14 = 96 起。
-   （用户说头像太靠右 —— 之前滚动区左边留了 60，头像就跟着右移了。） */
-.of2-blk.has-wm { padding-left: 48px; }
+.of2-head-who { font-size: 11.5px; letter-spacing: .04em; color: #9a9a9a; }
+.of2-wm {
+  flex: none; display: block; width: 30px; height: 30px; opacity: 1;
+  pointer-events: none; border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.14);
+}
+.of2-wm .avatar { width: 30px; height: 30px; border-radius: 10px; font-size: 15px; }
+#phone.dark .of2-head-who { color: rgba(238,236,232,.5); }
+#phone.dark .of2-wm { box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.of2-blk.has-wm { margin-top: 16px; }
 
 /* 用户自己的动作：右对齐的一小条，不做成气泡 */
 .of2-me { display: flex; justify-content: flex-end; margin-bottom: 14px; }
@@ -4617,3 +4619,165 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-choice:hover {
   background: #edeae5; border-color: rgba(0,0,0,0.1);
 }
+
+/* ══════════════════════════════════════════════════
+   我们的空间 / cee论坛 / 表情包工坊
+   三个新 App 共用一套手感：纸白卡片 + 一条细线分隔。
+   颜色只出现在头图条和 App 图标上，正文一律走墨色 ——
+   跟全站「近黑就是强调色」的基调保持一致。
+   ══════════════════════════════════════════════════ */
+
+/* ── 我们的空间 ── */
+.sp-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 14px 16px calc(28px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* 卡片和头图条一律不许缩：.sp-hero 带了 overflow:hidden，在 flex 列里
+   它会缩到比内容还矮，头像和天数就被裁成一团（实测过，别删）。 */
+.sp-scroll > * { flex: none; }
+.sp-hero {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px; border-radius: 20px; background: var(--bg-2);
+  box-shadow: var(--el-1), var(--edge);
+}
+/* 头图条上淡淡一层纸纹：平涂的渐变色立刻不像纯色块 */
+.sp-hero::after { content: ''; position: absolute; inset: 0; background-image: var(--grain); pointer-events: none; }
+.sp-hero-face { flex: none; display: block; }
+.sp-hero-face .avatar { width: 56px; height: 56px; border-radius: 19px; font-size: 29px; box-shadow: 0 2px 8px rgba(0,0,0,.16); }
+.sp-hero-main { min-width: 0; }
+.sp-hero-name { font-size: 18px; font-weight: 600; color: #201d1a; }
+.sp-hero-days { font-size: 13px; color: rgba(32,29,26,.62); margin-top: 4px; }
+.sp-hero-days b { font-size: 17px; font-weight: 700; color: #201d1a; margin: 0 1px; }
+
+.sp-card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px 16px; box-shadow: var(--el-1); }
+.sp-h { display: flex; align-items: center; gap: 7px; padding-bottom: 10px; }
+.sp-h-ico { display: inline-flex; color: var(--ink-2); }
+.sp-h-t { flex: 1; font-size: 14px; font-weight: 600; }
+.sp-h-act { border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--ink-2); padding: 3px 2px; cursor: pointer; }
+.sp-h-act:active { opacity: .55; }
+
+.sp-cd { display: flex; align-items: center; gap: 14px; }
+.sp-cd-n { flex: none; display: flex; align-items: baseline; gap: 3px; }
+.sp-cd-n b { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.sp-cd-n span { font-size: 12px; color: var(--ink-3); }
+.sp-cd-m { flex: 1; min-width: 0; }
+.sp-cd-t { font-size: 14px; font-weight: 500; }
+.sp-cd-d { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+.sp-mini { margin-top: 8px; border: 0; border-radius: 9px; padding: 5px 10px; font: inherit; font-size: 12px; background: var(--accent-soft); color: var(--ink-2); cursor: pointer; }
+.sp-mini:active { opacity: .6; }
+
+.sp-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.sp-line-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-line-d { flex: none; font-size: 12px; color: var(--ink-3); }
+
+.sp-wish { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.sp-check { flex: none; width: 20px; height: 20px; padding: 0; border-radius: 7px; border: 1.5px solid var(--line-2); background: transparent; color: #fff; font-size: 12px; line-height: 1; display: grid; place-items: center; cursor: pointer; }
+.sp-check.on { background: var(--accent-solid); border-color: var(--accent-solid); }
+.sp-wish-t { flex: 1; min-width: 0; font-size: 14px; }
+.sp-wish.done .sp-wish-t { color: var(--ink-3); text-decoration: line-through; }
+.sp-del { flex: none; border: 0; background: none; color: var(--ink-3); font-size: 16px; line-height: 1; padding: 2px 4px; cursor: pointer; opacity: .5; }
+.sp-del:active { opacity: 1; }
+
+.sp-diary { padding: 9px 0; border-top: 1px solid var(--line); }
+.sp-diary-d { font-size: 11.5px; color: var(--ink-3); }
+.sp-diary-t { font-size: 14px; line-height: 1.65; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+.sp-diary-r { margin-top: 8px; padding: 9px 11px; border-radius: 12px; background: var(--bg-2); font-size: 13px; line-height: 1.6; }
+.sp-diary-r b { font-weight: 600; color: var(--ink-2); margin-right: 3px; }
+.sp-h + .sp-wish, .sp-h + .sp-line, .sp-h + .sp-diary { border-top: 0; }
+
+.sp-none { font-size: 12.5px; color: var(--ink-3); line-height: 1.7; }
+.sp-sec { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 2px 0; font-size: 13px; font-weight: 600; }
+.sp-sec-n { font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+.sp-album { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.sp-ph { display: block; padding-top: 100%; border-radius: 11px; background: var(--bg-2) center / cover no-repeat; }
+.sp-album-none { font-size: 12.5px; color: var(--ink-3); line-height: 1.7; }
+
+/* ── cee论坛 ── */
+.fm-topics { flex: none; display: flex; gap: 7px; padding: 10px 14px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.fm-topic { flex: none; border: 0; border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 12.5px; background: var(--bg-2); color: var(--ink-2); cursor: pointer; }
+.fm-topic.on { background: var(--accent-solid); color: var(--on-accent); }
+.fm-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px calc(84px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 11px; }
+.fm-post { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 13px 14px 9px; box-shadow: var(--el-1); }
+.fm-head { display: flex; align-items: center; gap: 10px; }
+.fm-head .avatar { width: 36px; height: 36px; border-radius: 12px; font-size: 19px; }
+.fm-who { flex: 1; min-width: 0; }
+.fm-name { font-size: 13.5px; font-weight: 600; }
+.fm-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.fm-mine { flex: none; font-size: 11px; color: var(--ink-3); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 8px; }
+.fm-text { font-size: 14px; line-height: 1.72; margin-top: 10px; white-space: pre-wrap; word-break: break-word; }
+.fm-img { margin-top: 10px; padding-top: 58%; border-radius: 13px; background: var(--bg-2) center / cover no-repeat; }
+.fm-acts { display: flex; gap: 4px; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+.fm-act { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 7px 10px 7px 2px; font: inherit; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.fm-act.on { color: var(--danger); }
+.fm-act-i { display: inline-flex; }
+.fm-fab { position: absolute; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); z-index: 4; width: 52px; height: 52px; border: 0; border-radius: 50%; background: var(--accent-solid); color: var(--on-accent); display: grid; place-items: center; cursor: pointer; box-shadow: var(--el-2); }
+.fm-fab:active { transform: scale(.94); }
+.fm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fm-chip { border: 0; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12px; background: var(--bg-2); color: var(--ink-2); cursor: pointer; }
+.fm-chip.on { background: var(--accent-solid); color: var(--on-accent); }
+.fm-cmt { display: flex; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.fm-cmt .avatar { width: 30px; height: 30px; border-radius: 10px; font-size: 15px; }
+.fm-cmt-m { flex: 1; min-width: 0; }
+.fm-cmt-w { font-size: 12.5px; font-weight: 600; }
+.fm-cmt-t { font-size: 13px; line-height: 1.6; margin-top: 2px; word-break: break-word; }
+.fm-send { display: flex; align-items: center; gap: 8px; }
+.fm-send .field { flex: 1; }
+.fm-send .btn { flex: none; padding: 11px 16px; }
+
+/* ── 表情包工坊 ── */
+.st-tabs { flex: none; display: flex; gap: 7px; padding: 11px 16px; }
+.st-tab { border: 0; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 12.5px; background: var(--bg-2); color: var(--ink-2); cursor: pointer; }
+.st-tab.on { background: var(--accent-solid); color: var(--on-accent); }
+.st-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px calc(28px + env(safe-area-inset-bottom)); }
+.st-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; align-content: start; }
+.st-cell { position: relative; aspect-ratio: 1 / 1; display: grid; place-items: center; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--card); font-size: 30px; cursor: pointer; box-shadow: var(--el-1); }
+.st-cell:active { transform: scale(.95); }
+.st-emoji { line-height: 1; }
+.st-img { width: 100%; height: 100%; object-fit: contain; }
+.st-add { border-style: dashed; border-color: var(--line-2); background: transparent; color: var(--ink-3); box-shadow: none; }
+.st-hint { margin-top: 14px; }
+
+/* ══════════════════════════════════════════════════
+   此刻相遇 · 列表页
+   从「一行一个人」换成一张张卡：头像 + 名字 + 写了多少，
+   底下接半句上一段的原文；抬头是一块暖色的开场条。
+   ══════════════════════════════════════════════════ */
+.of-hero {
+  margin: 8px 16px 6px; padding: 18px; border-radius: 20px;
+  background: linear-gradient(150deg, #fdf7ee, #f1e2cd);
+  border: 1px solid rgba(163,131,88,.16);
+  box-shadow: var(--el-1), var(--edge);
+}
+.of-hero-t { font-size: 15px; font-weight: 600; color: #2c2620; line-height: 1.6; }
+.of-hero-m { margin-top: 9px; font-size: 12.5px; color: rgba(44,38,32,.62); }
+.of-hero-m b { font-weight: 700; color: #2c2620; }
+
+.of-card {
+  margin: 0 16px 12px; padding: 14px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 18px; box-shadow: var(--el-1); cursor: pointer;
+}
+.of-card:active { transform: scale(.99); }
+.of-card-top { display: flex; align-items: center; gap: 12px; }
+.of-card-top .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
+.of-card-who { flex: 1; min-width: 0; }
+.of-card-name { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
+.of-card-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.of-card-tag { flex: none; font-size: 11px; font-weight: 400; color: var(--ink-2); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; }
+.of-card-meta { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+.of-card-go { flex: none; display: inline-flex; color: var(--ink-3); }
+.of-card-quote {
+  margin-top: 12px; padding-top: 11px; border-top: 1px dashed var(--line-2);
+  font-size: 13px; line-height: 1.7; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.of-card-quote.none { color: var(--ink-3); }
+
+#phone.dark .of-hero {
+  background: linear-gradient(150deg, var(--card), var(--bg-2));
+  border-color: var(--line);
+}
+#phone.dark .of-hero-t, #phone.dark .of-hero-m b { color: var(--ink); }
+#phone.dark .of-hero-m { color: var(--ink-3); }

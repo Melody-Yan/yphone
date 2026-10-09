@@ -445,6 +445,10 @@ function payPad(title, amountText, onOk) {
 }
 
 /* 角色头像：通讯录、微信会话列表、聊天页头都用这一个，改一处全变 */
+/* 内置表情：聊天面板里那一排十颗。提到模块级，让「表情包工坊」读同一份 ——
+   两边各维护一份，迟早会分叉。 */
+const STICKERS = ['🐱', '🌸', '🍰', '🌙', '😂', '🥺', '❤️', '👍', '🎁', '🍜'];
+
 function avatarNode(c) {
   // 传过头像图片就用图片，否则退回 emoji + 底色。头像图片由 core 的 avatarSrc 白名单过。
   // 图片真实字节在 IndexedDB 里，存档只存 'idb:xxx' 引用 —— 交给 SJ.imgSrc 换成 blob URL。
@@ -3368,7 +3372,6 @@ const APPS = [
           sendText('（' + t.replace(/^[（(]|[）)]$/g, '') + '）');
         }
 
-        const STICKERS = ['🐱', '🌸', '🍰', '🌙', '😂', '🥺', '❤️', '👍', '🎁', '🍜'];
 
         function pickFile() {
           const f = SJ.el('input', { type: 'file', accept: 'image/*', class: 'hide' });
@@ -7201,39 +7204,55 @@ const APPS = [
             SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) }))
         }));
         const box = SJ.el('div', { class: 'list' });
-        box.append(SJ.el('div', { class: 'hint of-lead', style: { padding: '4px 20px 14px' } },
-          '把没说出口的，写在同一个地方。'));
-
-        /* 总览：写了多少段、跟谁写得最多。没有就不显示，省得空着占地方 */
-        const totalSeg = list().reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
-        if (totalSeg) {
-          const ob = SJ.el('div', { class: 'of-overview' });
-          ob.append(SJ.el('div', { class: 'of-ov-n' }, String(totalSeg)));
-          ob.append(SJ.el('div', { class: 'of-ov-t' }, '段 · 和 ' + list().filter(c => SJ.offlineEntries(c.id).length).length + ' 个人写过'));
-          box.append(ob);
-        }
-
+        /* 抬头：一句开场 + 总览。什么都没写就不报数，免得满屏「0」 */
         const all = list();
+        const totalSeg = all.reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
+        const wrote = all.filter(c => SJ.offlineEntries(c.id).length).length;
+        box.append(SJ.el('div', { class: 'of-hero' }, [
+          SJ.el('div', { class: 'of-hero-t' }, '把没说出口的，写在同一个地方。'),
+          totalSeg ? SJ.el('div', { class: 'of-hero-m' }, [
+            SJ.el('b', {}, String(totalSeg)), SJ.el('span', {}, ' 段 · 和 '),
+            SJ.el('b', {}, String(wrote)), SJ.el('span', {}, ' 个人写过')
+          ]) : null
+        ].filter(Boolean)));
+
         if (!all.length) {
           box.append(emptyState('heart', '还没有人可遇见',
             '先去「消息」里建一个角色，这里就有人等你了', '去建角色', () => {
               if (window.SHELL) window.SHELL.openApp('contacts');
             }));
+          root.append(box);
+          return;
         }
 
+        box.append(SJ.el('div', { class: 'group-title' }, all.length + ' 个可以遇见的人'));
+
+        /* 一张卡一个人：头像 + 名字 + 写了多少，底下再接一句他/她的最后一句。
+           比原来那行「头像 + 两行字」更像一本册子，也更看得清谁写得多。 */
         all.forEach(c => {
-          const n = SJ.offlineEntries(c.id).length;
+          const entries = SJ.offlineEntries(c.id);
           const o = SJ.offlineOf(c.id);
-          const last = SJ.offlineEntries(c.id).slice(-1)[0];
-          box.append(SJ.el('div', { class: 'row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
-            avatarNode(c),
-            SJ.el('div', { class: 'row-main' }, [
-              SJ.el('div', { class: 'row-title' }, c.name || '（没名字）'),
-              SJ.el('div', { class: 'row-sub' }, n
-                ? n + ' 段 · ' + (last ? String(last.text).replace(/\s+/g, ' ').slice(0, 18) : '')
-                : (o.outline || '还没见过面'))
+          const last = entries.slice(-1)[0];
+          const at = last && last.at ? new Date(last.at).getTime() : 0;
+          const quote = last ? String(last.text).replace(/\s+/g, ' ').trim() : '';
+          box.append(SJ.el('div', { class: 'of-card', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
+            SJ.el('div', { class: 'of-card-top' }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'of-card-who' }, [
+                SJ.el('div', { class: 'of-card-name' }, [
+                  SJ.el('span', {}, c.name || '（没名字）'),
+                  c.relation ? SJ.el('span', { class: 'of-card-tag' }, c.relation) : null
+                ].filter(Boolean)),
+                SJ.el('div', { class: 'of-card-meta' }, entries.length
+                  ? entries.length + ' 段 · ' + (SJ.fmtAgo(at) || '刚刚')
+                  : '还没见过面')
+              ]),
+              SJ.el('span', { class: 'of-card-go', html: svg('right', 16) })
             ]),
-            SJ.el('div', { class: 'row-time' }, n ? '›' : '去见他')
+            quote
+              ? SJ.el('div', { class: 'of-card-quote' }, quote)
+              : SJ.el('div', { class: 'of-card-quote none' },
+                  o.outline || '还没写下第一句。进去写一句，故事就从这儿开始。')
           ]));
         });
         root.append(box);
@@ -7947,6 +7966,482 @@ const APPS = [
     },
 
   /* ── 存储 ── */
+
+  /* ══ 我们的空间 ══
+     每个角色一份：头图条 + 纪念日 / 心愿 / 日记三张卡 + 相册墙。
+     添、勾、写都在本地做完了；「让 TA 补一句」要动模型，留到下一步接。 */
+  {
+    id: 'space',
+    name: '我们的空间',
+    icon: 'heart',
+    art: '1F49E',
+    color: 'linear-gradient(150deg,#f3d9dc,#d8a3a9)',
+    render(root, close, arg) {
+      const chars = () => (SJ.state.characters || []).filter(c => !SJ.isGroup(c.id));
+      const faceOf = id => chars().find(c => c.id === id) || { name: '已删除的角色', avatar: '🙂', color: '' };
+
+      /* 相册墙：朋友圈图 + 聊天图，倒着取九张。不新开图片存储，只把已有的攒到一块看。 */
+      function photosOf(cid) {
+        const out = [];
+        (SJ.state.moments || []).forEach(m => { if (m && m.charId === cid && m.img) out.push({ ref: m.img, ts: m.ts || 0 }); });
+        const chat = (SJ.state.chats || {})[cid];
+        (Array.isArray(chat) ? chat : []).forEach(m => { if (m && m.img) out.push({ ref: m.img, ts: m.ts || 0 }); });
+        return out.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 9);
+      }
+      /* 今年这天过了就数明年那一次 —— 纪念日一年一回，不是「已经过去了」。 */
+      function daysTo(date) {
+        const t = new Date(SJ.dayKey() + 'T00:00:00');
+        /* 只比月日：存着去年那天的纪念日，今年照样该倒数到今年那一天 ——
+           拿完整日期比会把整年跳过去，倒数凭空多出 365 天。 */
+        const md = date.slice(5);
+        let d = new Date(t.getFullYear() + '-' + md + 'T00:00:00');
+        if (d < t) d = new Date((t.getFullYear() + 1) + '-' + md + 'T00:00:00');
+        return Math.round((d - t) / 86400000);
+      }
+      function dayLabel(ts) {
+        if (!ts) return '';
+        const d = new Date(ts), now = SJ.virtualNow();
+        const at = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+        const n = Math.round((at(now) - at(d)) / 86400000);
+        if (n <= 0) return '今天';
+        if (n === 1) return '昨天';
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      }
+
+      /* ── 选人 ── */
+      function listView() {
+        root.innerHTML = '';
+        root.append(navBar('我们的空间'));
+        const all = chars();
+        const box = SJ.el('div', { class: 'list' });
+        if (!all.length) {
+          box.append(emptyState('heart', '还没有人',
+            '空间是给每个角色单独开的一间 —— 先去通讯录里造一个人。',
+            '去通讯录', () => { if (window.SHELL) window.SHELL.openApp('contacts'); }));
+        } else {
+          box.append(SJ.el('div', { class: 'group-title' }, all.length + ' 个人的空间'));
+          all.forEach(c => {
+            const sp = SJ.spaceOf(c.id);
+            const left = sp.wishes.filter(w => !w.done).length;
+            const d = SJ.spaceDays(c.ts);
+            box.append(SJ.el('div', { class: 'row', onclick: () => spaceView(c.id) }, [
+              avatarNode(c),
+              SJ.el('div', { class: 'row-main' }, [
+                SJ.el('div', { class: 'row-title' }, c.name || '无名'),
+                SJ.el('div', { class: 'row-sub' },
+                  (d ? '相伴 ' + d + ' 天' : '还没记相识的日子') + (left ? ' · ' + left + ' 个心愿没做' : ''))
+              ]),
+              SJ.el('div', { class: 'row-time' }, '进入 ›')
+            ]));
+          });
+        }
+        root.append(box);
+      }
+
+      /* ── 一个人的空间 ── */
+      function spaceView(cid) {
+        root.innerHTML = '';
+        const c = faceOf(cid);
+        const sp = SJ.spaceOf(cid);
+        const redraw = () => spaceView(cid);
+        root.append(navBar((c.name || '无名') + '的空间', { back: chars().length > 1 ? listView : null }));
+
+        /* 头图条：底色用这个人自己的颜色，相伴天数挂在这一条上 */
+        const days = SJ.spaceDays(c.ts);
+        const scroll = SJ.el('div', { class: 'sp-scroll' }, [
+          SJ.el('div', { class: 'sp-hero', style: { background: c.color || '' } }, [
+            SJ.el('span', { class: 'sp-hero-face' }, avatarNode(c)),
+            SJ.el('div', { class: 'sp-hero-main' }, [
+              SJ.el('div', { class: 'sp-hero-name' }, c.name || '无名'),
+              SJ.el('div', { class: 'sp-hero-days' }, days
+                ? ['相伴 ', SJ.el('b', {}, String(days)), ' 天']
+                : '刚认识 · 相识那天还没记')
+            ])
+          ])
+        ]);
+
+        const head = (ico, title, act, run) => SJ.el('div', { class: 'sp-h' }, [
+          SJ.el('span', { class: 'sp-h-ico', html: svg(ico, 16) }),
+          SJ.el('span', { class: 'sp-h-t' }, title),
+          act ? SJ.el('button', { class: 'sp-h-act', onclick: run }, act) : null
+        ]);
+
+        /* 纪念日：最近那个大字倒数，其余最多三行列在下面 */
+        const anniv = sp.anniv.slice().sort((a, b) => daysTo(a.date) - daysTo(b.date));
+        const near = anniv[0];
+        const annivBody = [
+          near
+            ? SJ.el('div', { class: 'sp-cd' }, [
+                SJ.el('div', { class: 'sp-cd-n' }, [SJ.el('b', {}, String(daysTo(near.date))), SJ.el('span', {}, '天后')]),
+                SJ.el('div', { class: 'sp-cd-m' }, [
+                  SJ.el('div', { class: 'sp-cd-t' }, near.title || '纪念日'),
+                  SJ.el('div', { class: 'sp-cd-d' }, near.date.replace(/-/g, '.')),
+                  SJ.el('button', { class: 'sp-mini', onclick: () => annivToCal(near) }, '写进日历')
+                ])
+              ])
+            : SJ.el('div', { class: 'sp-none' }, '把生日、在一起的那天记下来，这里替你数着。')
+        ];
+        anniv.slice(1, 4).forEach(a => annivBody.push(SJ.el('div', { class: 'sp-line' }, [
+          SJ.el('span', { class: 'sp-line-t' }, a.title || '纪念日'),
+          SJ.el('span', { class: 'sp-line-d' }, a.date.slice(5).replace('-', '/') + ' · ' + daysTo(a.date) + ' 天')
+        ])));
+        scroll.append(SJ.el('section', { class: 'sp-card' },
+          [head('heart', '纪念日', '＋ 加一个', askAnniv)].concat(annivBody)));
+
+        /* 心愿清单：没做的排前面，做完的沉下去划掉 */
+        const wishBody = [];
+        const wishes = sp.wishes.filter(w => !w.done).concat(sp.wishes.filter(w => w.done));
+        if (!wishes.length) wishBody.push(SJ.el('div', { class: 'sp-none' }, '想一起做的事写在这儿，做完打个勾。'));
+        wishes.slice(0, 6).forEach(w => wishBody.push(SJ.el('div', { class: 'sp-wish' + (w.done ? ' done' : '') }, [
+          SJ.el('button', {
+            class: 'sp-check' + (w.done ? ' on' : ''),
+            title: w.done ? '还没做' : '做完了',
+            onclick: () => { w.done = !w.done; SJ.save(); redraw(); }
+          }, w.done ? '✓' : ''),
+          SJ.el('span', { class: 'sp-wish-t' }, w.text),
+          SJ.el('button', {
+            class: 'sp-del', title: '删掉',
+            onclick: () => { sp.wishes = sp.wishes.filter(x => x !== w); SJ.save(); redraw(); }
+          }, '×')
+        ])));
+        scroll.append(SJ.el('section', { class: 'sp-card' },
+          [head('sparkle', '心愿清单', '＋ 加一条', askWish)].concat(wishBody)));
+
+        /* 共同日记：最近三篇，每篇底下挂一个「让 TA 补一句」 */
+        const diaryBody = [];
+        if (!sp.diary.length) diaryBody.push(SJ.el('div', { class: 'sp-none' }, '今天想说的话，写在这儿。'));
+        sp.diary.slice(0, 3).forEach(d => {
+          diaryBody.push(SJ.el('div', { class: 'sp-diary' }, [
+            SJ.el('div', { class: 'sp-diary-d' }, dayLabel(d.ts)),
+            SJ.el('div', { class: 'sp-diary-t' }, d.text),
+            d.reply
+              ? SJ.el('div', { class: 'sp-diary-r' }, [SJ.el('b', {}, (c.name || 'TA') + '：'), d.reply])
+              : SJ.el('button', { class: 'sp-mini', onclick: askReply }, '让 TA 补一句')
+          ]));
+        });
+        scroll.append(SJ.el('section', { class: 'sp-card' },
+          [head('book', '共同日记', '写一篇', askDiary)].concat(diaryBody)));
+
+        /* 相册墙 */
+        const ph = photosOf(cid);
+        scroll.append(SJ.el('div', { class: 'sp-sec' }, [
+          SJ.el('span', {}, '相册'),
+          SJ.el('span', { class: 'sp-sec-n' }, ph.length ? '最近 ' + ph.length + ' 张' : '')
+        ]));
+        if (ph.length) {
+          const wall = SJ.el('div', { class: 'sp-album' });
+          ph.forEach(p => wall.append(SJ.el('span', {
+            class: 'sp-ph', style: { backgroundImage: 'url("' + SJ.imgSrc(p.ref) + '")' }, title: dayLabel(p.ts)
+          })));
+          scroll.append(wall);
+        } else {
+          scroll.append(SJ.el('div', { class: 'sp-card sp-album-none' },
+            '发过的朋友圈图、聊天里收到的图，都会攒到这儿。'));
+        }
+
+        root.append(scroll);
+
+        /* ── 三个「加」和一个「补一句」── */
+        function askWish() {
+          askText('想一起做什么？', '比如：去看一次海', '做完在那一条上打个勾', v => {
+            sp.wishes.push({ id: SJ.uid(), text: v.slice(0, 24), done: false, ts: SJ.virtualNow().getTime() });
+            SJ.save(); redraw();
+          }, '加进去');
+        }
+        function askDiary() {
+          askText('今天想写点什么？', '写给两个人看的那种', '', v => {
+            sp.diary.unshift({ id: SJ.uid(), text: v.slice(0, 4000), reply: '', ts: SJ.virtualNow().getTime() });
+            SJ.save(); redraw();
+          }, '存下来');
+        }
+        function askAnniv() {
+          const title = SJ.el('input', { class: 'field', placeholder: '叫什么（生日 / 在一起的日子）' });
+          const date = SJ.el('input', { class: 'field', type: 'date', value: SJ.dayKey() });
+          let mask = null;
+          const go = () => {
+            const t = String(title.value || '').trim();
+            if (!t) { toast('先给它起个名字'); return; }
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date.value)) { toast('挑个日子'); return; }
+            sp.anniv.push({ id: SJ.uid(), title: t.slice(0, 24), date: date.value });
+            SJ.save();
+            if (mask) dismiss(mask);
+            redraw();
+          };
+          mask = sheet([], SJ.el('div', { class: 'pad' }, [
+            SJ.el('div', { class: 'sheet-head' }, '加一个纪念日'),
+            title, date,
+            SJ.el('button', { class: 'btn', onclick: go }, '记下来')
+          ]));
+        }
+        /* 纪念日进了日历才算「排上日程」——写的是今年（过了就明年）那一天 */
+        function annivToCal(a) {
+          const t = new Date(SJ.dayKey() + 'T00:00:00');
+          const thisYear = new Date(t.getFullYear() + '-' + a.date.slice(5) + 'T00:00:00');
+          const y = thisYear < t ? t.getFullYear() + 1 : t.getFullYear();
+          const on = y + a.date.slice(4);
+          SJ.saveEvent(SJ.makeEvent({ date: on, title: a.title || '纪念日', note: (c.name || '') + ' 的纪念日' }));
+          toast('写进日历了 · ' + on);
+        }
+        function askReply() { toast('「让 TA 补一句」要接上模型 · 下一步接'); }
+      }
+
+      /* 从角色页直接点进来就落到那个人的空间，否则先选人 */
+      if (arg && chars().some(c => c.id === arg)) spaceView(arg); else listView();
+    }
+  },
+
+  /* ══ cee论坛 ══
+     帖子全部由模型批量生成、本地缓存 —— 进来看缓存，点刷新才请求。
+     这一版先把信息流画出来：发帖、点赞、评论都是本地的事；
+     批量生成没配接口时给明确提示，不静默、也不写空帖。 */
+  {
+    id: 'forum',
+    name: 'cee论坛',
+    icon: 'globe',
+    art: '1F4E3',
+    color: 'linear-gradient(150deg,#d7e4dc,#a3bfae)',
+    render(root) {
+      const TOPICS = ['全部', '日常', '情绪', '安利', '深夜', '求助', '晒图'];
+      /* 内置 NPC：角色之外总得有些别人。这儿只定「谁在说」，
+         说什么由模型现编 —— 没有接口就不生成，不拿假帖凑数。 */
+      const NPCS = [
+        { who: '西柚气泡', avatar: '🍊', color: '#e0c9a6' },
+        { who: '夜班地铁', avatar: '🚇', color: '#b6c0c9' },
+        { who: '半糖少冰', avatar: '🧋', color: '#d3bdb0' },
+        { who: '匿名树洞', avatar: '🌙', color: '#b9b6c9' }
+      ];
+      let topic = '全部';
+
+      /* 头像 + 名字：认识的走角色本人，自己发的走「我」，其余当 NPC 画 */
+      function whoOf(p) {
+        const c = (SJ.state.characters || []).find(x => x.id === p.charId);
+        if (c) return { name: c.name || '无名', node: avatarNode(c) };
+        if (p.charId === 'me') return { name: '我', node: myAvatarNode() };
+        return { name: p.who || '路人', node: SJ.el('div', { class: 'avatar', style: { background: p.color || '#cfc8bf' } }, p.avatar || '🙂') };
+      }
+
+      function main() {
+        root.innerHTML = '';
+        root.append(navBar('cee论坛', {
+          right: SJ.el('button', { class: 'nav-btn', title: '刷新', onclick: refresh },
+            SJ.el('span', { class: 'nav-ico', html: svg('refresh', 19) }))
+        }));
+        /* 话题标签横滑 */
+        const bar = SJ.el('div', { class: 'fm-topics' });
+        TOPICS.forEach(t => bar.append(SJ.el('button', {
+          class: 'fm-topic' + (t === topic ? ' on' : ''),
+          onclick: () => { topic = t; main(); }
+        }, t === '全部' ? t : '#' + t)));
+        root.append(bar);
+
+        const feed = SJ.el('div', { class: 'fm-feed' });
+        const list = SJ.forumPosts().filter(p => topic === '全部' || p.topic === topic);
+        if (!list.length) {
+          const any = SJ.forumPosts().length > 0;
+          feed.append(emptyState('globe', any ? '这个话题下还没帖' : '论坛还空着',
+            any ? '换个话题看看，或者自己发一个。' : '点右上角刷新，让 TA 们把最近的帖子一次写出来。',
+            any ? '看全部' : '刷新', any ? () => { topic = '全部'; main(); } : refresh));
+        }
+        list.forEach(p => feed.append(card(p)));
+        root.append(feed);
+        root.append(SJ.el('button', { class: 'fm-fab', title: '发帖', onclick: compose },
+          SJ.el('span', { html: svg('plus', 22) })));
+      }
+
+      function card(p) {
+        const f = whoOf(p);
+        const liked = p.likes.indexOf('me') >= 0;
+        const node = SJ.el('article', { class: 'fm-post' });
+        node.append(SJ.el('div', { class: 'fm-head' }, [
+          f.node,
+          SJ.el('div', { class: 'fm-who' }, [
+            SJ.el('div', { class: 'fm-name' }, f.name),
+            SJ.el('div', { class: 'fm-sub' }, [p.topic ? '#' + p.topic : '', p.ts ? SJ.fmtAgo(p.ts) : ''].filter(Boolean).join(' · '))
+          ]),
+          p.charId === 'me' ? SJ.el('span', { class: 'fm-mine' }, '我发的') : null
+        ].filter(Boolean)));
+        node.append(SJ.el('div', { class: 'fm-text' }, p.text));
+        if (p.img) node.append(SJ.el('div', { class: 'fm-img', style: { backgroundImage: 'url("' + SJ.imgSrc(p.img) + '")' } }));
+        node.append(SJ.el('div', { class: 'fm-acts' }, [
+          SJ.el('button', {
+            class: 'fm-act' + (liked ? ' on' : ''),
+            onclick: () => {
+              const i = p.likes.indexOf('me');
+              if (i >= 0) p.likes.splice(i, 1); else p.likes.push('me');
+              SJ.save(); main();
+            }
+          }, [SJ.el('span', { class: 'fm-act-i', html: svg('heart', 15) }), p.likes.length ? String(p.likes.length) : '赞']),
+          SJ.el('button', { class: 'fm-act', onclick: () => comments(p) }, [
+            SJ.el('span', { class: 'fm-act-i', html: svg('comment', 15) }),
+            p.comments.length ? String(p.comments.length) : '评论'
+          ])
+        ]));
+        return node;
+      }
+
+      function comments(p) {
+        let mask = null;
+        const build = () => {
+          if (mask) dismiss(mask);
+          const box = SJ.el('div', { class: 'pad' });
+          box.append(SJ.el('div', { class: 'sheet-head' }, '评论'));
+          if (!p.comments.length) box.append(SJ.el('div', { class: 'sp-none' }, '还没有人说话。'));
+          p.comments.forEach(cm => {
+            const f = whoOf(cm);
+            box.append(SJ.el('div', { class: 'fm-cmt' }, [
+              f.node,
+              SJ.el('div', { class: 'fm-cmt-m' }, [
+                SJ.el('div', { class: 'fm-cmt-w' }, f.name),
+                SJ.el('div', { class: 'fm-cmt-t' }, cm.text)
+              ])
+            ]));
+          });
+          const inp = SJ.el('input', { class: 'field', placeholder: '说点什么' });
+          const send = () => {
+            const v = String(inp.value || '').trim();
+            if (!v) return;
+            p.comments.push({ id: SJ.uid(), who: '我', charId: 'me', text: v.slice(0, 300), ts: SJ.virtualNow().getTime() });
+            SJ.save(); build(); main();
+          };
+          inp.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+          box.append(SJ.el('div', { class: 'fm-send' }, [
+            inp, SJ.el('button', { class: 'btn', onclick: send }, '发送')
+          ]));
+          mask = sheet([], box);
+        };
+        build();
+      }
+
+      function compose() {
+        const ta = SJ.el('textarea', { class: 'field area', placeholder: '说点什么…' });
+        const chips = SJ.el('div', { class: 'fm-chips' });
+        let tp = '日常';
+        let mask = null;
+        const drawChips = () => {
+          chips.innerHTML = '';
+          TOPICS.slice(1).forEach(t => chips.append(SJ.el('button', {
+            class: 'fm-chip' + (t === tp ? ' on' : ''),
+            onclick: () => { tp = t; drawChips(); }
+          }, '#' + t)));
+        };
+        drawChips();
+        const go = () => {
+          const v = String(ta.value || '').trim();
+          if (!v) { toast('写一句再发'); return; }
+          SJ.forumOf().posts.unshift({
+            id: SJ.uid(), who: '我', charId: 'me', avatar: '', color: '',
+            topic: tp, text: v.slice(0, 4000), img: '', ts: SJ.virtualNow().getTime(),
+            likes: [], comments: []
+          });
+          SJ.save();
+          if (mask) dismiss(mask);
+          topic = '全部';
+          main();
+          toast('发出去了');
+        };
+        mask = sheet([], SJ.el('div', { class: 'pad' }, [
+          SJ.el('div', { class: 'sheet-head' }, '发个帖'),
+          chips, ta,
+          SJ.el('button', { class: 'btn', onclick: go }, '发布')
+        ]));
+      }
+
+      /* 批量生成：一次 8~12 条写进存档，靠 genAt 做缓存，不做「每次打开都请求」。 */
+      function refresh() {
+        const s = SJ.state.settings || {};
+        const base = (s.apiBase || '').trim(), key = (s.apiKey || '').trim();
+        if (!base || !key) {
+          toast('还没配接口 · 去「设置 → 接口」填上，回来再点刷新');
+          return;
+        }
+        toast('论坛的批量生成下一步接上');
+      }
+
+      main();
+    }
+  },
+
+  /* ══ 表情包工坊 ══
+     聊天面板里那个贴纸格的「管理页」：分类看、导入、长按删。
+     数据还是 state.stickers 那一份，没另开存储；
+     [[sticker:描述]] 那套角色发表情的机制一点没动。 */
+  {
+    id: 'sticker',
+    name: '表情包工坊',
+    icon: 'smile',
+    art: '1F600',
+    color: 'linear-gradient(150deg,#f0e3c6,#d6bd8b)',
+    render(root) {
+      let tab = 'all';
+
+      const askDel = ref => confirmBox('把这个表情从库里删掉？', () => { SJ.removeSticker(ref); main(); });
+      /* 长按删除：和聊天面板里那格一样的手感（480ms，抬手跟来的 click 不算数） */
+      function cell(ref) {
+        const b = SJ.el('button', { class: 'st-cell' },
+          SJ.el('img', { class: 'st-img', src: SJ.imgSrc(ref), alt: '表情' }));
+        let timer = null, fired = false;
+        const start = () => { fired = false; timer = setTimeout(() => { timer = null; fired = true; askDel(ref); }, 480); };
+        const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+        b.addEventListener('mousedown', start);
+        b.addEventListener('touchstart', start, { passive: true });
+        b.addEventListener('mouseup', stop);
+        b.addEventListener('mouseleave', stop);
+        b.addEventListener('touchend', stop);
+        b.addEventListener('touchmove', stop);
+        b.addEventListener('click', () => { if (!fired) toast('聊天面板里点它就能发'); });
+        return b;
+      }
+
+      async function collect() {
+        const full = SJ.stickersOf().length >= SJ.STICKER_MAX;
+        const ref = await pickToStore(240, 0.85);
+        if (!ref) return;
+        if (!SJ.addSticker(ref)) { toast('这张收不进来'); return; }
+        tab = 'mine';
+        main();
+        toast(full ? '收进来了 · 库里满 ' + SJ.STICKER_MAX + ' 张，最早那张被挤掉了' : '收进表情库了');
+      }
+
+      function main() {
+        root.innerHTML = '';
+        root.append(navBar('表情包工坊', {
+          right: SJ.el('button', { class: 'nav-btn', title: '导入', onclick: collect },
+            SJ.el('span', { class: 'nav-ico', html: svg('plus', 19) }))
+        }));
+        const tabs = SJ.el('div', { class: 'st-tabs' });
+        [['all', '全部'], ['mine', '我收的'], ['builtin', '内置']].forEach(x => tabs.append(SJ.el('button', {
+          class: 'st-tab' + (tab === x[0] ? ' on' : ''),
+          onclick: () => { tab = x[0]; main(); }
+        }, x[1])));
+        root.append(tabs);
+
+        const mine = SJ.stickersOf();
+        const box = SJ.el('div', { class: 'st-scroll' });
+        const hasAny = (tab !== 'mine' ? STICKERS.length : 0) + (tab !== 'builtin' ? mine.length : 0);
+        if (!hasAny) {
+          box.append(emptyState('smile', '还没有自己收的表情',
+            '从相册里收一张，压到 240px 存下来，聊天面板里就能点着发。',
+            '收一张', collect));
+        } else {
+          const grid = SJ.el('div', { class: 'st-grid' });
+          if (tab !== 'mine') STICKERS.forEach(s => grid.append(SJ.el('button', {
+            class: 'st-cell st-emoji', onclick: () => toast('聊天面板里点它就能发')
+          }, s)));
+          if (tab !== 'builtin') {
+            mine.forEach(ref => grid.append(cell(ref)));
+            grid.append(SJ.el('button', { class: 'st-cell st-add', title: '导入', onclick: collect },
+              SJ.el('span', { html: svg('plus', 22) })));
+          }
+          box.append(grid);
+          if (tab === 'mine' && mine.length) box.append(SJ.el('div', { class: 'hint st-hint' }, '长按贴纸可以删掉。'));
+        }
+        root.append(box);
+      }
+
+      main();
+    }
+  },
+
   {
     id: 'storage',
     name: '存储',
@@ -8586,11 +9081,16 @@ const APPS = [
             : SJ.parseScene(e.text);
           blocks.forEach((b, bi) => {
             /* 头像：每个角色分段的第一行前面放一个小头像。
-               加 has-wm 是为了让 CSS 给这一块让出 44px ——
-               不然头像和正文的 left 都是 60，头像会压在字上。 */
+               放在正文上方那一行的右边，不再占左边的栏位 ——
+               正文因此能从屏幕左边缘一直铺到右边缘。 */
             if (bi === 0 && e.role !== 'narr') {
               holder.classList.add('has-wm');
-              holder.append(SJ.el('div', { class: 'of2-wm' }, [avatarNode(ch)]));
+              /* 头像从左边那条空白里搬出来，改成正文上方的一行「名字 + 头像」。
+                 正文因此能铺满整宽，不再被一个水印挤掉 48px（用户点名要的）。 */
+              holder.append(SJ.el('div', { class: 'of2-head' }, [
+                SJ.el('span', { class: 'of2-head-who' }, ch.name || ''),
+                SJ.el('span', { class: 'of2-wm' }, avatarNode(ch))
+              ]));
             }
             if (b.kind === 'char') {
               const p = SJ.el('p', { class: 'of2-say' }, quotize(b.text));

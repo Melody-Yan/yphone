@@ -1,0 +1,16 @@
+<svg id="emoji" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+  <g id="color">
+    <circle cx="36" cy="36" r="27" fill="#FCEA2B" stroke="none"/>
+  </g>
+  <g id="hair"/>
+  <g id="skin"/>
+  <g id="skin-shadow"/>
+  <g id="line">
+    <circle cx="36" cy="36" r="27" fill="none" stroke="#000000" stroke-width="2"/>
+    <ellipse cx="26" cy="27.5" rx="3.1" ry="4.6" fill="#000000" stroke="none"/>
+    <ellipse cx="46" cy="27.5" rx="3.1" ry="4.6" fill="#000000" stroke="none"/>
+    <path fill="#000000" stroke="none" d="M18.5 39h35v2.5a17.5 17.5 0 0 1-35 0z"/>
+    <path fill="#FFFFFF" stroke="none" d="M21.5 39h29v5h-29z"/>
+    <path fill="none" stroke="#000000" stroke-width="2" stroke-linejoin="round" d="M18.5 39h35v2.5a17.5 17.5 0 0 1-35 0z"/>
+  </g>
+</svg>

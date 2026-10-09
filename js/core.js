@@ -267,6 +267,12 @@ musicBg: '', musicTint: 'ink',
   /* 线下模式「此刻相遇」：{ 角色id: {pages:[{id,date,entries:[{id,role,text,at,cg}]}], outline, style, turn} }
      和 chats 分开存 —— 线下是长文，混进消息流两边都读不好。 */
   offline: {},
+  /* 我们的空间：{ 角色id: {wishes, diary, anniv} }。每个角色各一份 ——
+     这台手机可以有好几个人，别把他们的事混在一起。 */
+  space: {},
+  /* cee论坛：帖子与评论都在这里。genAt 是上次批量生成的时间 ——
+     靠它做「缓存 + 手动刷新」，不做每次打开都重新请求。 */
+  forum: { posts: [], genAt: 0 },
   /* 主题包：桌面 / 聊天 / 短信 三个槽位各自一组，互不干扰。
      [{id,name,slot,vars:{},dark:{},wall,ts}] —— vars 里的键受 THEME_VARS 白名单限制 */
   themes: { desktop: [], chat: [], sms: [] },
@@ -315,7 +321,8 @@ const SCHEMA = {
   worldbook: 'array', memories: 'object', events: 'array', widgets: 'array', unread: 'object',
   personas: 'array', personaId: 'string', sms: 'object', longMem: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
-  mall: 'object', wallet: 'object', addresses: 'array', themes: 'object', themesRemoved: 'array', offline: 'object'
+  mall: 'object', wallet: 'object', addresses: 'array', themes: 'object', themesRemoved: 'array', offline: 'object',
+  space: 'object', forum: 'object'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -406,6 +413,64 @@ function migrate(saved) {
     o.pages = o.pages.filter(pg => pg && typeof pg === 'object' && Array.isArray(pg.entries));
     if (o.scene && (typeof o.scene !== 'object' || Array.isArray(o.scene))) o.scene = null;
   });
+  /* 我们的空间：导入存档的信任边界。每个角色一份，三个列表逐条归一 ——
+     坏条目丢掉，而不是留个 undefined 进去让页面崩。 */
+  out.space = (out.space && typeof out.space === 'object' && !Array.isArray(out.space)) ? out.space : {};
+  Object.keys(out.space).slice(0, 200).forEach(k => {
+    const sp = out.space[k];
+    if (!sp || typeof sp !== 'object' || Array.isArray(sp)) { delete out.space[k]; return; }
+    const rows = (arr, pick) => (Array.isArray(arr) ? arr : [])
+      .filter(x => x && typeof x === 'object')
+      .slice(0, 200)
+      .map(pick);
+    sp.wishes = rows(sp.wishes, (w, i) => ({
+      id: String(w.id || ('wish-' + i)),
+      text: String(w.text || '').slice(0, NAME_MAX),
+      done: !!w.done,
+      ts: Number(w.ts) || 0
+    }));
+    sp.diary = rows(sp.diary, (d, i) => ({
+      id: String(d.id || ('diary-' + i)),
+      text: String(d.text || '').slice(0, TEXT_MAX),
+      reply: String(d.reply || '').slice(0, TEXT_MAX),
+      ts: Number(d.ts) || 0
+    }));
+    sp.anniv = rows(sp.anniv, (a, i) => ({
+      id: String(a.id || ('anniv-' + i)),
+      title: String(a.title || '').slice(0, NAME_MAX),
+      date: String(a.date || '').slice(0, 10)
+    })).filter(a => /^\d{4}-\d{2}-\d{2}$/.test(a.date));
+  });
+  /* cee论坛：帖子与评论逐条归一。认不出的作者当 NPC，名字用存档里那个。 */
+  const fm = (out.forum && typeof out.forum === 'object' && !Array.isArray(out.forum)) ? out.forum : {};
+  out.forum = {
+    genAt: Number(fm.genAt) || 0,
+    posts: (Array.isArray(fm.posts) ? fm.posts : [])
+      .filter(p => p && typeof p === 'object')
+      .slice(0, 200)
+      .map((p, i) => ({
+        id: String(p.id || ('fpost-' + i)),
+        who: String(p.who || '').slice(0, NAME_MAX),
+        charId: String(p.charId || '').slice(0, 60),
+        avatar: String(p.avatar || '').slice(0, 8),
+        color: String(p.color || '').slice(0, 60),
+        topic: String(p.topic || '').slice(0, 20),
+        text: String(p.text || '').slice(0, TEXT_MAX),
+        img: avatarSrc(p.img),
+        ts: Number(p.ts) || 0,
+        likes: (Array.isArray(p.likes) ? p.likes : []).map(x => String(x).slice(0, 60)).slice(0, 200),
+        comments: (Array.isArray(p.comments) ? p.comments : [])
+          .filter(c => c && typeof c === 'object')
+          .slice(0, 100)
+          .map((c, j) => ({
+            id: String(c.id || ('fcmt-' + i + '-' + j)),
+            who: String(c.who || '').slice(0, NAME_MAX),
+            charId: String(c.charId || '').slice(0, 60),
+            text: String(c.text || '').slice(0, 300),
+            ts: Number(c.ts) || 0
+          }))
+      }))
+  };
   if (['auto', 'always', 'never'].indexOf(out.settings.imgFake) < 0) out.settings.imgFake = 'auto';
   /* 主题槽位：只留三个认识的键，值必须是字符串。存档里塞别的键名不该被带进 state */
   {
@@ -3963,6 +4028,42 @@ function deleteMoment(id) {
   state.moments = state.moments.filter(m => m.id !== id);
   save();
 }
+
+/* ══════════════════════════════════════════════════
+   L1.11 我们的空间 / cee论坛
+   ══════════════════════════════════════════════════ */
+
+/* 每个角色一份空间。取的时候顺手把形状补齐 —— 页面就不用到处判 undefined。 */
+function spaceOf(charId) {
+  const id = String(charId || '');
+  if (!id) return null;
+  if (!state.space || typeof state.space !== 'object' || Array.isArray(state.space)) state.space = {};
+  let sp = state.space[id];
+  if (!sp || typeof sp !== 'object' || Array.isArray(sp)) sp = state.space[id] = {};
+  ['wishes', 'diary', 'anniv'].forEach(k => { if (!Array.isArray(sp[k])) sp[k] = []; });
+  return sp;
+}
+
+/* 相伴天数：从角色创建那天算起，当天算第 1 天。
+   ts 不合法返回 0，页面自己决定要不要显示「刚刚相遇」。 */
+function spaceDays(ts, now) {
+  const t = Number(ts) || 0;
+  if (t <= 0) return 0;
+  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const a = midnight(new Date(t));
+  const b = midnight(now ? new Date(Number(now)) : virtualNow());
+  const n = Math.floor((b - a) / 86400000) + 1;
+  return n > 0 ? n : 1;
+}
+
+/* cee论坛：帖子、评论、上次批量生成的时间。取不到就补齐形状。 */
+function forumOf() {
+  if (!state.forum || typeof state.forum !== 'object' || Array.isArray(state.forum)) state.forum = { posts: [], genAt: 0 };
+  if (!Array.isArray(state.forum.posts)) state.forum.posts = [];
+  if (!isFinite(Number(state.forum.genAt))) state.forum.genAt = 0;
+  return state.forum;
+}
+function forumPosts() { return forumOf().posts; }
 /* 时间线：最新在前。找不到角色（被删了）的照样留着，界面上署「已删除的角色」。 */
 function momentList() { return state.moments.slice(); }
 function momentLike(mid, charId) {
@@ -5861,8 +5962,10 @@ window.SJ = {
   imgPromptFor, IMG_PROMPT_DEFAULT,
   imgPromptPro,
   /* 朋友圈 */
-  MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
-  generateMoment, autoMoment,
+ MOMENT_KEEP, CALL_KEEP, addMoment, deleteMoment, momentList, momentLike, momentComment,
+ generateMoment, autoMoment,
+  /* 我们的空间 / cee论坛 */
+  spaceOf, spaceDays, forumOf, forumPosts,
   exportState, importState,
   /* 图片仓：字节进 IndexedDB，存档里只留 'idb:' 引用 */
   IMG_REF, BLANK_IMG, imgSrc, putImg, imgBoot, imgSweep, imgClean, imgPurge, imgWipe,

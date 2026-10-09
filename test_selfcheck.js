@@ -7436,31 +7436,26 @@ console.log('\n[106] 剧场的可读性：对比度和头像不打架');
   /* 头像水印：以前是 30px / opacity .2，还被后面的 <p> 盖住。
      现在要大一点、明显一点，并且有 z-index 压住文字。 */
   const wm = (css.match(/\.of2-wm\s*\{[^}]*\}/) || [''])[0];
-  ok('头像不再暗淡（opacity ≥ .4）',
-    /opacity:\s*\.(\d+)/.test(wm) && Number('0.' + wm.match(/opacity:\s*\.(\d+)/)[1]) >= 0.4,
-    wm.match(/opacity:\s*[.\d]+/)?.[0]);
-  ok('头像有 z-index 压住正文', /z-index:\s*\d/.test(wm), wm.match(/z-index:\s*\d/)?.[0]);
-  ok('头像比原来大（≥32px）', /width:\s*3[2-9]px/.test(wm), wm.match(/width:\s*\d+px/)?.[0]);
+  /* 用户：左边留白太大，头像换个地方。现在它跟名字一起排在正文上方那一行（靠右）。 */
+  const head = (css.match(/\.of2-head\s*\{[^}]*\}/) || [''])[0];
+  ok('头像和名字同在一行、靠右放',
+    /display:\s*flex/.test(head) && /justify-content:\s*flex-end/.test(head),
+    head.replace(/\s+/g, ' ').slice(0, 70));
+  ok('头像不再压在正文上（不再是 absolute）', !/position:\s*absolute/.test(wm),
+    wm.replace(/\s+/g, ' ').slice(0, 70));
+  ok('头像不再暗淡（opacity 是 1）', /opacity:\s*1\b/.test(wm), wm.match(/opacity:\s*[\d.]+/)?.[0]);
+  ok('头像够大（≥28px）', /width:\s*(2[89]|3\d)px/.test(wm), wm.match(/width:\s*\d+px/)?.[0]);
 
-  /* 关键：头像和正文不能抢同一块地方。
-     之前两边的 left 都是 60 —— 头像整个压在字上。 */
-  ok('带头像的块给正文让了位（has-wm 有 padding-left）',
-    /\.of2-blk\.has-wm\s*\{[^}]*padding-left:\s*4[0-9]px/.test(css));
   ok('JS 真的会给带头像的块加上 has-wm', /holder\.classList\.add\('has-wm'\)/.test(src));
-  ok('头像贴块的最左边（left: 0）', /\.of2-wm\s*\{[^}]*left:\s*0/.test(css));
+  /* 正文要铺满整宽：has-wm 不再给左边留缩进，滚动区左右对称。 */
+  ok('带头像的块不再给正文留左缩进',
+    !/\.of2-blk\.has-wm\s*\{[^}]*padding-left/.test(css));
+  const scrollRule = (css.match(/\.of2-scroll\s*\{[^}]*\}/) || [''])[0];
+  ok('滚动区左右留白对称（没有头像专用栏位）',
+    /padding:\s*\d+px\s+\d+px\s+\d+px\s*;/.test(scrollRule),
+    scrollRule.match(/padding:[^;]*/)?.[0]);
+  ok('旁白也没有左侧额外缩进', /\.of2-narr\s*\{[^}]*padding-left:\s*0/.test(css));
 
-  /* padding-left 的账要算得过来：scroll 的左留白 + has-wm 的缩进 + p 的 14 > 头像宽 */
-  const scrollSide = (css.match(/\.of2-scroll\s*\{[^}]*padding:\s*\d+px\s+\d+px\s+\d+px\s+(\d+)px/) || [])[1];
-  const wmPad = Number((css.match(/\.of2-blk\.has-wm\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
-  const pPad = Number((css.match(/\.of2-narr\s*\{[^}]*padding-left:\s*(\d+)px/) || [])[1]);
-  const wmW = Number((css.match(/\.of2-wm\s*\{[^}]*width:\s*(\d+)px/) || [])[1]);
-  ok('头像和正文之间有实实在在的空隙',
-    (wmPad + pPad) > wmW,
-    'wm=' + wmW + ' 正文相对偏移=' + (wmPad + pPad));
-  /* 用户说头像太靠右 —— scroll 的左留白不该超过一个头像的宽 */
-  ok('头像贴在左边（滚动区左留白 ≤ 头像宽）',
-    scrollSide !== undefined && Number(scrollSide) <= wmW,
-    'scroll左侧=' + scrollSide + ' 头像宽=' + wmW);
 }
 
 console.log('\n[107] 字号可调 + 白底 + 列表页那句开场');

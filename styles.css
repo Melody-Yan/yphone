@@ -4277,6 +4277,8 @@ input.field[type="range"]::-webkit-slider-thumb {
    ══════════════════════════════════════════════════════ */
 
 .of2 { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.of2 { background: #faf8f5; }
+#phone.dark .of2 { background: #1b1a19; }
 
 /* ── 全屏底图：模糊 + 遮罩，保证文字读得清 ── */
 .of2-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; background: #fff; }
@@ -4290,18 +4292,31 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-top {
   position: relative; z-index: 3; flex: none;
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px 4px;
+  min-height: 48px;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+/* 左侧「‹ 退出剧场」：回到列表，不用图标按钮 */
+.of2-exit {
+  flex: none; display: flex; align-items: center; gap: 3px;
+  padding: 6px 6px 6px 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 600; color: #2c2824;
+}
+.of2-exit:active { opacity: .55; }
+/* 中间标题：此时此刻 · 角色名 / 幕数 */
+.of2-title {
+  flex: 1; text-align: center; font-size: 14px; font-weight: 600;
+  color: #2c2824; letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .of2-round {
   flex: none; width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center; cursor: pointer;
-  background: #f4f2f0;
-  border: 1px solid rgba(0,0,0,.05);
+  background: none; border: 0;
   color: var(--ink);
 }
-.of2-round:hover { background: #ecebe9; }
+.of2-round:hover { opacity: .55; }
 .of2-round:active { transform: scale(.94); }
-#phone.dark .of2-round { background: #2b2927; border-color: rgba(255,255,255,.09); color: var(--ink); }
 
 /* 浮动状态卡：地点 + 时间 + 天气。沿用桌面插件那套毛玻璃 */
 .of2-card {
@@ -4322,7 +4337,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-dot { opacity: .5; margin: 0 1px; }
 
 /* 菜单 */
-.of2-actions { position: relative; flex: none; }
+.of2-actions { position: static; flex: none; display: flex; align-items: center; gap: 2px; }
 .of2-menu {
   position: absolute; right: 0; top: 46px; z-index: 9;
   min-width: 148px; padding: 6px;
@@ -4344,6 +4359,22 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-mi:active { background: rgba(0,0,0,.06); }
 .of2-mi.warn { color: #c0392b; }
 
+/* 大纲抽屉：从顶栏下方展开，盖住正文但保留阅读上下文 */
+.of2-outline-drawer {
+  position: absolute; top: 52px; left: 14px; right: 14px; z-index: 10;
+  display: none; flex-direction: column; gap: 10px;
+  padding: 16px; border-radius: 18px;
+  background: rgba(255,255,255,.95); border: 1px solid rgba(0,0,0,.08);
+  box-shadow: 0 16px 36px rgba(0,0,0,.12);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.of2-outline-drawer.on { display: flex; animation: of2pop .2s ease-out; }
+.of2-outline-title { font-size: 13.5px; font-weight: 700; color: #111; display: flex; justify-content: space-between; align-items: center; }
+.of2-outline-body { font-size: 13px; color: #555; line-height: 1.7; max-height: 42vh; overflow-y: auto; white-space: pre-wrap; }
+#phone.dark .of2-outline-drawer { background: rgba(40,38,36,.95); border-color: rgba(255,255,255,.1); }
+#phone.dark .of2-outline-title { color: #eee; }
+#phone.dark .of2-outline-body { color: #aaa; }
+
 /* ── 正文流 ── */
 .of2-scroll {
   position: relative; z-index: 2; flex: 1; min-height: 0;
@@ -4352,13 +4383,19 @@ input.field[type="range"]::-webkit-slider-thumb {
   padding: 6px 22px 14px 34px;
 }
 .of2-flow { max-width: 660px; margin: 0 auto; }
+/* 场景氛围标签：地点 · 时间 · 天气（对齐原型 .novel-title-tag） */
+.of2-scene-tag {
+  font-size: 11.5px; color: #888; margin: 2px 0 14px;
+  font-weight: normal; letter-spacing: 1px;
+}
 .of2-blk { position: relative; margin-bottom: 4px; }
 
 /* 旁白：斜体、深灰、字号略小、大缩进 */
 .of2-narr {
-  margin: 0 0 12px; padding-left: 14px;
-  font-size: var(--of-size, 14.5px); line-height: 1.95; font-style: italic;
-  color: #4a4a4a; text-indent: 0;
+  margin: 0 0 14px; padding-left: 4px; text-indent: 2em;
+  font-family: 'PingFang SC', 'Songti SC', serif;
+  font-size: var(--of-size, 14.5px); line-height: 1.85; font-style: italic;
+  color: #333333;
   /* 白底上不需要描边。之前那句 text-shadow 就是「重影」的来源，别再加回来。 */
   text-shadow: none;
   white-space: pre-wrap; word-break: break-word;
@@ -4370,13 +4407,21 @@ input.field[type="range"]::-webkit-slider-thumb {
 
 /* 对白：加粗、略大、暖色高亮 */
 .of2-say {
-  margin: 0 0 16px; padding-left: 14px;
-  font-size: calc(var(--of-size, 14.5px) * 1.17); line-height: 1.75; font-weight: 600;
-  color: #8a5a12; letter-spacing: -.01em;
+  margin: 12px 0 16px; padding: 10px 14px;
+  background: #fff; border-left: 3px solid #1c1c1e; border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.03);
+  font-size: calc(var(--of-size, 14.5px) * 1.05); line-height: 1.75; font-weight: 600;
+  color: #2c2824; letter-spacing: 0;
   text-shadow: none;
   white-space: pre-wrap; word-break: break-word;
 }
-#phone.dark .of2-say { color: #eec27a; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+#phone.dark .of2-say { color: #eec27a; background: #262523; border-left-color: #eec27a; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+#phone.dark .of2-scene-tag { color: rgba(238,236,232,.55); }
+#phone.dark .of2-choices { background: #201f1d; border-top-color: rgba(255,255,255,.08); }
+#phone.dark .of2-choice { background: #2b2927; border-color: rgba(255,255,255,.09); color: #e6e3df; }
+#phone.dark .of2-choice-tip { color: rgba(238,236,232,.5); }
+#phone.dark .of2-title, #phone.dark .of2-exit { color: #eee; }
+#phone.dark .of2-top { border-bottom-color: rgba(255,255,255,.08); }
 .of2-say.me { color: var(--ink-2); font-weight: 500; }
 
 /* 每个角色分段左边那枚小头像。
@@ -4424,14 +4469,20 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 
 /* ── 底部：回应选择 + 胶囊输入 ── */
-.of2-choices { position: relative; z-index: 2; flex: none; display: flex; gap: 8px; overflow-x: auto; padding: 0 20px 10px; }
+.of2-choices {
+  position: relative; z-index: 2; flex: none;
+  display: flex; flex-direction: column; gap: 8px;
+  background: #fff; border-top: 1px solid rgba(0,0,0,.06);
+  padding: 12px 16px;
+}
 .of2-choices:empty { display: none; }
+.of2-choice-tip { font-size: 11.5px; color: #888; }
 .of2-choice {
-  flex: 0 0 auto; max-width: 74%; text-align: left;
-  padding: 10px 15px; border-radius: 16px;
-  font-size: calc(var(--of-size, 14.5px) - 1px); line-height: 1.45;
-  background: #f4f2f0; border: 1px solid rgba(0,0,0,.05);
-  color: var(--ink); cursor: pointer;
+  width: 100%; text-align: left;
+  padding: 9px 12px; border-radius: 10px;
+  font-size: calc(var(--of-size, 14.5px) - 2px); line-height: 1.5;
+  background: #f4f2ee; border: 1px solid rgba(0,0,0,.05);
+  color: #333; cursor: pointer;
 }
 .of2-choice:active { transform: scale(.97); }
 #phone.dark .of2-choice { background: #2b2927; border-color: rgba(255,255,255,.09); }
@@ -4439,7 +4490,8 @@ input.field[type="range"]::-webkit-slider-thumb {
 .of2-dock {
   position: relative; z-index: 2; flex: none;
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 4px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
 }
 .of2-input {
   flex: 1; min-width: 0; resize: none; max-height: 96px;
@@ -4556,7 +4608,7 @@ input.field[type="range"]::-webkit-slider-thumb {
 
 /* 分支选项增强：胶囊横滑且带序号指示 */
 .of2-choices {
-  padding: 4px 16px 10px;
+  padding: 12px 16px 4px;
 }
 .of2-choice {
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);

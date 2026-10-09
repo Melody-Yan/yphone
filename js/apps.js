@@ -8523,28 +8523,12 @@ const APPS = [
        节点还在，以后想加「用剧情图当背景」的开关时不用重写。 */
     const bg = SJ.el('div', { class: 'of2-bg' });
 
-    /* ── 浮动状态卡：地点 / 时间 / 天气 ── */
-    const cardPlace = SJ.el('div', { class: 'of2-card-place' });
-    const cardMeta = SJ.el('div', { class: 'of2-card-meta' });
-    const card = SJ.el('div', { class: 'of2-card' }, [
-      SJ.el('div', { class: 'of2-card-ico', html: svg('pin', 15) }),
-      SJ.el('div', { class: 'of2-card-main' }, [cardPlace, cardMeta])
-    ]);
+    /* ── 场景氛围标签：地点 / 时间 / 天气（对齐原型 .novel-title-tag） ── */
+    const sceneTag = SJ.el('div', { class: 'of2-scene-tag' });
     const paintCard = () => {
       const sc = SJ.offlineScene(cid) || {};
-      const wIcon = /雨|雪|雷/.test(sc.weather || '') ? 'cloud'
-        : /晴|阳/.test(sc.weather || '') ? 'sun' : 'cloud';
-      cardPlace.textContent = sc.place || (ch.name ? '和 ' + ch.name + '在一起' : '此刻');
-      cardMeta.innerHTML = '';
-      const bits = [];
-      if (sc.time) bits.push({ t: sc.time, i: 'clock' });
-      if (sc.weather) bits.push({ t: sc.weather, i: wIcon });
-      if (!bits.length) bits.push({ t: '还没开始', i: 'clock' });
-      bits.forEach((b, i2) => {
-        if (i2) cardMeta.append(SJ.el('span', { class: 'of2-dot' }, '·'));
-        cardMeta.append(SJ.el('span', { class: 'of2-meta-i', html: svg(b.i, 12) }));
-        cardMeta.append(SJ.el('span', { class: 'of2-meta-t' }, b.t));
-      });
+      const metaText = [sc.time, sc.weather].filter(Boolean).join(' · ');
+      sceneTag.textContent = '地点：' + (sc.place || '此刻') + (metaText ? ' · ' + metaText : '');
     };
 
     /* 右上角菜单里的三项操作 */
@@ -8556,6 +8540,7 @@ const APPS = [
     /* ── 渲染正文：一行一行按 kind 排版 ── */
     const draw = (animateFrom) => {
       body.innerHTML = '';
+      if (sceneTag.textContent) body.append(sceneTag);
       const all = SJ.offlineEntries(cid);
       if (!all.length) {
         body.append(SJ.el('div', { class: 'of2-empty' }, [
@@ -8629,9 +8614,13 @@ const APPS = [
     const setChoices = list => {
       choiceBox.innerHTML = '';
       if (!list || !list.length) return;
-      list.forEach(c => choiceBox.append(SJ.el('button', {
-        class: 'of2-choice', onclick: () => { input.value = c; send(); }
-      }, c)));
+      choiceBox.append(SJ.el('div', { class: 'of2-choice-tip' }, '选择回应支线（或直接输入动作）：'));
+      list.forEach((c, ci) => {
+        const label = (list.length > 1 ? String.fromCharCode(65 + ci) + '. ' : '') + c;
+        choiceBox.append(SJ.el('button', {
+          class: 'of2-choice', onclick: () => { input.value = c; send(); }
+        }, label));
+      });
     };
 
     const input = SJ.el('textarea', {
@@ -8679,15 +8668,33 @@ const APPS = [
     });
     syncSend();
 
+    /* ── 剧场大纲抽屉 ── */
+    const outlineDrawer = SJ.el('div', { class: 'of2-outline-drawer' });
+    const paintOutline = () => {
+      outlineDrawer.innerHTML = '';
+      const ot = o.outline || '暂无大纲，故事生成后将自动总结当前阶段大纲。';
+      outlineDrawer.append(
+        SJ.el('div', { class: 'of2-outline-title' }, [
+          SJ.el('span', {}, '📖 故事大纲'),
+          SJ.el('span', { style: { fontSize: '11.5px', color: '#888', cursor: 'pointer' }, onclick: () => outlineDrawer.classList.remove('on') }, '收起 ✕')
+        ]),
+        SJ.el('div', { class: 'of2-outline-body' }, ot)
+      );
+    };
+
     /* ── 顶栏 ── */
     const top = SJ.el('div', { class: 'of2-top' }, [
-      SJ.el('button', { class: 'of2-round', title: '返回', html: svg('back', 19),
-        onclick: () => offlineBack(cid, typeof listBack === 'function' ? listBack : listView) }),
-      card,
+      SJ.el('button', { class: 'of2-exit', title: '返回', onclick: () => offlineBack(cid, typeof listBack === 'function' ? listBack : listView) }, [
+        SJ.el('span', { class: 'of2-exit-ico', html: svg('back', 17) }),
+        SJ.el('span', {}, '退出剧场')
+      ]),
+      SJ.el('div', { class: 'of2-title' }, '此时此刻 · ' + (ch.name || '剧场')),
       SJ.el('div', { class: 'of2-actions' }, [
+        SJ.el('button', { class: 'of2-round', title: '大纲', html: svg('book', 18), onclick: () => { paintOutline(); outlineDrawer.classList.toggle('on'); } }),
         SJ.el('button', { class: 'of2-round', title: '设置', html: svg('gear', 18), onclick: () => openSettings() }),
         SJ.el('button', { class: 'of2-round', title: '更多', html: svg('more', 19), onclick: openMenu }),
-        menu
+        menu,
+        outlineDrawer
       ])
     ]);
     menu.append(

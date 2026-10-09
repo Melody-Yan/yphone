@@ -2253,21 +2253,83 @@ const APPS = [
         SJ.stopSpeak();
         root.innerHTML = '';
         let alive = true, busy = false, secs = 0;
-        /* 通话里说的话攒在这儿，挂断时一次性存成一条通话记录。
-           不进 chats —— 挂断以后聊天页不该被一整场对白淹掉。 */
+        let isMuted = false, isSpeaker = true;
         const lines = [];
         const said = (me, text) => { lines.push({ me: !!me, text: String(text), ts: Date.now() }); };
 
         const status = SJ.el('div', { class: 'call-status' }, '正在呼叫…');
-        const sub = SJ.el('div', { class: 'call-sub' }, '');
         const time = SJ.el('div', { class: 'call-time' }, '00:00');
+
+        /* 拟真声波波形条 */
+        const waves = SJ.el('div', { class: 'call-waves' }, [
+          SJ.el('span'), SJ.el('span'), SJ.el('span'), SJ.el('span'), SJ.el('span')
+        ]);
+
+        /* 动作神态描写与对白旁白容器 */
+        const sub = SJ.el('div', { class: 'call-sub' }, '');
+
+        /* 六宫格快捷控制栏 */
+        const muteBtn = SJ.el('button', { class: 'call-act-btn', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '🔇'),
+          SJ.el('span', {}, '静音')
+        ]);
+        muteBtn.addEventListener('click', () => {
+          isMuted = !isMuted;
+          muteBtn.classList.toggle('on', isMuted);
+          toast(isMuted ? '已开启麦克风静音' : '已取消静音');
+        });
+
+        const speakerBtn = SJ.el('button', { class: 'call-act-btn on', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '🔊'),
+          SJ.el('span', {}, '免提')
+        ]);
+        speakerBtn.addEventListener('click', () => {
+          isSpeaker = !isSpeaker;
+          speakerBtn.classList.toggle('on', isSpeaker);
+          toast(isSpeaker ? '已切换免提扬声器' : '已切换听筒模式');
+        });
+
+        const focusInputBtn = SJ.el('button', { class: 'call-act-btn', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '⌨️'),
+          SJ.el('span', {}, '打字')
+        ]);
+        focusInputBtn.addEventListener('click', () => { input.focus(); });
+
+        const videoBtn = SJ.el('button', { class: 'call-act-btn', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '📹'),
+          SJ.el('span', {}, '转视频')
+        ]);
+        videoBtn.addEventListener('click', () => { toast('对方当前环境不便开启视频通话'); });
+
+        const toneBtn = SJ.el('button', { class: 'call-act-btn', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '⚙️'),
+          SJ.el('span', {}, '音色')
+        ]);
+        toneBtn.addEventListener('click', () => { voicePage(cid); });
+
+        const recordBtn = SJ.el('button', { class: 'call-act-btn', type: 'button' }, [
+          SJ.el('div', { class: 'call-act-ico' }, '📝'),
+          SJ.el('span', {}, '记录')
+        ]);
+        recordBtn.addEventListener('click', () => {
+          toast('当前已记录 ' + lines.length + ' 句对白');
+        });
+
+        const actGrid = SJ.el('div', { class: 'call-actions-grid' }, [
+          muteBtn, focusInputBtn, speakerBtn, videoBtn, recordBtn, toneBtn
+        ]);
+
         const input = SJ.el('input', { class: 'field call-input', placeholder: '打字也能接话…' });
         const say = SJ.el('button', { class: 'call-say' }, '说');
         const hang = SJ.el('button', { class: 'call-hang' }, '挂断');
 
+        const who = SJ.el('div', { class: 'call-who' }, [
+          SJ.el('div', { class: 'call-avatar-zone' }, [avatarNode(cc)]),
+          SJ.el('div', { class: 'call-name' }, cc.name)
+        ]);
+
         root.append(SJ.el('div', { class: 'call-view' }, [
-          SJ.el('div', { class: 'call-who' }, [avatarNode(cc), SJ.el('div', { class: 'call-name' }, cc.name)]),
-          status, time, sub,
+          who, status, time, waves, sub, actGrid,
           SJ.el('div', { class: 'call-bar' }, [input, say]),
           hang
         ]));
@@ -2279,10 +2341,10 @@ const APPS = [
           if (!alive) return;
           alive = false;
           SJ.stopSpeak();
+          waves.classList.remove('active');
           if (callTimer) { clearInterval(callTimer); callTimer = null; }
           if (lines.length) {
             const rec = SJ.pushCall(cid, secs, lines);
-            /* 聊天里只落一条摘要；整场对白仍然只进 state.calls，不淹聊天 */
             SJ.pushMessage(cid, true, '[通话]', { kind: 'call', secs: rec.secs, callId: rec.id });
             toast('通话 ' + mmss(secs) + '，已记到「通话记录」');
           }
@@ -2290,16 +2352,34 @@ const APPS = [
         }
         hang.addEventListener('click', end);
 
-        /* 说一句话：有 TTS 就念（念完继续），没有就按估的时长停一下 */
-        async function sayLine(v) {
-          sub.textContent = v;
-          const ms = Math.min(6000, Math.max(1200, SJ.voiceDur(v) * 1000));
-          if (!SJ.hasSpeech()) { await wait(ms); return; }
+        /* 说一句话：有 TTS 就念（念完继续），带动作描写与声波律动 */
+        async function sayLine(raw) {
+          sub.innerHTML = '';
+          const motionMatch = raw.match(/\[([^\]]+)\]|（([^）]+)）/);
+          let spoken = raw;
+          if (motionMatch) {
+            const motionText = motionMatch[1] || motionMatch[2];
+            sub.append(SJ.el('span', { class: 'call-sub-motion' }, '［' + motionText + '］'));
+            spoken = raw.replace(/\[[^\]]+\]|（[^）]+）/g, '').trim();
+          }
+          if (spoken) {
+            sub.append(SJ.el('span', { class: 'call-sub-say' }, spoken));
+          } else {
+            sub.textContent = raw;
+          }
+
+          waves.classList.add('active');
+          const ms = Math.min(6000, Math.max(1400, SJ.voiceDur(spoken || raw) * 1000));
+          if (!SJ.hasSpeech() || !isSpeaker) {
+            await wait(ms);
+            waves.classList.remove('active');
+            return;
+          }
           await new Promise(r => {
             let f = false;
-            const fin = () => { if (!f) { f = true; r(); } };
-            SJ.speak(v, fin);
-            setTimeout(fin, ms + 3000);   // 兜底：onend 不响也不能卡在这儿
+            const fin = () => { if (!f) { f = true; waves.classList.remove('active'); r(); } };
+            SJ.speak(spoken || raw, fin);
+            setTimeout(fin, ms + 3000);
           });
         }
 
@@ -2307,8 +2387,6 @@ const APPS = [
           if (busy || !alive) return;
           busy = true;
           status.textContent = '对方正在说话…';
-          /* 历史 = 聊天记录 + 这通电话已经说过的话。通话内容不落盘，
-             但通话中他当然得记得刚才说过什么。 */
           const h = SJ.messages(cid).concat(lines.map(l => ({ me: l.me, text: l.text, ts: l.ts })));
           let answer;
           try { answer = await SJ.askCharacter(cc, h); }
@@ -2324,10 +2402,15 @@ const APPS = [
           if (!alive) return;
           sub.textContent = '';
           status.textContent = '通话中';
+          waves.classList.remove('active');
           busy = false;
         }
 
         function mine(text) {
+          if (isMuted) {
+            toast('当前已开启静音，对方听不到你的声音');
+            return;
+          }
           said(true, text);
           input.value = '';
           turn();
@@ -8517,7 +8600,13 @@ const APPS = [
               holder.append(SJ.el('div', { class: 'of2-wm' }, [avatarNode(ch)]));
             }
             if (b.kind === 'char') {
-              holder.append(SJ.el('p', { class: 'of2-say' }, '「' + b.text + '」'));
+              const p = SJ.el('p', { class: 'of2-say' }, '「' + b.text + '」');
+              /* 划线评机制：若剧情里带有短评标记 [评:xxx] 或特定长句时带出微短评徽章 */
+              if (b.mark || (b.text && b.text.length > 25 && bi === 0)) {
+                const markBadge = SJ.el('span', { class: 'of2-mark-badge' }, '💬 划线心声');
+                p.append(markBadge);
+              }
+              holder.append(p);
             } else if (b.kind === 'me') {
               holder.append(SJ.el('p', { class: 'of2-say me' }, '「' + b.text + '」'));
             } else {

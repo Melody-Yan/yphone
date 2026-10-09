@@ -2156,33 +2156,98 @@ select.field { appearance: none; -webkit-appearance: none; cursor: pointer;
 .cd-name { font-size: 13.5px; font-weight: 600; }
 .cd-tip { font-size: 11.5px; color: var(--fg-dim); margin-top: 2px; }
 
-/* ── 通话页 ── */
+/* ── 通话页（拟真声波 + 动作神态描写 + 沉浸交互）── */
 .call-view {
   position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; padding: 62px 22px 30px;
-  background: linear-gradient(180deg, #111111, #111111 62%, #131a1e);
-  color: #fff;
+  align-items: center; padding: 46px 20px 24px;
+  background: radial-gradient(circle at 50% 20%, #1e2433 0%, #0c0e13 100%);
+  color: #fff; z-index: 10; overflow-y: auto; overflow-x: hidden;
 }
-.call-who { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.call-who .avatar { width: 92px; height: 92px; font-size: 44px; box-shadow: 0 12px 34px rgba(0,0,0,.45); }
-.call-name { font-size: 20px; font-weight: 600; letter-spacing: .5px; }
-.call-status { margin-top: 20px; font-size: 13px; opacity: .68; letter-spacing: .4px; }
-.call-time { margin-top: 4px; font-size: 15px; opacity: .5; font-variant-numeric: tabular-nums; }
-.call-sub { margin: auto 0 16px; text-align: center; font-size: 15.5px; line-height: 1.6;
-  min-height: 46px; opacity: .92; padding: 0 6px; }
-.call-bar { display: flex; gap: 8px; width: 100%; }
-.call-input { flex: 1; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.18); color: #fff; }
-.call-input::placeholder { color: rgba(255,255,255,.42); }
+.call-who { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 6px; }
+.call-avatar-zone {
+  position: relative; width: 104px; height: 104px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 46px rgba(94, 129, 244, 0.22);
+}
+.call-avatar-zone::after {
+  content: ''; position: absolute; inset: -5px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.14);
+  animation: callPulse 2.8s infinite ease-out;
+}
+@keyframes callPulse {
+  0% { transform: scale(0.96); opacity: 0.8; }
+  50% { transform: scale(1.08); opacity: 0.2; }
+  100% { transform: scale(0.96); opacity: 0.8; }
+}
+.call-who .avatar { width: 96px; height: 96px; font-size: 46px; box-shadow: 0 12px 34px rgba(0,0,0,.45); }
+.call-name { font-size: 21px; font-weight: 700; letter-spacing: .4px; margin-top: 4px; }
+.call-status { margin-top: 6px; font-size: 13px; opacity: .72; letter-spacing: .3px; }
+.call-time { margin-top: 3px; font-size: 13.5px; opacity: .55; font-variant-numeric: tabular-nums; }
+
+/* 拟真声波波形条 */
+.call-waves {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  height: 28px; margin: 12px 0 6px;
+}
+.call-waves span {
+  width: 3px; height: 6px; background: rgba(127, 156, 248, 0.7);
+  border-radius: 2px; transition: height 0.2s;
+}
+.call-waves.active span { animation: waveBar 1.2s infinite ease-in-out; }
+.call-waves.active span:nth-child(1) { animation-delay: 0.1s; height: 14px; }
+.call-waves.active span:nth-child(2) { animation-delay: 0.3s; height: 22px; }
+.call-waves.active span:nth-child(3) { animation-delay: 0.0s; height: 26px; }
+.call-waves.active span:nth-child(4) { animation-delay: 0.4s; height: 18px; }
+.call-waves.active span:nth-child(5) { animation-delay: 0.2s; height: 12px; }
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(0.35); opacity: 0.4; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+/* 动作神态描写与对白旁白容器 */
+.call-sub {
+  margin: auto 0 16px; text-align: center; font-size: 14.5px; line-height: 1.65;
+  min-height: 48px; max-width: 90%; opacity: .92; padding: 6px 12px;
+  background: rgba(255,255,255,0.05); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);
+}
+.call-sub:empty { display: none; }
+.call-sub-motion { display: block; font-size: 12px; opacity: 0.72; margin-bottom: 4px; font-style: italic; }
+
+/* 六宫格快捷操作 */
+.call-actions-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 18px;
+  width: 100%; max-width: 320px; margin-bottom: 16px;
+}
+.call-act-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: none; border: none; color: rgba(255,255,255,0.8); font-size: 11.5px; cursor: pointer;
+}
+.call-act-ico {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255,255,255,0.11); border: 1px solid rgba(255,255,255,0.12);
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  backdrop-filter: blur(8px); transition: all 0.15s;
+}
+.call-act-ico:active { transform: scale(0.92); }
+.call-act-btn.on .call-act-ico { background: rgba(255,255,255,0.92); color: #111; }
+
+/* 底部输入条与挂断键 */
+.call-bar { display: flex; gap: 8px; width: 100%; margin-top: auto; }
+.call-input { flex: 1; height: 42px; border-radius: 21px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); color: #fff; padding: 0 16px; font-size: 14px; }
+.call-input::placeholder { color: rgba(255,255,255,.45); }
 .call-say {
-  flex: none; padding: 0 18px; border: 0; border-radius: 12px;
+  flex: none; padding: 0 18px; border: 0; border-radius: 21px;
   background: rgba(255,255,255,.92); color: #111111; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: transform 0.15s;
 }
+.call-say:active { transform: scale(0.94); }
 .call-hang {
-  margin-top: 16px; width: 62px; height: 62px; border: 0; border-radius: 50%;
-  background: #d8503f; color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer;
-  box-shadow: 0 8px 22px rgba(216,80,63,.42);
+  margin-top: 14px; width: 58px; height: 58px; border: 0; border-radius: 50%;
+  background: #d8503f; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(216,80,63,.45); display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s;
 }
-.call-hang:active { transform: scale(.94); }
+.call-hang:active { transform: scale(.92); }
 
 /* 语速滑块 */
 input.field[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; padding: 0; height: 28px; }
@@ -4465,58 +4530,38 @@ input.field[type="range"]::-webkit-slider-thumb {
 #phone.dark .meet-btn.ok { background: linear-gradient(150deg, #c99a4e, #a97c2e); }
 
 
-/* ── 邀约相遇：聊天里的一张请柬 ─────────────────────────
-   点了「好」就进剧场。做得像张卡，不像一条普通消息 —— 
-   因为它确实是件「事」，不是一句话。 */
-.meet-card {
-  width: min(268px, 76vw); margin: 6px 0 10px;
-  padding: 14px 15px 13px; border-radius: 18px;
-  background: linear-gradient(158deg, #fdf7ee, #f6e9d6);
-  border: 1px solid rgba(180,140,80,.22);
-  box-shadow: 0 2px 12px rgba(150,110,50,.09);
-}
-.meet-card.mine {
-  background: linear-gradient(158deg, #f4f6f8, #e9edf1);
-  border-color: rgba(110,120,135,.18);
-  box-shadow: 0 2px 12px rgba(90,100,115,.08);
-}
-.meet-card .meet-ico {
-  width: 34px; height: 34px; border-radius: 11px; margin-bottom: 9px;
-  display: grid; place-items: center;
-  background: rgba(200,150,80,.16); color: #a9762c;
-}
-.meet-card.mine .meet-ico { background: rgba(110,120,135,.14); color: #6b7480; }
-.meet-head { font-size: 12.5px; color: var(--ink-3); margin-bottom: 3px; }
-.meet-place {
-  font-size: 15.5px; font-weight: 600; color: #7a5420;
-  line-height: 1.45; word-break: break-word;
-}
-.meet-card.mine .meet-place { color: #46505c; }
-.meet-act {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 12px; font-size: 13px; color: var(--ink-3);
-}
-.meet-btn {
-  flex: 1; padding: 8px 10px; border-radius: 12px; cursor: pointer;
-  font: inherit; font-size: 13.5px; font-weight: 600;
-  background: rgba(0,0,0,.045); color: var(--ink-2);
-  border: 1px solid transparent;
-}
-.meet-btn.ok {
-  background: linear-gradient(150deg, #e8b96a, #d19a3f);
-  color: #fff; box-shadow: 0 2px 8px rgba(190,140,60,.28);
-}
-.meet-btn:active { transform: scale(.985); }
 
-#phone.dark .meet-card {
-  background: linear-gradient(158deg, #2e2a24, #272320);
-  border-color: rgba(200,160,100,.16);
+
+
+/* ── 剧场划线短评 (Marked comments) 与快捷分支优化 ── */
+.of2-mark {
+  display: inline-block; position: relative;
+  background: rgba(114, 148, 136, 0.12);
+  border-bottom: 2px dashed #729488;
+  cursor: pointer; border-radius: 2px; padding: 0 2px;
 }
-#phone.dark .meet-card.mine {
-  background: linear-gradient(158deg, #282b2e, #232629);
-  border-color: rgba(150,160,175,.13);
+.of2-mark-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; color: #4E6E64; background: rgba(114,148,136,0.15);
+  padding: 1px 6px; border-radius: 999px; margin-left: 6px;
+  vertical-align: middle; font-style: normal; font-weight: 500;
 }
-#phone.dark .meet-place { color: #e0bc80; }
-#phone.dark .meet-card.mine .meet-place { color: #c3ccd6; }
-#phone.dark .meet-btn { background: rgba(255,255,255,.08); color: var(--ink-2); }
-#phone.dark .meet-btn.ok { background: linear-gradient(150deg, #c99a4e, #a97c2e); }
+.of2-mark-tip {
+  display: block; margin: 6px 0 10px 14px; padding: 6px 12px;
+  border-left: 3px solid #729488; background: #faf9f6;
+  border-radius: 0 8px 8px 0; font-size: 12.5px; color: #555;
+  font-style: normal; line-height: 1.5;
+}
+#phone.dark .of2-mark-tip { background: #262422; color: #aaa; border-left-color: #8fb0a4; }
+
+/* 分支选项增强：胶囊横滑且带序号指示 */
+.of2-choices {
+  padding: 4px 16px 10px;
+}
+.of2-choice {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  transition: all 0.15s;
+}
+.of2-choice:hover {
+  background: #edeae5; border-color: rgba(0,0,0,0.1);
+}

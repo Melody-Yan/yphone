@@ -90,7 +90,8 @@ const WIDGET_TYPES = [
   { type: 'chat',     name: '聊天',     icon: 'comment',  span: 2 },
   { type: 'music',    name: '音乐',     icon: 'music',    span: 2 },
   { type: 'battery',  name: '电量',     icon: 'battery',  span: 2 },
-  { type: 'gallery',  name: '相册',     icon: 'image',    span: 2 }
+  { type: 'gallery',  name: '相册',     icon: 'image',    span: 2 },
+  { type: 'custom',   name: '自定义小组件', icon: 'grid', span: 4 }
 ];
 const WIDGET_PAGES = 3;   // 桌面一共几页，widgets 数组的固定长度
 
@@ -276,6 +277,8 @@ musicBg: '', musicTint: 'ink',
   /* cee论坛：帖子与评论都在这里。genAt 是上次批量生成的时间 ——
      靠它做「缓存 + 手动刷新」，不做每次打开都重新请求。 */
   forum: { posts: [], genAt: 0 },
+  /* 自定义桌面小组件：导入的 .widget.json 模板。组件条目通过 customId 引用 */
+  customWidgets: [],
   /* 主题包：桌面 / 聊天 / 短信 三个槽位各自一组，互不干扰。
      [{id,name,slot,vars:{},dark:{},wall,ts}] —— vars 里的键受 THEME_VARS 白名单限制 */
   themes: { desktop: [], chat: [], sms: [] },
@@ -326,7 +329,7 @@ const SCHEMA = {
   personas: 'array', personaId: 'string', sms: 'object', longMem: 'object',
   moments: 'array', delivery: 'object', music: 'object', calls: 'object', stickers: 'array', groups: 'array',
   mall: 'object', wallet: 'object', addresses: 'array', themes: 'object', themesRemoved: 'array', offline: 'object',
-  space: 'object', forum: 'object'
+  space: 'object', forum: 'object', customWidgets: 'array'
 };
 function coerce(v, want) {
   if (want === 'array') return Array.isArray(v) ? v : [];
@@ -537,6 +540,26 @@ function migrate(saved) {
     .filter(t => t.text);
   // 桌面插件：按页归一。认不出的 type 直接丢掉（渲染层也判，但状态里别留垃圾）。
   // 同样不能用 uid()（TDZ），id 用 'wg-页码-序号'。
+  out.customWidgets = (Array.isArray(out.customWidgets) ? out.customWidgets : [])
+    .filter(c => c && typeof c === 'object' && String(c.html || '').trim())
+    .slice(0, 30)
+    .map((c, i) => {
+      const rawVals = (c.values && typeof c.values === 'object' && !Array.isArray(c.values)) ? c.values : {};
+      const values = {};
+      Object.keys(rawVals).slice(0, 50).forEach(k => { values[String(k).slice(0, 80)] = String(rawVals[k] == null ? '' : rawVals[k]).slice(0, 200000); });
+      return {
+        id: String(c.id || ('cwg-' + i)),
+        name: String(c.name || '自定义小组件').slice(0, 60),
+        size: c.size === 'small' ? 's' : (c.size === 'medium' ? 'm' : 'l'),
+        version: Number(c.version) || 1,
+        type: 'custom_widget_template',
+        html: String(c.html || '').slice(0, 200000),
+        css: String(c.css || '').slice(0, 100000),
+        imageKeys: (Array.isArray(c.imageKeys) ? c.imageKeys : []).map(x => String(x || '')).filter(Boolean).slice(0, 20),
+        userFields: (Array.isArray(c.userFields) ? c.userFields : []).filter(f => f && typeof f === 'object' && f.key).slice(0, 40).map(f => ({ key: String(f.key || '').slice(0, 80), label: String(f.label || '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim().slice(0, 80), type: String(f.type || 'text').slice(0, 20), options: (Array.isArray(f.options) ? f.options : []).map(x => String(x || '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim().slice(0, 80)).slice(0, 30) })),
+        values: values
+      };
+    });
   const knownWg = WIDGET_TYPES.map(w => w.type);
   out.widgets = Array.from({ length: WIDGET_PAGES }, (_, p) => {
     const group = Array.isArray(out.widgets) && Array.isArray(out.widgets[p]) ? out.widgets[p] : [];
@@ -545,7 +568,7 @@ function migrate(saved) {
       .map((w, i) => {
         /* 大小不认识就退回默认（老存档没有 size 字段）——这里也只写字面量，别引用后面的 const */
         const size = (w.size === 's' || w.size === 'm' || w.size === 'l') ? w.size : '';
-        return { id: String(w.id || (`wg-${p}-${i}`)), type: w.type, size: size };
+        return { id: String(w.id || (`wg-${p}-${i}`)), type: w.type, size: size, customId: w.type === 'custom' ? String(w.customId || '').slice(0, 80) : '' };
       });
   });
   // 未读：只认「数字或数字字符串」，夹到 0..999；0 的直接不留（省得存档里堆一堆 0）
@@ -2907,6 +2930,42 @@ function upcomingEvents(n = 3) {
    状态是「每页一组」：state.widgets[页码] = [{id,type}, ...]。
    真正画成什么样在 app.js，这里只管数据，方便自检。
    ══════════════════════════════════════════════════════ */
+function normalizeCustomWidget(data, fallbackId) {
+  if (!data || typeof data !== 'object' || String(data.type || '') !== 'custom_widget_template') return null;
+  const html = String(data.html || '').trim().slice(0, 200000);
+  if (!html) return null;
+  const values = {};
+  const raw = (data.values && typeof data.values === 'object' && !Array.isArray(data.values)) ? data.values : {};
+  Object.keys(raw).slice(0, 50).forEach(k => { values[String(k).slice(0, 80)] = String(raw[k] == null ? '' : raw[k]).slice(0, 200000); });
+  return {
+    id: String(data.id || fallbackId || ('cwg-' + Date.now().toString(36))).slice(0, 80),
+    name: String(data.name || '自定义小组件').slice(0, 60),
+    size: data.size === 'small' ? 's' : (data.size === 'medium' ? 'm' : 'l'),
+    version: Number(data.version) || 1,
+    type: 'custom_widget_template',
+    html: html,
+    css: String(data.css || '').slice(0, 100000),
+    imageKeys: (Array.isArray(data.imageKeys) ? data.imageKeys : []).map(x => String(x || '')).filter(Boolean).slice(0, 20),
+    userFields: (Array.isArray(data.userFields) ? data.userFields : []).filter(f => f && typeof f === 'object' && f.key).slice(0, 40).map(f => ({ key: String(f.key || '').slice(0, 80), label: String(f.label || '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim().slice(0, 80), type: String(f.type || 'text').slice(0, 20), options: (Array.isArray(f.options) ? f.options : []).map(x => String(x || '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').trim().slice(0, 80)).slice(0, 30) })),
+    values: values
+  };
+}
+function customWidgetById(id) { return (state.customWidgets || []).find(c => c.id === String(id)) || null; }
+function addCustomWidget(page, data) {
+  const cw = normalizeCustomWidget(data, 'cwg-' + uid());
+  if (!cw) return null;
+  if (!Array.isArray(state.customWidgets)) state.customWidgets = [];
+  state.customWidgets.push(cw);
+  const w = { id: uid(), type: 'custom', customId: cw.id, size: cw.size };
+  widgetsOf(page).push(w);
+  save();
+  return w;
+}
+function setCustomWidgetValue(id, key, value) {
+  const cw = customWidgetById(id); if (!cw) return false;
+  cw.values[String(key).slice(0, 80)] = String(value == null ? '' : value).slice(0, 200000);
+  save(); return true;
+}
 const widgetDef = type => WIDGET_TYPES.find(w => w.type === type) || null;
 
 /* 该页的插件数组。永远返回数组，调用方不用判空。 */
@@ -2929,8 +2988,13 @@ function addWidget(page, type) {
 function removeWidget(page, id) {
   const list = widgetsOf(page);
   const i = list.findIndex(w => w.id === id);
+  const removed = i >= 0 ? list[i] : null;
   if (i < 0) return false;
   list.splice(i, 1);
+  if (removed && removed.type === 'custom' && removed.customId) {
+    const used = (state.widgets || []).some(g => Array.isArray(g) && g.some(x => x.customId === removed.customId));
+    if (!used) state.customWidgets = (state.customWidgets || []).filter(c => c.id !== removed.customId);
+  }
   save();
   return true;
 }
@@ -5938,6 +6002,7 @@ window.SJ = {
   dayKey, eventsOn, todayEvents, makeEvent, saveEvent, deleteEvent, busyDays, upcomingEvents,
   /* 桌面插件 */
   WIDGET_TYPES, WIDGET_PAGES, WIDGET_SIZES, widgetDef, widgetsOf, addWidget, removeWidget, clearWidgets, latestImage,
+  normalizeCustomWidget, customWidgetById, addCustomWidget, setCustomWidgetValue,
   widgetSizeOf, setWidgetSize, moveWidget, moveWidgetPage,
   unreadOf, bumpUnread, clearUnread, clearAllUnread, unreadTotal,
   HOME_PER_PAGE, HOME_DOCK, homeSplit, reflowLayout,

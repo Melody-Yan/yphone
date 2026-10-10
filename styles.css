@@ -3107,6 +3107,18 @@ input.field[type="range"]::-webkit-slider-thumb {
    小档只留「标题 + 第一个内容块」，多的内容藏起来而不是溢出 ——
    2×1 那么点地方塞不下日历格子。 */
 #phone .widget { overflow: hidden; }
+/* 自定义模板：模板自己负责底板，iframe 沙箱隔离脚本。 */
+#phone .wg-custom {
+  padding: 0; background: transparent; border: 0; box-shadow: none;
+}
+#phone .wg-custom::after { content: none; }
+#phone .wg-custom .wg-frame {
+  width: 100%; height: 100%; display: block; border: 0; background: transparent;
+}
+#phone .wg-custom .wg-more { z-index: 3; }
+#phone .wg-custom.wg-s { height: 130px; }
+#phone .wg-custom.wg-m { height: 190px; }
+#phone .wg-custom.wg-l { height: 260px; }
 /* 一行图标大约 84px 高、行距 22 —— 大档得自己给高度，
    否则 grid-auto-rows: min-content 会让 span 2 跟 span 1 差不多高 */
 #phone .wg-s, #phone .wg-m { min-height: 92px; }

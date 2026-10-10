@@ -236,6 +236,8 @@ SJ.el('button', { class: 'btn', onclick: go }, okLabel || '就这些')
   setTimeout(() => { if (input.focus) input.focus(); }, 60);
 }
 
+window.askText = askText;
+
 /* ── 收货地址（外卖和商城共用）──
    表单和列表都写在这儿，两个 App 各调一次，不各写一份。
    地址是可选信息：一条都没有时结算页显示「还没填 · 点这里添加」，不挡下单。 */

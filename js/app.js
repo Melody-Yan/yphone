@@ -413,10 +413,44 @@ function widgetBody(type) {
   return [];
 }
 
+function customWidgetDocument(cw) {
+  const vals = JSON.stringify((cw && cw.values) || {}).replace(/</g, '\\u003c');
+  const css = String((cw && cw.css) || '').replace(/<\/style/gi, '<\\/style');
+  const html = String((cw && cw.html) || '');
+  const bridge = '<script>window.__YW_STATE__=' + vals + ';window.widget={getState:function(k){return Object.prototype.hasOwnProperty.call(window.__YW_STATE__,k)?window.__YW_STATE__[k]:"";},setState:function(k,v){window.__YW_STATE__[k]=v;try{parent.postMessage({type:"yphone-widget-set",key:k,value:v},"*")}catch(e){}return v;}};<\/script>';
+  const reset = 'html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent;}';
+  const emptyImg = 'img:not([src]),img[src=""]{display:none!important;}';
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + reset + css + emptyImg + '</style>' + bridge + '</head><body>' + html + '</body></html>';
+}
+
+function importCustomWidget(pageIndex) {
+  if (typeof FileReader === 'undefined') return toast('这个环境不支持文件选择');
+  const input = SJ.el('input', { type: 'file', accept: '.json,.widget.json,application/json', style: { display: 'none' } });
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0];
+    if (!file) return input.remove();
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result || ''));
+        const w = SJ.addCustomWidget(pageIndex, data);
+        if (!w) throw new Error('不是可用的小组件模板');
+        toast('已添加小组件「' + (data.name || '自定义小组件') + '」');
+        renderHome();
+      } catch (e) { toast('导入失败：' + (e && e.message ? e.message : '文件格式不对')); }
+      input.remove();
+    };
+    reader.onerror = () => { toast('读取小组件文件失败'); input.remove(); };
+    reader.readAsText(file);
+  });
+  document.body.append(input);
+  input.click();
+}
+
 function widgetNode(pageIndex, w) {
   const def = SJ.widgetDef(w.type);
   if (!def) return null;
-  const to = WIDGET_APP[w.type];
+  const to = w.type === 'custom' ? null : WIDGET_APP[w.type];
   /* 大小由数据说，不再只认类型自带的 span（桌面是 4 列网格，跨列跨行都写在这儿） */
   const size = SJ.widgetSizeOf(w);
   const node = SJ.el('div', {
@@ -435,7 +469,19 @@ function widgetNode(pageIndex, w) {
     class: 'wg-more', title: '插件设置',
     onclick: e => { e.stopPropagation(); openWidgetEdit(pageIndex, w.id); }
   }, '⋯'));
-  widgetBody(w.type).forEach(c => node.append(c));
+  if (w.type === 'custom') {
+    const cw = SJ.customWidgetById(w.customId);
+    if (cw) {
+      const frame = SJ.el('iframe', { class: 'wg-frame', sandbox: 'allow-scripts' });
+      frame.setAttribute('srcdoc', customWidgetDocument(cw));
+      frame.setAttribute('title', cw.name || '自定义小组件');
+      node.append(frame);
+    } else {
+      node.append(SJ.el('div', { class: 'wg-empty' }, '小组件模板已丢失'));
+    }
+  } else {
+    widgetBody(w.type).forEach(c => node.append(c));
+  }
   return node;
 }
 
@@ -486,12 +532,13 @@ function openSizeSheet(pageIndex) {
 }
 
 function openWidgetSheet(pageIndex) {
-  const items = SJ.WIDGET_TYPES.map(def => ({
+  const items = SJ.WIDGET_TYPES.filter(def => def.type !== 'custom').map(def => ({
     svg: def.icon,
     label: def.name,
     hint: def.span === 4 ? '默认整行' : '默认半行',
     run: () => { SJ.addWidget(pageIndex, def.type); renderHome(); }
   }));
+  items.unshift({ svg: 'folder', label: '导入小组件', hint: '.widget.json', run: () => importCustomWidget(pageIndex) });
   items.push({
     svg: 'grid', label: '这一页放几个图标', hint: '现在放得下 24 格',
     run: () => openSizeSheet(pageIndex)
@@ -524,6 +571,7 @@ function openWidgetEdit(pageIndex, id) {
     run: () => { SJ.setWidgetSize(pageIndex, id, s.key); renderHome(); }
   }));
 
+  if (w.type === 'custom') items.push({ svg: 'edit', label: '编辑内容', hint: '字段 / 图片', run: () => editCustomWidget(pageIndex, w) });
   items.push({ svg: 'right', label: '换位置', hint: '', off: true });
   items.push({
     svg: 'up', label: '　往上挪', off: list.indexOf(w) === 0,
@@ -547,6 +595,35 @@ function openWidgetEdit(pageIndex, id) {
     run: () => { SJ.removeWidget(pageIndex, id); renderHome(); }
   });
   window.sheet(items, def.name);
+}
+
+function editCustomWidget(pageIndex, w) {
+  const cw = SJ.customWidgetById(w.customId);
+  if (!cw) return toast('小组件模板已丢失');
+  const items = [];
+  (cw.userFields || []).forEach(f => {
+    const key = f.key, current = cw.values[key] || '';
+    items.push({
+      svg: 'edit', label: f.label || key, hint: current || '默认',
+      run: () => {
+        const set = v => { SJ.setCustomWidgetValue(cw.id, key, v); renderHome(); };
+        if (f.type === 'select' && f.options && f.options.length) {
+          window.sheet(f.options.map(opt => ({ svg: 'check', label: opt, hint: opt === current ? '当前' : '', run: () => set(opt) })), f.label || key);
+        } else if (typeof window.askText === 'function') {
+          window.askText(f.label || key, '留空恢复默认', '', set, '保存');
+        }
+      }
+    });
+  });
+  (cw.imageKeys || []).forEach((key, i) => items.push({
+    svg: 'image', label: '图片 ' + (i + 1), hint: cw.values[key] ? '已设置' : '未设置',
+    run: () => {
+      if (typeof window.askText !== 'function') return;
+      window.askText('图片 ' + (i + 1), 'https://...', '填写图片地址', v => { SJ.setCustomWidgetValue(cw.id, key, v); renderHome(); }, '保存');
+    }
+  }));
+  if (!items.length) items.push({ svg: 'info', label: '这个模板没有可编辑字段', off: true });
+  window.sheet(items, cw.name + ' · 编辑内容');
 }
 
 function renderHome() {

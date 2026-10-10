@@ -1338,8 +1338,9 @@ ok('桌面图标数 = App 总数（插件没吃掉 App）', iconsOn() === shownA
 /* 长按桌面空白处弹面板 */
 dispatch(pages[1], 'mousedown', {});
 ok('长按桌面空白处弹出插件面板', await waitFor(() => sheetLabels().length >= 6), JSON.stringify(sheetLabels()));
-ok('面板里 9 种插件都在',
-  wk.WIDGET_TYPES.every(t => sheetLabels().includes(t.name)), JSON.stringify(sheetLabels()));
+ok('面板里 9 种内置插件和导入入口都在',
+  wk.WIDGET_TYPES.filter(t => t.type !== 'custom').every(t => sheetLabels().includes(t.name)) &&
+  sheetLabels().includes('导入小组件'), JSON.stringify(sheetLabels()));
 clickSheet('今日日程');
 ok('选了「今日日程」→ 第二页多了一个插件',
   wgOn(1).length === 1 && wgOn(1)[0]._class.has('wg-calendar'), wgOn(1).map(n => n.className).join(','));
@@ -7981,6 +7982,38 @@ console.log('\n[114] 此刻相遇 · 记忆胶片交互');
     S.SHELL.stack.length === 1 && walk(root).some(n => n._class && n._class.has('of2')));
   ok('进剧场后记下已读时间', Number(A.state.offline[c2.id].seenAt) > 0);
   S.closeTop(true);
+}
+
+/* 115. 自定义桌面小组件 */
+console.log('\n[115] 自定义桌面小组件');
+{
+  const A = sandbox.SJ;
+  const S = sandbox.window;
+  A.state.widgets = [[], [], []];
+  A.state.customWidgets = [];
+  const tpl = {
+    type: 'custom_widget_template', name: '测试模板', size: 'large', version: 2,
+    html: '<div class="mz-4x4-gallery"><span id="valDateTime"></span><script>widget.getState("barText", "");</script></div>',
+    css: '.mz-4x4-gallery { color: #fff; }',
+    imageKeys: ['img1', 'bgImg'],
+    userFields: [{ key: 'barText', label: '气泡文字', type: 'text' }]
+  };
+  const w = A.addCustomWidget(0, tpl);
+  ok('导入模板会生成一个 custom 桌面插件', !!w && w.type === 'custom' && A.state.customWidgets.length === 1);
+  ok('模板大小会映射到桌面尺寸', A.customWidgetById(w.customId).size === 'l');
+  S.SHELL.renderHome();
+  const home = S.document.getElementById('home');
+  const frames = walk(home).filter(n => n._class && n._class.has('wg-frame'));
+  ok('桌面渲染成沙箱 iframe', frames.length === 1 && frames[0].attrs.sandbox === 'allow-scripts');
+  const doc = String(frames[0].attrs.srcdoc || '');
+  ok('iframe 里有模板 html / css / getState 桥',
+    doc.indexOf('mz-4x4-gallery') >= 0 && doc.indexOf('color: #fff') >= 0 && doc.indexOf('widget.getState') >= 0);
+  ok('编辑字段会写进模板值',
+    A.setCustomWidgetValue(w.customId, 'barText', 'hello') &&
+    A.customWidgetById(w.customId).values.barText === 'hello');
+  A.removeWidget(0, w.id);
+  ok('移除唯一实例时会清掉没人用的模板', A.state.customWidgets.length === 0);
+  ok('非模板 JSON 不会写进存档', A.addCustomWidget(0, { type: 'nope', html: 'x' }) === null && A.state.customWidgets.length === 0);
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

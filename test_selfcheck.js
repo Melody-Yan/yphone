@@ -7851,6 +7851,93 @@ console.log('\n[112] 备忘录：待办清单 + 时间线');
     rt2.ok === true && Array.isArray(A.state.todos) && A.state.todos.length === 0);
 }
 
+/* 113. cee论坛：批量生成 + 缓存 */
+console.log('\n[113] cee论坛：批量生成 + 缓存');
+{
+  const A = sandbox.SJ;
+  const c1 = A.saveCharacter(A.makeCharacter({ name: '林晚', avatar: '🌿' }));
+  A.state.settings.apiBase = 'https://api.example.com/v1';
+  A.state.settings.apiKey = 'sk-test';
+  A.state.settings.apiModel = 'gpt-test';
+  A.state.forum = { posts: [], genAt: 0 };
+  A.save();
+
+  /* 假接口：正文裹在 ```json 里 —— 模型十次有八次这么写，解析器得认得 */
+  /* 只数论坛那次请求：打开 App 时后台可能还会跑一个主动消息检查，
+     它跟论坛共用同一个接口，混在一起数就永远对不上。 */
+  let forumCalls = 0, sentBody = null;
+  const reply = { posts: [
+    { who: '林晚', topic: '日常', text: '路过那家面包店，抢到最后一个可颂。' },
+    { who: '西柚气泡', topic: '深夜', text: '加班到十一点，楼下便利店只剩关东煮。' },
+    { who: '查无此人', topic: '不存在的板块', text: '名册外的名字也得留下来。' }
+  ] };
+  fetchImpl = (url, opts) => {
+    const body = JSON.parse(opts.body);
+    const sys0 = String(((body.messages || [{}])[0] || {}).content || '');
+    if (sys0.indexOf('cee论坛') < 0) {
+      return Promise.resolve(mockRes(true, { choices: [{ message: { content: '在的。' } }] }));
+    }
+    forumCalls++; sentBody = body;
+    return Promise.resolve(mockRes(true, { model: 'gpt-test',
+      choices: [{ message: { content: '好的：\n```json\n' + JSON.stringify(reply) + '\n```' } }] }));
+  };
+
+  S.openApp('forum');
+  await waitFor(() => A.state.forum.posts.length === 3, 2000);
+  const f = A.state.forum;
+  ok('进空论坛会自动补一批（不用先点刷新）', forumCalls === 1 && f.posts.length === 3,
+    '请求 ' + forumCalls + ' 次 / ' + f.posts.length + ' 条');
+  ok('一次批量只发一个请求（不是一条一次）', forumCalls === 1, 'forumCalls=' + forumCalls);
+  /* 落盘：写一次再读回来。这里不能去读别的时刻留下的存档 ——
+     自检里每次 boot() 都新建一个实例，旧实例的计时器偶尔会往同一份
+     假存档里写回它自己的旧状态，跟被测代码没关系。 */
+  A.save();
+  const stored = JSON.parse(store.get('xiaoshouji.v1') || '{}');
+  ok('落盘了（存档里三张帖一条不少 + genAt 有值）',
+    f.genAt > 0 && !!stored.forum && stored.forum.posts.length === 3
+    && /可颂/.test(JSON.stringify(stored.forum)), JSON.stringify(stored.forum));
+  ok('帖子按时间倒序排（新的在上）', f.posts[0].ts > f.posts[2].ts);
+
+  const sys = sentBody.messages[0].content, usr = sentBody.messages[1].content;
+  ok('system 说了这是个什么社区', sys.indexOf('cee论坛') >= 0);
+  ok('名册里既有现有角色，也有内置 NPC',
+    usr.indexOf('林晚') >= 0 && usr.indexOf('西柚气泡') >= 0);
+  ok('给了固定的话题表（不让模型自己编板块）',
+    usr.indexOf('深夜') >= 0 && usr.indexOf('晒图') >= 0);
+
+  ok('角色发的帖挂到本人身上（不是当 NPC 画）',
+    f.posts[0].charId === c1.id && f.posts[0].who === '林晚');
+  ok('NPC 用内置那套头像', f.posts[1].charId === '' && !!f.posts[1].avatar);
+  ok('名册外的名字当 NPC 留下，不丢帖', f.posts[2].who === '查无此人' && f.posts[2].charId === '');
+  ok('乱写的板块回落到「日常」', f.posts[2].topic === '日常', f.posts[2].topic);
+
+  /* 缓存命中：再进一次不该再请求 */
+  S.closeTop(true);
+  S.openApp('forum');
+  await waitFor(() => forumCalls > 1, 300);   // 给足机会再断言「没再请求」
+  ok('缓存非空时再进不再请求（成本靠缓存压住）', forumCalls === 1, 'forumCalls=' + forumCalls);
+
+  /* 手动刷新：再要一批，旧的留着 */
+  const before = A.state.forum.posts.length;
+  const refreshBtn = () => walk(S.SHELL.stack[0].node).find(n => n.attrs && n.attrs.title === '刷新');
+  refreshBtn().click();
+  await waitFor(() => A.state.forum.posts.length === before + 3, 2000);
+  ok('点刷新再要一批，旧的不会丢',
+    forumCalls === 2 && A.state.forum.posts.length === before + 3,
+    'forumCalls=' + forumCalls + ' / ' + A.state.forum.posts.length + ' 条');
+
+  /* 失败兜底：接口挂了要说话，且不往存档里塞空帖 */
+  const keep = JSON.stringify(A.state.forum.posts);
+  fetchImpl = () => Promise.resolve(mockRes(false, { error: { message: '当前分组上游负载已饱和' } }, 503));
+  refreshBtn().click();
+  await waitFor(() => /负载已饱和/.test(toasts()), 2000);
+  ok('接口失败时原帖一条不动、也不写空帖', JSON.stringify(A.state.forum.posts) === keep);
+  ok('把服务端原话带出来给人看（不静默）', /负载已饱和/.test(toasts()), toasts());
+
+  S.closeTop(true);
+  fetchImpl = null;
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

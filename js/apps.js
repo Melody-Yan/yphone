@@ -8314,6 +8314,13 @@ const APPS = [
         { who: '匿名树洞', avatar: '🌙', color: '#b9b6c9' }
       ];
       let topic = '全部';
+      /* busy：正在批量生成（挡住重复点击，也让信息流显示「正在写」）。
+         autoTried：一次打开只自动补一批，不循环请求。 */
+      let busy = false, autoTried = false;
+      const configured = () => {
+        const s = SJ.state.settings || {};
+        return !!(String(s.apiBase || '').trim() && String(s.apiKey || '').trim() && String(s.apiModel || '').trim());
+      };
 
       /* 头像 + 名字：认识的走角色本人，自己发的走「我」，其余当 NPC 画 */
       function whoOf(p) {
@@ -8339,7 +8346,9 @@ const APPS = [
 
         const feed = SJ.el('div', { class: 'fm-feed' });
         const list = SJ.forumPosts().filter(p => topic === '全部' || p.topic === topic);
-        if (!list.length) {
+        if (busy) {
+          feed.append(SJ.el('div', { class: 'fm-loading' }, '正在等 TA 们写完…'));
+        } else if (!list.length) {
           const any = SJ.forumPosts().length > 0;
           feed.append(emptyState('globe', any ? '这个话题下还没帖' : '论坛还空着',
             any ? '换个话题看看，或者自己发一个。' : '点右上角刷新，让 TA 们把最近的帖子一次写出来。',
@@ -8349,6 +8358,13 @@ const APPS = [
         root.append(feed);
         root.append(SJ.el('button', { class: 'fm-fab', title: '发帖', onclick: compose },
           SJ.el('span', { html: svg('plus', 22) })));
+        /* 缓存空的时候自动补一批：进来就有东西看，不用先点刷新。
+           只试一次，不循环请求。没配接口就交给空态里那句话去解释 —— 进个 App
+           就弹一句「还没配接口」是骚扰，不是提示。 */
+        if (!busy && !autoTried && !SJ.forumPosts().length && configured()) {
+          autoTried = true;
+          refresh();
+        }
       }
 
       function card(p) {
@@ -8449,15 +8465,84 @@ const APPS = [
         ]));
       }
 
-      /* 批量生成：一次 8~12 条写进存档，靠 genAt 做缓存，不做「每次打开都请求」。 */
-      function refresh() {
-        const s = SJ.state.settings || {};
-        const base = (s.apiBase || '').trim(), key = (s.apiKey || '').trim();
-        if (!base || !key) {
-          toast('还没配接口 · 去「设置 → 接口」填上，回来再点刷新');
-          return;
+      /* 发帖人只能从名册里挑 —— 不然模型会编出「小明」这种点了也找不到是谁的名字。
+         名册 = 现有角色（带一句人设摘要）+ 内置 NPC。 */
+      function roster() {
+        return (SJ.state.characters || [])
+          .filter(c => !SJ.isGroup(c.id))
+          .map(c => ({ who: c.name || '无名', desc: String(c.desc || '').replace(/\s+/g, ' ').slice(0, 40) }))
+          .concat(NPCS.map(n => ({ who: n.who, desc: '' })));
+      }
+
+      const FM_SYS = [
+        '你在模拟一个中文手机社区「cee论坛」的信息流。',
+        '社区里的人都在拿手机随手发帖：日常碎碎念、情绪、安利、深夜感慨、求助、晒图。',
+        '要求：',
+        '1. 口语、短，一条 1~3 句，像真在手机上打出来的；不要标题、不要 markdown、不要序号。',
+        '2. 每条说一件具体的小事（时间 / 地点 / 一个细节），不要空泛的励志，也不要客服腔。',
+        '3. 不同的人语气要不一样：有人话少、有人啰嗦、有人爱吐槽、有人很温柔。',
+        '4. 不要互相 @，不要提 AI，不要提「我是模型」。',
+        '5. 发帖人只能从给定名册里挑，名字一字不差。',
+        '只输出 JSON：{"posts":[{"who":"名册里的名字","topic":"话题","text":"正文"}]}'
+      ].join('\n');
+
+      async function genPosts() {
+        const now = SJ.virtualNow();
+        /* 把已有的几条报给它，免得刷新一次多出一堆「今天好累」 */
+        const have = SJ.forumPosts().slice(0, 6).map(p => String(p.text || '').slice(0, 30));
+        const usr = [
+          '【发帖人名册】只能从这份里挑，名字一字不差：',
+          roster().map(x => '- ' + x.who + (x.desc ? '：' + x.desc : '')).join('\n'),
+          '【话题】每条选一个：' + TOPICS.slice(1).join(' / '),
+          '【现在】' + SJ.fmtDate(now) + ' ' + SJ.fmtTime(now),
+          have.length ? '【已经有的帖子】别写重复的：\n' + have.map(t => '- ' + t).join('\n') : '',
+          '写 8~12 条。只输出那个 JSON。'
+        ].filter(Boolean).join('\n\n');
+
+        const raw = await SJ.askOnce(FM_SYS, usr, '论坛');
+        const data = SJ.parseJSONLoose(raw);
+        const arr = (data && Array.isArray(data.posts)) ? data.posts : [];
+        const chars = SJ.state.characters || [];
+        return arr
+          .filter(p => p && String(p.text || '').trim())
+          .slice(0, 12)
+          .map((p, i) => {
+            const who = String(p.who || '').trim().slice(0, 24);
+            const c = chars.find(x => (x.name || '') === who);
+            const n = NPCS.find(x => x.who === who) || NPCS[i % NPCS.length];
+            return {
+              id: SJ.uid(),
+              who: c ? c.name : (who || n.who),
+              charId: c ? c.id : '', avatar: c ? '' : n.avatar, color: c ? '' : n.color,
+              topic: TOPICS.indexOf(String(p.topic || '')) > 0 ? p.topic : '日常',
+              text: String(p.text).trim().slice(0, 600),
+              img: '',
+              /* 时间往前散开：一眼看得出是「今天陆续有人发」，不是同一秒刷出来一排 */
+              ts: now.getTime() - Math.round(i * 37 + Math.random() * 50) * 60000,
+              likes: Array.from({ length: Math.floor(Math.random() * 4) }, (_, k) => 'u' + i + '-' + k),
+              comments: []
+            };
+          });
+      }
+
+      /* 一次 8~12 条写进存档，靠 genAt 做缓存 —— 不做「每次打开都请求」。 */
+      async function refresh() {
+        if (busy) return;                 // 点两下不会发两个请求
+        busy = true; main();
+        try {
+          const posts = await genPosts();
+          if (!posts.length) throw new Error('模型没写出能用的帖子，再点一次刷新试试');
+          const f = SJ.forumOf();
+          f.posts = posts.concat(f.posts).slice(0, 120);
+          f.genAt = Date.now();
+          SJ.save();
+          toast('写好了 ' + posts.length + ' 条');
+        } catch (e) {
+          /* 失败就明说：不静默，也不往存档里塞空帖 */
+          toast(String((e && e.message) || e));
         }
-        toast('论坛的批量生成下一步接上');
+        busy = false;
+        main();
       }
 
       main();

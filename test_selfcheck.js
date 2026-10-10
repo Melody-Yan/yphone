@@ -8016,6 +8016,78 @@ console.log('\n[115] 自定义桌面小组件');
   ok('非模板 JSON 不会写进存档', A.addCustomWidget(0, { type: 'nope', html: 'x' }) === null && A.state.customWidgets.length === 0);
 }
 
+/* 116. 通讯录 / YMessage 的配色（沙龙主题） */
+console.log('\n[116] 通讯录 / YMessage 配色');
+{
+  const A = sandbox.SJ;
+  const S = sandbox.window;
+
+  ok('配色预设至少 6 套、id 不重名',
+    A.SALON_PALETTES.length >= 6 &&
+    new Set(A.SALON_PALETTES.map(p => p.id)).size === A.SALON_PALETTES.length);
+  ok('每套配色都带名字 / 横幅色 / 角标色',
+    A.SALON_PALETTES.every(p => p.id && p.name &&
+      /^#[0-9a-f]{6}$/i.test(p.tint) && /^#[0-9a-f]{6}$/i.test(p.accent)));
+
+  /* 两套独立：换 YMessage 的色不该动通讯录 */
+  A.salonPick('contacts', 'porcelain');
+  A.salonPick('ymessage', 'porcelain');
+  A.salonPick('ymessage', 'sky');
+  ok('两个 App 的配色互相独立',
+    A.salonOf('contacts') === 'porcelain' && A.salonOf('ymessage') === 'sky',
+    A.salonOf('contacts') + ' / ' + A.salonOf('ymessage'));
+
+  /* 读路径也要挡脏值，不能只在 pick 里挡 */
+  A.state.settings.salon.contacts = 'hack';
+  ok('state 里塞脏 id，读出来仍是合法预设', A.salonOf('contacts') === A.SALON_PALETTES[0].id);
+  ok('不认识的配色 id 会归回预设', A.salonPick('contacts', 'nope') === A.SALON_PALETTES[0].id);
+
+  /* 变量真的铺到了 App 根节点上 */
+  A.salonPick('ymessage', 'matcha');
+  S.SHELL.openApp('ymessage');
+  const yv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+  const pal = A.salonPalette('ymessage');
+  ok('打开 App 会把配色写成内联变量',
+    yv.style.getPropertyValue('--salon-tint') === pal.tint &&
+    yv.style.getPropertyValue('--salon-accent') === pal.accent);
+  ok('YMessage 横幅上有配色入口',
+    walk(yv).some(n => n.tagName === 'BUTTON' && n.attrs && n.attrs.title === '配色'));
+  S.SHELL.closeTop(true);
+
+  S.SHELL.openApp('contacts');
+  const cv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+  ok('通讯录横幅上也有配色入口',
+    walk(cv).some(n => n.tagName === 'BUTTON' && n.attrs && n.attrs.title === '配色'));
+  S.SHELL.closeTop(true);
+
+  /* 设置里也留一份入口 */
+  S.SHELL.openApp('settings');
+  const sv = S.SHELL.stack[S.SHELL.stack.length - 1].node;
+  ok('设置里有「主题配色」分组', walk(sv).some(n => n.textContent === '主题配色'));
+  ok('设置里能分别给两个 App 换色',
+    walk(sv).some(n => n.textContent === '通讯录') &&
+    walk(sv).some(n => n.textContent === 'YMessage'));
+  S.SHELL.closeTop(true);
+
+  /* 存档归一：脏 salon 走一遍 boot() 得被洗回合法值 */
+  const keep = store.get('xiaoshouji.v1');
+  try {
+    const snap = JSON.parse(keep || '{}');
+    snap.settings = Object.assign({}, snap.settings, { salon: { contacts: 'hack', ymessage: 42 } });
+    store.set('xiaoshouji.v1', JSON.stringify(snap));
+    boot();
+    /* boot() 会重建 SJ，所以这里必须重新取 sandbox.SJ，不能拿外面的 A */
+    const L = sandbox.SJ;
+    ok('脏存档里的配色会被归回合法值',
+      L.state.settings.salon.contacts === L.SALON_PALETTES[0].id &&
+      L.state.settings.salon.ymessage === L.SALON_PALETTES[0].id,
+      JSON.stringify(L.state.settings.salon));
+  } finally {
+    if (keep != null) store.set('xiaoshouji.v1', keep); else store.delete('xiaoshouji.v1');
+    boot();
+  }
+}
+
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));
 process.exit(failed ? 1 : 0);
 

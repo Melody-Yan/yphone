@@ -4898,78 +4898,198 @@ input.field[type="range"]::-webkit-slider-thumb {
 @media (prefers-reduced-motion: reduce) {
   .of-frame, .of-frame-window .avatar, .of-tick { transition: none; }
 }
-/* 通讯录 / YMessage：白瓷纸品风。只改这两个 App 的主列表。 */
+/* ══ 通讯录 / YMessage：沙龙式「照片横幅 + 上滑纸面」 ══
+   只作用于这两个 App 的主列表；会话页、编辑页、选人页一律不动。
+   不用新素材：横幅直接拿用户在用的那张壁纸虚化、压暗当底。 */
 #phone .app-contacts > .list,
 #phone .app-ymessage > .list {
   margin: 0; border-radius: 0; background: transparent; box-shadow: none;
+  padding: 0; display: flex; flex-direction: column; overflow-x: hidden;
 }
-.contact-list, .ym-list { padding: 12px 12px 28px; }
-.ct-index, .ym-index { padding: 16px 6px 12px; }
-.ct-index-mark, .ym-index-mark {
-  font: italic 18px/1.2 Georgia, "Songti SC", "Noto Serif CJK SC", serif;
-  letter-spacing: .03em; color: var(--ink);
+/* 配色的兜底值（JS 会把选中的那套写成内联变量盖上来） */
+#phone .app-contacts, #phone .app-ymessage {
+  --salon-tint: #d6be9e; --salon-accent: #8a7a63;
 }
-.ct-index-top, .ym-index-top {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+
+/* ── 顶部横幅：壁纸虚化洗淡成照片底色 ── */
+.ct-hero, .ym-hero {
+  position: relative; overflow: hidden; flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: 15px;
+  padding: 8px 20px 54px; color: var(--ink);
 }
-.ct-index-sub, .ym-index-sub { font-size: 11.5px; color: var(--ink-3); }
-.ct-index-rule, .ym-index-rule { margin-top: 13px; border-top: 1px dotted var(--line-2); }
-.ct-search { margin: 0 4px 14px; }
+.ct-hero::before, .ym-hero::before {
+  content: ''; position: absolute; inset: -30px; z-index: 0;
+  background: var(--wall);
+  filter: blur(28px) saturate(.85) brightness(1.04);
+  transform: scale(1.16);
+}
+/* 洗淡用 --card 混色：深色壁纸下自动翻成暗底，墨字仍然读得清 */
+.ct-hero::after, .ym-hero::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image: var(--grain),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--card) 46%, transparent) 0%,
+      color-mix(in srgb, var(--card) 68%, transparent) 58%,
+      color-mix(in srgb, var(--card) 94%, transparent) 100%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--salon-tint) 52%, transparent) 0%,
+      color-mix(in srgb, var(--salon-tint) 21%, transparent) 58%,
+      color-mix(in srgb, var(--salon-tint) 0%, transparent) 100%);
+}
+.ct-hero > *, .ym-hero > * { position: relative; z-index: 1; }
+
+/* 返回 / 加号：浮在照片上的玻璃药丸 */
+.ct-hero-top, .ym-hero-top { display: flex; align-items: center; justify-content: space-between; }
+.ct-back, .ym-back, .ct-plus, .ym-plus {
+  display: inline-flex; align-items: center; justify-content: center; gap: 1px;
+  border: 1px solid var(--line-2); cursor: pointer;
+  background: color-mix(in srgb, var(--card) 58%, transparent); color: var(--ink);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-radius: 999px; font: inherit; font-size: 13.5px; padding: 6px 13px;
+  box-shadow: var(--edge-dim);
+}
+.ct-back, .ym-back { padding-left: 8px; }
+.ct-plus, .ym-plus { width: 34px; height: 34px; padding: 0; font-size: 20px; line-height: 1; }
+.ct-back:active, .ym-back:active, .ct-plus:active, .ym-plus:active { background: var(--accent-soft); }
+.ct-chev, .ym-chev { display: inline-flex; margin-left: -2px; }
+
+/* 报头：大号斜体衬线 + 小字签名 + 玻璃药丸 */
+.ct-mast, .ym-mast { margin-top: auto; }
+.ct-mark, .ym-mark {
+  font: italic 400 33px/1.02 Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  letter-spacing: .005em; color: var(--ink);
+}
+.ct-tagline, .ym-tagline {
+  margin-top: 8px; font: italic 400 12px/1.3 Georgia, "Songti SC", serif;
+  letter-spacing: .12em; color: var(--ink-3);
+}
+.ct-pills, .ym-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+.ct-pill, .ym-pill {
+  padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: color-mix(in srgb, var(--card) 56%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font-size: 11px; letter-spacing: .06em; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 上滑的纸面：盖住横幅下缘 ── */
+.ct-sheet, .ym-sheet {
+  position: relative; z-index: 2; flex: 1 0 auto; margin-top: -36px;
+  padding: 9px 18px calc(44px + env(safe-area-inset-bottom));
+  border-radius: 30px 30px 0 0;
+  background: var(--card); background-image: var(--grain);
+  box-shadow: 0 -12px 34px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.7);
+  border-top: 1px solid rgba(255,255,255,.5);
+}
+.ct-grip, .ym-grip {
+  width: 40px; height: 4px; margin: 2px auto 13px; border-radius: 999px;
+  background: var(--line-2);
+}
+.ct-cap, .ym-cap { display: flex; align-items: center; gap: 12px; padding: 2px 4px 15px; }
+.ct-cap-rule, .ym-cap-rule { flex: 1; height: 1px; background: var(--line-2); }
+.ct-cap-txt, .ym-cap-txt {
+  flex: none; font: 400 10px/1 Georgia, "Songti SC", serif;
+  letter-spacing: .34em; text-indent: .34em;
+  color: color-mix(in srgb, var(--salon-accent) 62%, var(--ink-3));
+}
+
+/* 搜索：一枚胶囊 */
+.ct-search { padding: 0 0 16px; }
 .ct-search .field {
   border-radius: 999px; border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--card) 66%, transparent); box-shadow: var(--el-1);
+  background: var(--card-2); box-shadow: none;
+  padding: 10px 18px; font-size: 13px;
 }
+.ct-search .field:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--salon-tint) 50%, transparent); }
+
+/* 名册 */
 .contact-body {
-  margin: 0 4px; overflow: hidden; border-radius: 20px;
-  background: color-mix(in srgb, var(--card) 68%, transparent);
-  border: 1px solid var(--line); box-shadow: var(--el-2);
+  margin: 0; overflow: visible; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
 }
-.ct-sect {
-  padding: 18px 16px 8px; font-size: 11px; font-weight: 500; letter-spacing: .16em;
-  color: var(--ink-3); text-transform: uppercase;
+.ct-result { padding: 0 6px 10px; font-size: 11px; letter-spacing: .08em; color: var(--ink-3); }
+/* 旧样式是 .row.contact（两段选择器），这里得同权重才盖得住：名册靠细线分隔 */
+.row.ct-row {
+  position: relative; display: flex; align-items: center; gap: 11px;
+  padding: 15px 4px; margin: 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
 }
-.ct-row {
-  padding: 14px 16px; gap: 12px; border-top: 1px solid var(--line); background: transparent;
+.row.ct-row::after {
+  content: ''; display: block; position: absolute; left: 4px; right: 4px; bottom: 0; height: 1px;
+  background: var(--line);
 }
-.ct-sect + .ct-row { border-top: 0; }
-.ct-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.row.ct-row:last-child::after { display: none; }
+.row.ct-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); box-shadow: none; transform: none; }
 .ct-num {
-  flex: 0 0 34px; font: italic 10.5px/1.3 Georgia, serif; letter-spacing: .08em; color: var(--ink-3);
+  flex: 0 0 36px; white-space: nowrap; font: italic 400 11px/1.2 Georgia, serif;
+  letter-spacing: .05em; color: var(--ink-3);
 }
-.ct-row .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
+.row.ct-row .avatar { width: 42px; height: 42px; border-radius: 14px; font-size: 21px; box-shadow: var(--el-1), var(--edge-dim); }
 .ct-main { min-width: 0; }
 .ct-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.ct-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.ct-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
 .ct-rel {
-  flex: none; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--card) 70%, transparent); color: var(--ink-2); font-size: 10.5px;
+  flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--card-2); color: var(--ink-2); font-size: 10.5px;
 }
 .ct-time { flex: none; margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .ct-desc { margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
 .ct-send {
   flex: none; width: 34px; height: 34px; display: grid; place-items: center; padding: 0;
   border-radius: 50%; border: 1px solid var(--line); cursor: pointer;
-  background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink-2);
+  background: var(--card-2); color: var(--ink-2);
 }
 .ct-send:active { background: var(--accent-soft); color: var(--ink); }
-.ct-import { display: flex; align-items: center; gap: 10px; margin: 0; padding: 14px 16px; border-top: 1px dashed var(--line-2); background: transparent; }
-.ct-import-ico { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--ink-2); }
-.ym-list { padding-top: 10px; }
-.ym-card {
-  display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin: 0 4px 10px;
-  border-radius: 16px; border: 1px solid var(--line); cursor: pointer;
-  background: color-mix(in srgb, var(--card) 66%, transparent); box-shadow: var(--el-1);
+.row.ct-import {
+  display: flex; align-items: center; gap: 10px; margin: 18px 0 0;
+  padding: 14px 16px; border: 1px dashed var(--line-2); border-radius: 16px;
+  background: transparent; box-shadow: none;
 }
-.ym-card.unread { background: color-mix(in srgb, var(--card) 84%, transparent); }
-.ym-card:active { transform: scale(.99); }
-.ym-num { flex: 0 0 32px; font: italic 10.5px/1.3 Georgia, serif; letter-spacing: .07em; color: var(--ink-3); }
-.ym-card .avatar { width: 44px; height: 44px; border-radius: 14px; font-size: 22px; }
+.ct-import-ico { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--ink-2); }
+
+/* YMessage 来信 */
+.ym-feed { margin: 0; }
+.ym-card {
+  position: relative; display: flex; align-items: center; gap: 11px;
+  padding: 15px 4px; margin: 0; border: 0; border-radius: 0;
+  cursor: pointer; background: transparent; box-shadow: none;
+}
+.ym-card::after {
+  content: ''; position: absolute; left: 4px; right: 4px; bottom: 0; height: 1px;
+  background: var(--line);
+}
+.ym-feed > .ym-card:last-child::after { display: none; }
+.ym-card:active { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.ym-num { flex: 0 0 36px; white-space: nowrap; font: italic 400 11px/1.2 Georgia, serif; letter-spacing: .04em; color: var(--ink-3); }
+.ym-card .avatar { width: 42px; height: 42px; border-radius: 14px; font-size: 21px; box-shadow: var(--el-1), var(--edge-dim); }
 .ym-card-main { min-width: 0; }
 .ym-card-top { display: flex; align-items: baseline; gap: 8px; }
 .ym-card-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
 .ym-card-time { flex: none; margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .ym-card-prev { margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
 .ym-card .ym-dot { flex: none; }
+/* 未读点用当前配色：一眼看出这个 App 换过色 */
+#phone .app-ymessage .ym-dot { background: var(--salon-accent); }
+
+/* ── 配色选择：两个 App 各开一个弹层，或从设置里进 ── */
+.ct-hero-acts, .ym-hero-acts { display: flex; align-items: center; gap: 8px; }
+.salon-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 2px 4px 8px; }
+.salon-sw {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 10px 4px 8px; border: 1px solid transparent; border-radius: 14px;
+  background: transparent; cursor: pointer; font: inherit;
+}
+.salon-sw.on { border-color: var(--line-2); background: var(--card-2); }
+.salon-sw:active { background: var(--accent-soft); }
+.salon-chip {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  box-shadow: var(--el-1), inset 0 0 0 1px rgba(0,0,0,.07);
+}
+.salon-tick { font-size: 15px; line-height: 1; color: rgba(0,0,0,.6); }
+.salon-name { font-size: 11.5px; color: var(--ink-2); }
+.salon-sw.on .salon-name { color: var(--ink); font-weight: 600; }
+.salon-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+.salon-pick { display: inline-flex; align-items: center; gap: 6px; }
 
 #phone .app-offline > .list {
   margin: var(--sp-2) 0 0;

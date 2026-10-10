@@ -155,6 +155,47 @@ const FONT_STACKS = {
 };
 const FONT_NAMES = { system: '系统', rounded: '圆体', serif: '宋体', mono: '等宽' };
 
+/* 通讯录 / YMessage 的配色预设（沙龙主题）。两个 App 各自选一套 ——
+   只动这两个 App 自己的两个变量（横幅水色 + 角标色），不碰全局令牌，
+   所以换配色不会把聊天气泡、日历、支付键盘一起染了。
+   tint 是盖在照片横幅上那层淡淡的水色；accent 要够深，未读点上有白字。
+   放在 DEFAULTS 之前：migrate() 在模块初始化时就要用，放后面会撞 TDZ。 */
+const SALON_PALETTES = [
+  { id: 'porcelain', name: '素瓷', tint: '#d6be9e', accent: '#8a7a63' },
+  { id: 'matcha', name: '嫩绿', tint: '#bcd6ae', accent: '#5f8a52' },
+  { id: 'sky', name: '天青', tint: '#a9c6dc', accent: '#4f7a99' },
+  { id: 'rose', name: '藕粉', tint: '#e6bfc7', accent: '#a96b79' },
+  { id: 'lilac', name: '藕荷', tint: '#c9bce0', accent: '#7a6aa6' },
+  { id: 'amber', name: '蜜杏', tint: '#ecc98f', accent: '#a87b34' },
+  { id: 'mist', name: '雾灰', tint: '#c3c2be', accent: '#6f6d68' },
+  { id: 'berry', name: '莓紫', tint: '#d3b6cf', accent: '#8a5a86' }
+];
+const SALON_APPS = ['contacts', 'ymessage'];
+function salonIdOk(app, id) {
+  return SALON_APPS.indexOf(app) >= 0 && SALON_PALETTES.some(p => p.id === id);
+}
+/* 没选过 / 选了个不认识的 id 一律回第一个预设，不留空 */
+function salonOf(app) {
+  const s = (state && state.settings) || {};
+  const cur = s.salon && typeof s.salon === 'object' ? s.salon[app] : '';
+  return salonIdOk(app, cur) ? cur : SALON_PALETTES[0].id;
+}
+function salonPalette(app) {
+  return SALON_PALETTES.find(p => p.id === salonOf(app)) || SALON_PALETTES[0];
+}
+function salonPick(app, id) {
+  if (!state.settings.salon || typeof state.settings.salon !== 'object') state.settings.salon = {};
+  state.settings.salon[app] = salonIdOk(app, id) ? id : SALON_PALETTES[0].id;
+  return salonOf(app);
+}
+/* 把配色铺到 App 的根节点上：只写两个内联变量，样式表里按名字取用 */
+function applySalon(el, app) {
+  if (!el || !el.style) return;
+  const p = salonPalette(app);
+  el.style.setProperty('--salon-tint', p.tint);
+  el.style.setProperty('--salon-accent', p.accent);
+}
+
 /* 默认状态。以后加字段直接写这里，migrate() 会自动补上。 */
 const DEFAULTS = {
   wallpaper: 'p8',       // 默认「石板」：素材里最中性的一张（亮度 155 / 饱和 4%）
@@ -193,6 +234,8 @@ const DEFAULTS = {
     imgFake: 'auto',
     /* 每个槽位选了哪个主题包（'' = 内置默认）。三套分开选，换桌面不影响聊天 */
     themePick: { desktop: '', chat: '', sms: '' },
+    /* 通讯录 / YMessage 的配色（沙龙主题）：两套独立，换一个不影响另一个 */
+    salon: { contacts: 'porcelain', ymessage: 'porcelain' },
     /* 线下模式：文风 / 上下文桥 / 自动更新大纲 / 每段字数档位（索引进 OFFLINE_LEN） */
     /* base/key/model 留空 = 线下跟聊天用同一套接口；填了就单独走 */
   offline: { style: 'novel', bridge: 'standard', autoOutline: true, choices: true, len: 0, fontSize: 1, base: '', key: '', model: '' },
@@ -487,6 +530,12 @@ function migrate(saved) {
       chat: typeof tp.chat === 'string' ? tp.chat : '',
       sms: typeof tp.sms === 'string' ? tp.sms : ''
     };
+  }
+  /* 沙龙配色：只留两个认识的 App / 预设 id，存档里塞别的名字不该被带进 state */
+  {
+    const sn = (out.settings.salon && typeof out.settings.salon === 'object') ? out.settings.salon : {};
+    const okSalon = v => SALON_PALETTES.some(p => p.id === v) ? v : SALON_PALETTES[0].id;
+    out.settings.salon = { contacts: okSalon(sn.contacts), ymessage: okSalon(sn.ymessage) };
   }
   /* 接口方案来自存档 = 信任边界，逐条归一；坏条目直接丢掉而不是留个 undefined 进去。
      ⚠️ 这里写死字符串字面量，不要引用后面才 const 的变量（TDZ 会把整个存档读白）。 */
@@ -6054,6 +6103,8 @@ window.SJ = {
   storageReport, persistAsk, onSaveError,
   /* 主题包：桌面 / 聊天 / 短信 三个槽位分开存、分开导入 */
   THEME_VARS, THEME_SLOTS, BUILTIN_THEMES,
+  /* 通讯录 / YMessage 配色 */
+  SALON_PALETTES, SALON_APPS, salonOf, salonPalette, salonPick, applySalon,
   sanitizeThemePack, themesOf, themeIdOf, themeOf, saveThemePack, removeThemePack,
   pickTheme, applyThemeTo, themePackJson, importThemePack, builtinThemesFor,
   /* 线下模式「此刻相遇」 */

@@ -951,6 +951,35 @@ function imageIsDark(dataUri) {
 /* ══════════════════════════════════════════════════════
    App 定义
    ══════════════════════════════════════════════════════ */
+/* ── 通讯录 / YMessage 的配色窗口 ──
+   两个 App 各开一个独立面板，点一格就换一套，不用进设置绕一圈。
+   after 是「选完重画哪个页面」—— 面板自己收起来，调用方只管刷新。 */
+function salonSheet(app, after) {
+  const cur = SJ.salonOf(app);
+  let mask = null;
+  const grid = SJ.el('div', { class: 'salon-grid' }, SJ.SALON_PALETTES.map(p =>
+    SJ.el('button', {
+      class: 'salon-sw' + (cur === p.id ? ' on' : ''),
+      onclick: e => {
+        e.stopPropagation();
+        SJ.salonPick(app, p.id);
+        if (mask) dismiss(mask);
+        if (after) after();
+      }
+    }, [
+      SJ.el('span', { class: 'salon-chip', style: { background: p.tint } },
+        SJ.el('span', { class: 'salon-tick' }, cur === p.id ? '✓' : '')),
+      SJ.el('span', { class: 'salon-name' }, p.name)
+    ]))
+  );
+  const head = SJ.el('div', {}, [
+    SJ.el('div', { class: 'sheet-head' }, app === 'contacts' ? '名册配色' : '来信配色'),
+    grid
+  ]);
+  mask = sheet([], head);
+  return mask;
+}
+
 const APPS = [
 
   /* ── 通讯录：角色的家。微信里的会话都从这里长出来 ── */
@@ -963,10 +992,8 @@ const APPS = [
     render(root, close) {
       function listView() {
         root.innerHTML = '';
-        root.append(navBar('通讯录', {
-          right: SJ.el('button', { class: 'nav-btn plus', onclick: () => editView(null) }, '＋')
-        }));
         const box = SJ.el('div', { class: 'list contact-list' });
+        SJ.applySalon(root, 'contacts');
         /* 导入卡片。选择器得挂在文档里（iOS Safari 的要求），
            所以跟列表一起放 —— display:none 也能 .click() 唤起。 */
         const cardInp = SJ.el('input', {
@@ -979,16 +1006,43 @@ const APPS = [
           class: 'field search', type: 'search', placeholder: '搜名字 / 简介'
         });
         search.addEventListener('input', render);
-        const metaCount = SJ.el('span', { class: 'ct-index-sub' }, '');
-        const index = SJ.el('div', { class: 'ct-index' }, [
-          SJ.el('div', { class: 'ct-index-top' }, [
-            SJ.el('div', { class: 'ct-index-mark' }, 'Le répertoire'),
-            metaCount
+        const metaCount = SJ.el('span', { class: 'ct-pill' }, '');
+        const hero = SJ.el('div', { class: 'ct-hero' }, [
+          SJ.el('div', { class: 'ct-hero-top' }, [
+            SJ.el('button', { class: 'ct-back back', onclick: () => { if (window.SHELL) window.SHELL.closeTop(); } }, [
+              SJ.el('span', { class: 'ct-chev', html: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>' }),
+              SJ.el('span', {}, '返回')
+            ]),
+            SJ.el('div', { class: 'ct-hero-acts' }, [
+              SJ.el('button', {
+                class: 'ct-plus', title: '配色', html: svg('palette', 16),
+                onclick: () => salonSheet('contacts', listView)
+              }),
+              SJ.el('button', { class: 'ct-plus', onclick: () => editView(null) }, '＋')
+            ])
           ]),
-          SJ.el('div', { class: 'ct-index-rule' })
+          SJ.el('div', { class: 'ct-mast' }, [
+            SJ.el('div', { class: 'ct-mark' }, 'Le répertoire'),
+            SJ.el('div', { class: 'ct-tagline' }, 'portraits & lettres')
+          ]),
+          SJ.el('div', { class: 'ct-pills' }, [
+            metaCount,
+            SJ.el('span', { class: 'ct-pill' }, '私人名册')
+          ])
         ]);
         const searchWrap = SJ.el('div', { class: 'search-wrap ct-search' }, search);
-        box.append(index, searchWrap, body, cardInp);
+        const sheet = SJ.el('div', { class: 'ct-sheet' }, [
+          SJ.el('div', { class: 'ct-grip' }),
+          SJ.el('div', { class: 'ct-cap' }, [
+            SJ.el('span', { class: 'ct-cap-rule' }),
+            SJ.el('span', { class: 'ct-cap-txt' }, 'PORTRAITS'),
+            SJ.el('span', { class: 'ct-cap-rule' })
+          ]),
+          searchWrap,
+          body,
+          cardInp
+        ]);
+        box.append(hero, sheet);
 
         function render() {
           body.innerHTML = '';
@@ -997,16 +1051,16 @@ const APPS = [
           const list = q
             ? all.filter(c => ((c.name || '') + ' ' + (c.desc || '') + ' ' + (c.persona || '')).toLowerCase().indexOf(q) >= 0)
             : all;
-          metaCount.textContent = q ? '找到 ' + list.length + ' 位' : all.length + ' 位';
+          metaCount.textContent = q ? '找到 ' + list.length + ' 位' : all.length + ' 位角色';
           if (!all.length) {
             body.append(emptyState('people', '还没有角色',
               '点右上角 ＋ 造一个，或者把别处的卡导进来', '造一个', () => editView(null)));
             body.append(importRow());
             return;
           }
-          body.append(SJ.el('div', { class: 'group-title ct-sect' }, q ? '找到 ' + list.length + ' 个' : '私人名册'));
+          if (q) body.append(SJ.el('div', { class: 'ct-result' }, '找到 ' + list.length + ' 个'));
           if (q && !list.length) {
-            body.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } }, '换个词试试'));
+            body.append(SJ.el('div', { class: 'hint', style: { padding: '8px 6px 12px' } }, '换个词试试'));
             return;
           }
           list.forEach((c, i) => {
@@ -7871,30 +7925,43 @@ const APPS = [
         /* ── 列表页 ── */
         function listView() {
           root.innerHTML = '';
-          root.append(navBar('YMessage', {
-            right: SJ.el('button', { class: 'nav-btn', title: '发新短信', html: svg('chat', 17), onclick: pickView })
-          }));
+          SJ.applySalon(root, 'ymessage');
           const box = SJ.el('div', { class: 'list ym-list' });
           const th = SJ.smsThreads();
           const unread = th.reduce((s, t) => s + SJ.smsUnread(t.id), 0);
-          if (th.length) {
-            box.append(SJ.el('div', { class: 'ym-index' }, [
-              SJ.el('div', { class: 'ym-index-top' }, [
-                SJ.el('div', { class: 'ym-index-mark' }, 'correspondance'),
-                SJ.el('div', { class: 'ym-index-sub' }, th.length + ' 封来信' + (unread ? ' · ' + unread + ' 未读' : ''))
+          const hero = SJ.el('div', { class: 'ym-hero' }, [
+            SJ.el('div', { class: 'ym-hero-top' }, [
+              SJ.el('button', { class: 'ym-back back', onclick: () => { if (window.SHELL) window.SHELL.closeTop(); } }, [
+                SJ.el('span', { class: 'ym-chev', html: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>' }),
+                SJ.el('span', {}, '返回')
               ]),
-              SJ.el('div', { class: 'ym-index-rule' })
-            ]));
-          }
+              SJ.el('div', { class: 'ym-hero-acts' }, [
+                SJ.el('button', {
+                  class: 'ym-plus', title: '配色', html: svg('palette', 16),
+                  onclick: () => salonSheet('ymessage', listView)
+                }),
+                SJ.el('button', { class: 'ym-plus', title: '发新短信', html: svg('chat', 17), onclick: pickView })
+              ])
+            ]),
+            SJ.el('div', { class: 'ym-mast' }, [
+              SJ.el('div', { class: 'ym-mark' }, 'Correspondance'),
+              SJ.el('div', { class: 'ym-tagline' }, 'letters kept in a drawer')
+            ]),
+            SJ.el('div', { class: 'ym-pills' }, [
+              SJ.el('span', { class: 'ym-pill' }, th.length + ' 封来信'),
+              SJ.el('span', { class: 'ym-pill' }, unread ? unread + ' 未读' : '都已回')
+            ])
+          ]);
+          const feed = SJ.el('div', { class: 'ym-feed' });
           if (!th.length) {
-            box.append(emptyState('chat', '还没有短信',
+            feed.append(emptyState('chat', '还没有短信',
               '短信和微信是两条独立的流 —— 同一个人，你可以在这儿另开一条线聊。',
               '选个人发一条', pickView));
           }
           th.forEach((t, i) => {
             const c = faceOf(t.id);
             const n = SJ.smsUnread(t.id);
-            box.append(SJ.el('div', { class: 'ym-card ym-row' + (n ? ' unread' : ''), onclick: () => chatView(t.id) }, [
+            feed.append(SJ.el('div', { class: 'ym-card ym-row' + (n ? ' unread' : ''), onclick: () => chatView(t.id) }, [
               SJ.el('span', { class: 'ym-num' }, 'N° ' + String(i + 1).padStart(2, '0')),
               avatarNode(c),
               SJ.el('div', { class: 'row-main ym-card-main' }, [
@@ -7908,6 +7975,16 @@ const APPS = [
               n ? SJ.el('span', { class: 'ym-dot' }, n > 9 ? '9+' : String(n)) : null
             ].filter(Boolean)));
           });
+          const sheet = SJ.el('div', { class: 'ym-sheet' }, [
+            SJ.el('div', { class: 'ym-grip' }),
+            SJ.el('div', { class: 'ym-cap' }, [
+              SJ.el('span', { class: 'ym-cap-rule' }),
+              SJ.el('span', { class: 'ym-cap-txt' }, 'LETTRES'),
+              SJ.el('span', { class: 'ym-cap-rule' })
+            ]),
+            feed
+          ]);
+          box.append(hero, sheet);
           root.append(box);
         }
 
@@ -8935,6 +9012,22 @@ const APPS = [
           SJ.el('div', { class: 'row-main' }, [SJ.el('div', { class: 'row-title' }, '24 小时制')]),
           SJ.el('div', { class: 'row-time' }, SJ.state.settings.clock24 ? '开 ›' : '关 ›')
         ]));
+
+        /* 主题配色：通讯录 / YMessage 各一套，只染这两个 App，不动全局令牌 */
+        box.append(SJ.el('div', { class: 'group-title' }, '主题配色'));
+        [['contacts', '通讯录'], ['ymessage', 'YMessage']].forEach(([app, label]) => {
+          const p = SJ.salonPalette(app);
+          box.append(SJ.el('div', { class: 'row', onclick: () => salonSheet(app, main) }, [
+            SJ.el('div', { class: 'row-main' }, [
+              SJ.el('div', { class: 'row-title' }, label),
+              SJ.el('div', { class: 'row-sub' }, '横幅与角标配色')
+            ]),
+            SJ.el('div', { class: 'row-time salon-pick' }, [
+              SJ.el('span', { class: 'salon-dot', style: { background: p.tint } }),
+              SJ.el('span', {}, p.name + ' ›')
+            ])
+          ]));
+        });
 
         /* AI 接口 */
         box.append(SJ.el('div', { class: 'group-title' }, '接口（选填，不填也能玩）'));

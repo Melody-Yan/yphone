@@ -7957,24 +7957,29 @@ console.log('\n[114] 此刻相遇 · 记忆胶片交互');
   const A = sandbox.SJ;
   const c1 = A.saveCharacter(A.makeCharacter({ name: '胶片甲', avatar: '🌿' }));
   const c2 = A.saveCharacter(A.makeCharacter({ name: '胶片乙', avatar: '🎧' }));
+  A.state.characters = [c1, c2];
   A.state.offline = {};
   A.offlinePush(c1.id, 'char', '第一帧');
   A.offlinePush(c2.id, 'char', '第二帧');
+  A.state.offline[c1.id].seenAt = Date.now() - 1000;
+  A.offlinePush(c1.id, 'char', '新剧情');
   S.openApp('offline');
   const root = S.SHELL.stack[0].node;
   const frames = walk(root).filter(n => n._class && n._class.has('of-frame'));
   ok('胶片页每个角色都渲染成一帧', frames.length >= 2, frames.length + ' 帧');
   ok('每一帧都带角色自己的淡色',
     frames.every(f => !!f.style.getPropertyValue('--of-tint')));
+  ok('新剧情会在胶片角上标出新',
+    walk(root).some(n => n._class && n._class.has('of-frame-new')));
   ok('默认第一帧是当前帧', frames[0]._class.has('on') && !frames[1]._class.has('on'));
   frames[1].click();
   ok('点第二帧会切换当前帧', frames[1]._class.has('on') && !frames[0]._class.has('on'));
   const ticks = walk(root).filter(n => n._class && n._class.has('of-tick'));
   ok('底部刻度跟着当前帧走', ticks[1] && ticks[1]._class.has('on') && !ticks[0]._class.has('on'));
-  const go = walk(root).find(n => n._class && n._class.has('of-film-go'));
-  go.click();
-  ok('继续按钮进入剧场，不会把 App 压两层',
+  frames[1].click();
+  ok('再点当前帧会进入剧场，不会把 App 压两层',
     S.SHELL.stack.length === 1 && walk(root).some(n => n._class && n._class.has('of2')));
+  ok('进剧场后记下已读时间', Number(A.state.offline[c2.id].seenAt) > 0);
   S.closeTop(true);
 }
 

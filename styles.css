@@ -4834,6 +4834,11 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .of-frame.on::before { left: -18px; }
 .of-frame.on::after { right: -18px; }
+.of-frame-new {
+  position: absolute; top: 18px; right: 18px; z-index: 2; padding: 2px 7px;
+  border-radius: 999px; background: var(--ink); color: var(--card);
+  font-size: 10px; font-weight: 600; line-height: 1.3; box-shadow: var(--el-1);
+}
 .of-frame-no {
   position: absolute; top: 18px; left: 18px; z-index: 1; padding: 1px 4px;
   background: var(--card); font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;

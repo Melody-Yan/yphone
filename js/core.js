@@ -5233,12 +5233,13 @@ const OFFLINE_LEN = [[100, 500], [60, 200], [200, 800], [400, 1500]];
 function offlineOf(cid) {
   if (!state.offline || typeof state.offline !== 'object') state.offline = {};
   if (!state.offline[cid] || typeof state.offline[cid] !== 'object') {
-    state.offline[cid] = { pages: [], outline: '', style: '', turn: 0, scene: null };
+    state.offline[cid] = { pages: [], outline: '', style: '', turn: 0, scene: null, seenAt: 0 };
   }
   const o = state.offline[cid];
   if (!Array.isArray(o.pages)) o.pages = [];
   if (typeof o.outline !== 'string') o.outline = '';
   if (typeof o.turn !== 'number') o.turn = 0;
+  if (typeof o.seenAt !== 'number') o.seenAt = 0;
   if (o.scene && typeof o.scene !== 'object') o.scene = null;
   return o;
 }
@@ -5288,7 +5289,7 @@ function setOfflineScene(cid, sc) {
 }
 
 function offlineClear(cid) {
-  state.offline[cid] = { pages: [], outline: '', style: offlineOf(cid).style, turn: 0, scene: null };
+  state.offline[cid] = { pages: [], outline: '', style: offlineOf(cid).style, turn: 0, scene: null, seenAt: 0 };
   return true;
 }
 

@@ -4898,6 +4898,79 @@ input.field[type="range"]::-webkit-slider-thumb {
 @media (prefers-reduced-motion: reduce) {
   .of-frame, .of-frame-window .avatar, .of-tick { transition: none; }
 }
+/* 通讯录 / YMessage：白瓷纸品风。只改这两个 App 的主列表。 */
+#phone .app-contacts > .list,
+#phone .app-ymessage > .list {
+  margin: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.contact-list, .ym-list { padding: 12px 12px 28px; }
+.ct-index, .ym-index { padding: 16px 6px 12px; }
+.ct-index-mark, .ym-index-mark {
+  font: italic 18px/1.2 Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  letter-spacing: .03em; color: var(--ink);
+}
+.ct-index-top, .ym-index-top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
+.ct-index-sub, .ym-index-sub { font-size: 11.5px; color: var(--ink-3); }
+.ct-index-rule, .ym-index-rule { margin-top: 13px; border-top: 1px dotted var(--line-2); }
+.ct-search { margin: 0 4px 14px; }
+.ct-search .field {
+  border-radius: 999px; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 66%, transparent); box-shadow: var(--el-1);
+}
+.contact-body {
+  margin: 0 4px; overflow: hidden; border-radius: 20px;
+  background: color-mix(in srgb, var(--card) 68%, transparent);
+  border: 1px solid var(--line); box-shadow: var(--el-2);
+}
+.ct-sect {
+  padding: 18px 16px 8px; font-size: 11px; font-weight: 500; letter-spacing: .16em;
+  color: var(--ink-3); text-transform: uppercase;
+}
+.ct-row {
+  padding: 14px 16px; gap: 12px; border-top: 1px solid var(--line); background: transparent;
+}
+.ct-sect + .ct-row { border-top: 0; }
+.ct-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.ct-num {
+  flex: 0 0 34px; font: italic 10.5px/1.3 Georgia, serif; letter-spacing: .08em; color: var(--ink-3);
+}
+.ct-row .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
+.ct-main { min-width: 0; }
+.ct-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ct-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.ct-rel {
+  flex: none; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 70%, transparent); color: var(--ink-2); font-size: 10.5px;
+}
+.ct-time { flex: none; margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ct-desc { margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.ct-send {
+  flex: none; width: 34px; height: 34px; display: grid; place-items: center; padding: 0;
+  border-radius: 50%; border: 1px solid var(--line); cursor: pointer;
+  background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--ink-2);
+}
+.ct-send:active { background: var(--accent-soft); color: var(--ink); }
+.ct-import { display: flex; align-items: center; gap: 10px; margin: 0; padding: 14px 16px; border-top: 1px dashed var(--line-2); background: transparent; }
+.ct-import-ico { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--ink-2); }
+.ym-list { padding-top: 10px; }
+.ym-card {
+  display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin: 0 4px 10px;
+  border-radius: 16px; border: 1px solid var(--line); cursor: pointer;
+  background: color-mix(in srgb, var(--card) 66%, transparent); box-shadow: var(--el-1);
+}
+.ym-card.unread { background: color-mix(in srgb, var(--card) 84%, transparent); }
+.ym-card:active { transform: scale(.99); }
+.ym-num { flex: 0 0 32px; font: italic 10.5px/1.3 Georgia, serif; letter-spacing: .07em; color: var(--ink-3); }
+.ym-card .avatar { width: 44px; height: 44px; border-radius: 14px; font-size: 22px; }
+.ym-card-main { min-width: 0; }
+.ym-card-top { display: flex; align-items: baseline; gap: 8px; }
+.ym-card-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.ym-card-time { flex: none; margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ym-card-prev { margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.ym-card .ym-dot { flex: none; }
+
 #phone .app-offline > .list {
   margin: var(--sp-2) 0 0;
   border-radius: 0;

@@ -979,49 +979,59 @@ const APPS = [
           class: 'field search', type: 'search', placeholder: '搜名字 / 简介'
         });
         search.addEventListener('input', render);
-        box.append(SJ.el('div', { class: 'search-wrap' }, search), body, cardInp);
+        const metaCount = SJ.el('span', { class: 'ct-index-sub' }, '');
+        const index = SJ.el('div', { class: 'ct-index' }, [
+          SJ.el('div', { class: 'ct-index-top' }, [
+            SJ.el('div', { class: 'ct-index-mark' }, 'Le répertoire'),
+            metaCount
+          ]),
+          SJ.el('div', { class: 'ct-index-rule' })
+        ]);
+        const searchWrap = SJ.el('div', { class: 'search-wrap ct-search' }, search);
+        box.append(index, searchWrap, body, cardInp);
 
         function render() {
           body.innerHTML = '';
           const q = (search.value || '').trim().toLowerCase();
           const all = SJ.state.characters.slice().sort((a, b) => b.ts - a.ts);
-          if (!all.length) {
-            body.append(emptyState('people', '还没有角色',
-              '点右上角 ＋ 造一个，或者把别处的卡导进来', '造一个', () => editView(null)));
-            body.append(importRow());        /* 一个人都没有的时候，导入最该给 */
-            return;
-          }
           const list = q
             ? all.filter(c => ((c.name || '') + ' ' + (c.desc || '') + ' ' + (c.persona || '')).toLowerCase().indexOf(q) >= 0)
             : all;
-          body.append(SJ.el('div', { class: 'group-title' },
-            q ? '找到 ' + list.length + ' 个' : all.length + ' 个角色'));
+          metaCount.textContent = q ? '找到 ' + list.length + ' 位' : all.length + ' 位';
+          if (!all.length) {
+            body.append(emptyState('people', '还没有角色',
+              '点右上角 ＋ 造一个，或者把别处的卡导进来', '造一个', () => editView(null)));
+            body.append(importRow());
+            return;
+          }
+          body.append(SJ.el('div', { class: 'group-title ct-sect' }, q ? '找到 ' + list.length + ' 个' : '私人名册'));
           if (q && !list.length) {
             body.append(SJ.el('div', { class: 'hint', style: { padding: '4px 20px 12px' } }, '换个词试试'));
             return;
           }
-          list.forEach(c => {
+          list.forEach((c, i) => {
             const last = SJ.messages(c.id).slice(-1)[0];
-            body.append(SJ.el('div', { class: 'row contact', onclick: () => editView(c.id) }, [
+            body.append(SJ.el('div', { class: 'row contact ct-row', onclick: () => editView(c.id) }, [
+              SJ.el('span', { class: 'ct-num' }, 'N° ' + String(i + 1).padStart(2, '0')),
               avatarNode(c),
-              SJ.el('div', { class: 'row-main' }, [
-                SJ.el('div', { class: 'row-title' }, c.name),
-                SJ.el('div', { class: 'row-sub' }, c.desc || (c.persona || '').slice(0, 36) || '还没有简介'),
-                c.relation ? SJ.el('div', { class: 'contact-tags' }, [
-                  SJ.el('span', { class: 'tag' }, c.relation)
-                ]) : null
-              ].filter(Boolean)),
-              SJ.el('div', { class: 'row-time' }, last ? (SJ.fmtAgo(last.ts) || '刚刚') : '还没聊过'),
+              SJ.el('div', { class: 'row-main ct-main' }, [
+                SJ.el('div', { class: 'ct-top' }, [
+                  SJ.el('span', { class: 'ct-name' }, c.name),
+                  c.relation ? SJ.el('span', { class: 'ct-rel' }, c.relation) : null,
+                  SJ.el('span', { class: 'ct-time' }, last ? (SJ.fmtAgo(last.ts) || '刚刚') : '未联系')
+                ].filter(Boolean)),
+                SJ.el('div', { class: 'ct-desc' }, c.desc || (c.persona || '').slice(0, 36) || '还没有简介')
+              ]),
               SJ.el('button', {
-                class: 'row-go',
+                class: 'ct-send', title: '发消息', html: svg('chat', 16),
                 onclick: e => { e.stopPropagation(); if (window.SHELL) window.SHELL.openApp('chat', c.id); }
-              }, '发消息')
-            ].filter(Boolean)));
+              })
+            ]));
           });
-          /* 导入放最后：它是「加人」的次要入口，不该排在一堆人前面 */
           body.append(importRow());
         }
-        const importRow = () => SJ.el('div', { class: 'row row-add', onclick: () => cardInp.click() }, [
+        const importRow = () => SJ.el('div', { class: 'row row-add ct-import', onclick: () => cardInp.click() }, [
+          SJ.el('div', { class: 'ct-import-ico', html: svg('folder', 18) }),
           SJ.el('div', { class: 'row-main' }, [
             SJ.el('div', { class: 'row-title' }, '导入角色卡'),
             SJ.el('div', { class: 'row-sub' }, '.png / .json / .docx / .txt 都行')
@@ -7866,26 +7876,37 @@ const APPS = [
           }));
           const box = SJ.el('div', { class: 'list ym-list' });
           const th = SJ.smsThreads();
+          const unread = th.reduce((s, t) => s + SJ.smsUnread(t.id), 0);
+          if (th.length) {
+            box.append(SJ.el('div', { class: 'ym-index' }, [
+              SJ.el('div', { class: 'ym-index-top' }, [
+                SJ.el('div', { class: 'ym-index-mark' }, 'correspondance'),
+                SJ.el('div', { class: 'ym-index-sub' }, th.length + ' 封来信' + (unread ? ' · ' + unread + ' 未读' : ''))
+              ]),
+              SJ.el('div', { class: 'ym-index-rule' })
+            ]));
+          }
           if (!th.length) {
             box.append(emptyState('chat', '还没有短信',
               '短信和微信是两条独立的流 —— 同一个人，你可以在这儿另开一条线聊。',
               '选个人发一条', pickView));
           }
-          th.forEach(t => {
+          th.forEach((t, i) => {
             const c = faceOf(t.id);
             const n = SJ.smsUnread(t.id);
-            box.append(SJ.el('div', { class: 'row ym-row' + (n ? ' unread' : ''), onclick: () => chatView(t.id) }, [
+            box.append(SJ.el('div', { class: 'ym-card ym-row' + (n ? ' unread' : ''), onclick: () => chatView(t.id) }, [
+              SJ.el('span', { class: 'ym-num' }, 'N° ' + String(i + 1).padStart(2, '0')),
               avatarNode(c),
-              SJ.el('div', { class: 'row-main' }, [
-                SJ.el('div', { class: 'row-title' }, c.name),
-                SJ.el('div', { class: 'row-sub ym-prev' },
+              SJ.el('div', { class: 'row-main ym-card-main' }, [
+                SJ.el('div', { class: 'ym-card-top' }, [
+                  SJ.el('span', { class: 'ym-card-name' }, c.name),
+                  SJ.el('span', { class: 'ym-card-time' }, shortTime(t.last.ts))
+                ]),
+                SJ.el('div', { class: 'ym-card-prev' },
                   (t.last.me ? '我：' : '') + String(t.last.text || '').slice(0, 30))
               ]),
-              SJ.el('div', { class: 'ym-side' }, [
-                SJ.el('div', { class: 'ym-time' }, shortTime(t.last.ts)),
-                n ? SJ.el('span', { class: 'ym-dot' }, n > 9 ? '9+' : String(n)) : null
-              ].filter(Boolean))
-            ]));
+              n ? SJ.el('span', { class: 'ym-dot' }, n > 9 ? '9+' : String(n)) : null
+            ].filter(Boolean)));
           });
           root.append(box);
         }

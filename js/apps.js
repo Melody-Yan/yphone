@@ -7306,17 +7306,10 @@ const APPS = [
           right: SJ.el('button', { class: 'nav-btn', title: '设置', onclick: () => settingsView() },
             SJ.el('span', { class: 'nav-ico', html: svg('gear', 19) }))
         }));
-        const box = SJ.el('div', { class: 'list' });
-        /* 抬头：一句开场 + 总览。什么都没写就不报数，免得满屏「0」 */
+        const box = SJ.el('div', { class: 'list of-film-page' });
         const all = list();
         const totalSeg = all.reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
         const wrote = all.filter(c => SJ.offlineEntries(c.id).length).length;
-        if (totalSeg) {
-          box.append(SJ.el('div', { class: 'of-meta' }, [
-            SJ.el('b', {}, String(totalSeg)), SJ.el('span', {}, ' 段 · 和 '),
-            SJ.el('b', {}, String(wrote)), SJ.el('span', {}, ' 个人写过')
-          ]));
-        }
 
         if (!all.length) {
           box.append(emptyState('heart', '还没有人可遇见',
@@ -7327,45 +7320,83 @@ const APPS = [
           return;
         }
 
-        const rows = all.map(c => {
+        let active = 0;
+        const strip = SJ.el('div', { class: 'of-strip' });
+        const ticks = SJ.el('div', { class: 'of-ticks' });
+        const tickList = [];
+        const actionLabel = SJ.el('span', {}, '继续这段故事');
+        const action = SJ.el('button', {
+          class: 'of-film-go',
+          onclick: () => {
+            const c = all[active];
+            if (!c) return;
+            offlineFrom = 'app';
+            offlineView(c.id, root, listView);
+          }
+        }, [
+          SJ.el('span', { class: 'of-film-go-i', html: svg('feather', 18) }),
+          actionLabel
+        ]);
+
+        const frames = all.map((c, i) => {
           const entries = SJ.offlineEntries(c.id);
           const last = entries.slice(-1)[0];
           const at = last && last.at ? new Date(last.at).getTime() : 0;
-          return { c, entries, at, quote: last ? String(last.text).replace(/\s+/g, ' ').trim() : '' };
-        });
-        const written = rows.filter(r => r.entries.length).sort((a, b) => b.at - a.at);
-        const fresh = rows.filter(r => !r.entries.length);
-
-        function row(r) {
-          const c = r.c, meta = r.entries.length
-            ? r.entries.length + ' 段 · ' + (SJ.fmtAgo(r.at) || '刚刚')
-            : '还没见过面';
-          return SJ.el('div', { class: 'of-row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
-            avatarNode(c),
-            SJ.el('div', { class: 'of-row-main' }, [
-              SJ.el('div', { class: 'of-row-top' }, [
-                SJ.el('span', { class: 'of-row-name' }, c.name || '（没名字）'),
-                c.relation ? SJ.el('span', { class: 'of-row-tag' }, c.relation) : null,
-                SJ.el('span', { class: 'of-row-when' }, meta)
-              ].filter(Boolean)),
-              r.quote
-                ? SJ.el('div', { class: 'of-row-quote' }, r.quote)
-                : SJ.el('div', { class: 'of-row-quote none' },
-                    SJ.offlineOf(c.id).outline || '还没写下第一句。进去写一句，故事就从这儿开始。')
+          const quote = last ? String(last.text).replace(/\s+/g, ' ').trim() : '';
+          const no = 'FR-' + String(i + 1).padStart(2, '0') + (entries.length ? '' : ' / UNEXPOSED');
+          const frame = SJ.el('div', { class: 'of-frame' + (entries.length ? '' : ' blank'), onclick: () => select(i) }, [
+            SJ.el('div', { class: 'of-frame-no' }, no),
+            SJ.el('div', { class: 'of-frame-window' }, [avatarNode(c)]),
+            SJ.el('div', { class: 'of-frame-copy' }, [
+              SJ.el('div', { class: 'of-frame-head' }, [
+                SJ.el('div', { class: 'of-frame-name' }, c.name || '（没名字）'),
+                SJ.el('div', { class: 'of-frame-meta' }, entries.length
+                  ? entries.length + ' 段 · ' + (SJ.fmtAgo(at) || '刚刚')
+                  : '还没见过面')
+              ]),
+              SJ.el('p', { class: 'of-frame-quote' },
+                quote || SJ.offlineOf(c.id).outline || '[空白胶片]')
             ])
           ]);
+          frame.dataset.i = String(i);
+          strip.append(frame);
+          const tick = SJ.el('button', {
+            class: 'of-tick',
+            title: c.name || '',
+            onclick: () => select(i)
+          });
+          ticks.append(tick);
+          tickList.push(tick);
+          return frame;
+        });
+
+        function select(i) {
+          active = Math.max(0, Math.min(all.length - 1, i));
+          frames.forEach((f, k) => f.classList.toggle('on', k === active));
+          tickList.forEach((t, k) => t.classList.toggle('on', k === active));
+          const c = all[active];
+          actionLabel.textContent = SJ.offlineEntries(c.id).length ? '继续这段故事' : '从这一刻开始';
+          const frame = frames[active];
+          if (frame && strip && typeof strip.scrollTo === 'function') {
+            const w = Number(frame.offsetWidth) || 0, vw = Number(strip.clientWidth) || 0;
+            const left = Math.max(0, (Number(frame.offsetLeft) || 0) - Math.max(0, (vw - w) / 2));
+            try { strip.scrollTo({ left: left, behavior: 'smooth' }); } catch (e) {}
+          }
         }
 
-        if (written.length) {
-          box.append(SJ.el('div', { class: 'of-sect' }, '最近写过'));
-          written.forEach(r => box.append(row(r)));
-        }
-        if (fresh.length) {
-          box.append(SJ.el('div', { class: 'of-sect' }, '还没开始'));
-          fresh.forEach(r => box.append(row(r)));
-        }
-
+        box.append(SJ.el('div', { class: 'of-film-meta' }, [
+          SJ.el('div', { class: 'of-film-mark' }, 'CONTACT SHEET NO. 1'),
+          totalSeg
+            ? SJ.el('div', { class: 'of-film-count' }, [
+                SJ.el('b', {}, String(totalSeg)), SJ.el('span', {}, ' 段 · 和 '),
+                SJ.el('b', {}, String(wrote)), SJ.el('span', {}, ' 个人')
+              ])
+            : SJ.el('div', { class: 'of-film-count' }, '还没写下第一段')
+        ]));
+        box.append(strip);
+        box.append(SJ.el('div', { class: 'of-film-foot' }, [ticks, action]));
         root.append(box);
+        select(0);
       }
 
       /* ── 此刻相遇 · 全局设置 ──

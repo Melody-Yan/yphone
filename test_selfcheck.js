@@ -7110,7 +7110,7 @@ console.log('\n[100] 此刻相遇是一个真的 App');
   ok('线下视图不再裸调闭包里的 subPage',
     ofSeg.length > 100 && !/const pad = subPage\(/.test(ofSeg), ofSeg.slice(0, 60));
   ok('聊天设置里的入口还在（两条路都能进）', /offlineFrom = 'chat'; offlineView\(id, root, listView\)/.test(src));
-  ok('App 里的入口也在', /offlineFrom = 'app'; offlineView\(c\.id, root, listView\)/.test(src));
+  ok('App 里的入口也在', /offlineFrom = 'app';[\s\S]*?offlineView\(c\.id, root, listView\)/.test(src));
   /* 两个入口都必须把 listView 传进去：从剧场里点「所有角色的默认」要就地重画成列表页。
      不传的话只能 openApp('offline')，那会往栈上再压一个同样的 App ——
      实测点完是一片空白（两个 .app-offline 叠着）。 */
@@ -7502,13 +7502,19 @@ console.log('\n[107] 字号可调 + 白底 + 列表页那句开场');
   /* 那句「人机感」的提示语没了 */
   ok('列表页不再解释「一条条消息 / 一幕一幕」', !src.includes('一幕一幕写下来'));
   const appSeg = src.slice(src.indexOf("id: 'offline',"), src.indexOf("id: 'persona',"));
-  ok('列表页改成目录分组，不再堆大卡片',
-    /class: 'of-meta'/.test(appSeg) && /class: 'of-sect'/.test(appSeg) &&
-    /class: 'of-row'/.test(appSeg) && !/class: 'of-card'/.test(appSeg));
-  ok('列表页不再用暖黄色开场卡', !/class: 'of-hero'/.test(appSeg), '还挂着 of-hero');
-  ok('写过的人排在前面，没开始的单独一组',
-    /const written = rows\.filter\(r => r\.entries\.length\)\.sort/.test(appSeg) &&
-    /'最近写过'/.test(appSeg) && /'还没开始'/.test(appSeg));
+  const css = fs.readFileSync(path.join(DIR, 'styles.css'), 'utf8');
+  ok('列表页改成记忆胶片条',
+    /of-film-page/.test(appSeg) && /class: 'of-strip'/.test(appSeg) &&
+    /class: 'of-frame'/.test(appSeg) && !/class: 'of-row'/.test(appSeg));
+  ok('胶片帧有编号、当前态和未曝光态',
+    /FR-/.test(appSeg) && /UNEXPOSED/.test(appSeg) && /空白胶片/.test(appSeg) &&
+    /\.of-frame\.on/.test(css) && /\.of-frame\.blank/.test(css));
+  ok('胶片页返回文字缩小且当前帧放大',
+    /#phone \.app-offline \.nav-btn\.back\s*\{[^}]*font-size/.test(css) &&
+    /\.of-frame\.on \.of-frame-window \.avatar/.test(css));
+  ok('底部继续按钮接的是当前角色',
+    /class: 'of-film-go'/.test(appSeg) && /继续这段故事/.test(appSeg) &&
+    /const c = all\[active\]/.test(appSeg));
 }
 
 console.log('\n[108] 剧场的返回栈：别把 App 压两层');
@@ -7943,6 +7949,31 @@ console.log('\n[113] cee论坛：批量生成 + 缓存');
 
   S.closeTop(true);
   fetchImpl = null;
+}
+
+/* 114. 此刻相遇 · 记忆胶片交互 */
+console.log('\n[114] 此刻相遇 · 记忆胶片交互');
+{
+  const A = sandbox.SJ;
+  const c1 = A.saveCharacter(A.makeCharacter({ name: '胶片甲', avatar: '🌿' }));
+  const c2 = A.saveCharacter(A.makeCharacter({ name: '胶片乙', avatar: '🎧' }));
+  A.state.offline = {};
+  A.offlinePush(c1.id, 'char', '第一帧');
+  A.offlinePush(c2.id, 'char', '第二帧');
+  S.openApp('offline');
+  const root = S.SHELL.stack[0].node;
+  const frames = walk(root).filter(n => n._class && n._class.has('of-frame'));
+  ok('胶片页每个角色都渲染成一帧', frames.length >= 2, frames.length + ' 帧');
+  ok('默认第一帧是当前帧', frames[0]._class.has('on') && !frames[1]._class.has('on'));
+  frames[1].click();
+  ok('点第二帧会切换当前帧', frames[1]._class.has('on') && !frames[0]._class.has('on'));
+  const ticks = walk(root).filter(n => n._class && n._class.has('of-tick'));
+  ok('底部刻度跟着当前帧走', ticks[1] && ticks[1]._class.has('on') && !ticks[0]._class.has('on'));
+  const go = walk(root).find(n => n._class && n._class.has('of-film-go'));
+  go.click();
+  ok('继续按钮进入剧场，不会把 App 压两层',
+    S.SHELL.stack.length === 1 && walk(root).some(n => n._class && n._class.has('of2')));
+  S.closeTop(true);
 }
 
 console.log('\n' + (failed ? `✗ ${failed} 项失败 / ${passed} 项通过` : `✓ 全部 ${passed} 项通过`));

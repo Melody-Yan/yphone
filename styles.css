@@ -4799,87 +4799,87 @@ input.field[type="range"]::-webkit-slider-thumb {
 .st-add { border-style: dashed; border-color: var(--line-2); background: transparent; color: var(--ink-3); box-shadow: none; }
 .st-hint { margin-top: 14px; }
 
-/* ══════════════════════════════════════════════════
-   此刻相遇 · 列表页
-   从「一行一个人」换成一张张卡：头像 + 名字 + 写了多少，
-   底下接半句上一段的原文；抬头是一块暖色的开场条。
-   ══════════════════════════════════════════════════ */
-.of-hero {
-  margin: 8px 16px 6px; padding: 18px; border-radius: 20px;
-  background: linear-gradient(150deg, #fdf7ee, #f1e2cd);
-  border: 1px solid rgba(163,131,88,.16);
-  box-shadow: var(--el-1), var(--edge);
+/* 此刻相遇 · 记忆胶片 */
+#phone .app-offline .nav-btn.back { font-size: var(--fs-sm); }
+.of-film-page { overflow-y: auto; }
+.of-film-meta {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding: 24px var(--sp-6) 32px;
 }
-.of-hero-t { font-size: 15px; font-weight: 600; color: #2c2620; line-height: 1.6; }
-.of-hero-m { margin-top: 9px; font-size: 12.5px; color: rgba(44,38,32,.62); }
-.of-hero-m b { font-weight: 700; color: #2c2620; }
-
-.of-card {
-  margin: 0 16px 12px; padding: 14px;
+.of-film-mark {
+  font: 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .2em; color: var(--ink-3);
+}
+.of-film-count { font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.of-film-count b { color: var(--ink); font-weight: 600; }
+.of-strip {
+  display: flex; align-items: center; gap: 16px;
+  overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  padding: 0 var(--sp-4) 32px; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.of-strip::-webkit-scrollbar { display: none; }
+.of-frame {
+  position: relative; flex: 0 0 auto; display: flex; flex-direction: column;
+  width: 240px; height: 360px; padding: 8px;
   background: var(--card); border: 1px solid var(--line);
-  border-radius: 18px; box-shadow: var(--el-1); cursor: pointer;
+  box-shadow: var(--el-1), var(--edge); opacity: .58; transform: scale(.95);
+  transition: width var(--dur-2) var(--ease-out), height var(--dur-2) var(--ease-out), opacity var(--dur-2), transform var(--dur-2);
+  scroll-snap-align: center; cursor: pointer;
 }
-.of-card:active { transform: scale(.99); }
-.of-card-top { display: flex; align-items: center; gap: 12px; }
-.of-card-top .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
-.of-card-who { flex: 1; min-width: 0; }
-.of-card-name { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
-.of-card-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.of-card-tag { flex: none; font-size: 11px; font-weight: 400; color: var(--ink-2); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; }
-.of-card-meta { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
-.of-card-go { flex: none; display: inline-flex; color: var(--ink-3); }
-.of-card-quote {
-  margin-top: 12px; padding-top: 11px; border-top: 1px dashed var(--line-2);
-  font-size: 13px; line-height: 1.7; color: var(--ink-2);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+.of-frame.on { width: 280px; height: 420px; padding: 12px; opacity: 1; transform: scale(1); }
+.of-frame.on::before, .of-frame.on::after {
+  content: ''; position: absolute; top: 16px; bottom: 16px; width: 7px;
+  background-image: radial-gradient(circle, rgba(0,0,0,.24) 0 1.8px, transparent 2px);
+  background-size: 7px 22px; background-repeat: repeat-y;
 }
-.of-card-quote.none { color: var(--ink-3); }
-
-#phone.dark .of-hero {
-  background: linear-gradient(150deg, var(--card), var(--bg-2));
-  border-color: var(--line);
+.of-frame.on::before { left: -18px; }
+.of-frame.on::after { right: -18px; }
+.of-frame-no {
+  position: absolute; top: 18px; left: 18px; z-index: 1; padding: 1px 4px;
+  background: var(--card); font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--ink-3); white-space: nowrap;
 }
-#phone.dark .of-hero-t, #phone.dark .of-hero-m b { color: var(--ink); }
-#phone.dark .of-hero-m { color: var(--ink-3); }
-
-/* 此刻相遇 · 目录（方案 A）：用留白和分组代替卡片，不靠暖色块。 */
-.of-meta {
-  padding: 16px var(--sp-5) 6px;
-  font-size: var(--fs-sm); color: var(--ink-3);
+.of-frame-window {
+  flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden;
+  background: var(--bg-2); border: 1px solid var(--line);
 }
-.of-meta b { color: var(--ink); font-weight: 600; }
-.of-sect {
-  padding: 18px var(--sp-5) 8px;
-  font-size: var(--fs-sm); font-weight: 500; color: var(--ink-2);
-  letter-spacing: .4px;
+.of-frame-window .avatar {
+  width: 64px; height: 64px; border-radius: 34%; font-size: 32px; filter: grayscale(1);
+  transition: width var(--dur-2) var(--ease-out), height var(--dur-2) var(--ease-out), font-size var(--dur-2), filter var(--dur-2);
 }
-.of-row {
-  display: flex; gap: 12px; padding: 14px var(--sp-5);
-  border-top: 1px solid var(--line); cursor: pointer;
+.of-frame.on .of-frame-window .avatar { width: 96px; height: 96px; font-size: 48px; filter: none; }
+.of-frame-copy {
+  height: 25%; padding: 12px; display: flex; flex-direction: column; gap: 6px;
+  border-top: 1px solid var(--line); background: var(--card);
 }
-.of-sect + .of-row { border-top: 0; }
-.of-row:active { background: var(--accent-soft); }
-.of-row .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
-.of-row-main { flex: 1; min-width: 0; }
-.of-row-top { display: flex; align-items: baseline; gap: 8px; }
-.of-row-name {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 15.5px; font-weight: 600;
+.of-frame-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.of-frame-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.of-frame-meta { flex: none; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.of-frame-quote {
+  margin: 0; color: var(--ink-2); font: italic 13px/1.55 Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
-.of-row-tag {
-  flex: none; padding: 2px 8px; border-radius: 999px;
-  font-size: 11px; color: var(--ink-2); background: var(--accent-soft);
+.of-frame.blank .of-frame-window { border-style: dashed; }
+.of-frame.blank .of-frame-window .avatar { opacity: .5; }
+.of-frame.blank .of-frame-quote { color: var(--ink-3); }
+.of-film-foot {
+  margin-top: auto; padding: 0 var(--sp-6) 24px; display: flex; flex-direction: column; align-items: center; gap: 24px;
 }
-.of-row-when {
-  flex: none; margin-left: auto; font-size: 11.5px; color: var(--ink-3);
+.of-ticks { display: flex; gap: 8px; align-items: center; min-height: 18px; }
+.of-tick {
+  width: 8px; height: 4px; padding: 0; border: 0; border-radius: 999px;
+  background: var(--line-2); cursor: pointer; transition: width var(--dur-2) var(--ease-out), background var(--dur-2);
 }
-.of-row-quote {
-  margin-top: 7px; font-size: 13px; line-height: 1.6; color: var(--ink-2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.of-tick.on { width: 32px; background: var(--ink); }
+.of-film-go {
+  width: 100%; max-width: 280px; min-height: 46px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 14px; background: var(--accent-solid); color: var(--on-accent);
+  font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; box-shadow: var(--el-1);
 }
-.of-row-quote.none { color: var(--ink-3); }
-
-/* 目录是内容流，不再套一层大磨砂面板。 */
+.of-film-go:active { transform: scale(.97); }
+@media (prefers-reduced-motion: reduce) {
+  .of-frame, .of-frame-window .avatar, .of-tick { transition: none; }
+}
 #phone .app-offline > .list {
   margin: var(--sp-2) 0 0;
   border-radius: 0;

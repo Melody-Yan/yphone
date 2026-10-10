@@ -7501,7 +7501,14 @@ console.log('\n[107] 字号可调 + 白底 + 列表页那句开场');
 
   /* 那句「人机感」的提示语没了 */
   ok('列表页不再解释「一条条消息 / 一幕一幕」', !src.includes('一幕一幕写下来'));
-  ok('换成一句不解释功能的话', src.includes('把没说出口的，写在同一个地方。'));
+  const appSeg = src.slice(src.indexOf("id: 'offline',"), src.indexOf("id: 'persona',"));
+  ok('列表页改成目录分组，不再堆大卡片',
+    /class: 'of-meta'/.test(appSeg) && /class: 'of-sect'/.test(appSeg) &&
+    /class: 'of-row'/.test(appSeg) && !/class: 'of-card'/.test(appSeg));
+  ok('列表页不再用暖黄色开场卡', !/class: 'of-hero'/.test(appSeg), '还挂着 of-hero');
+  ok('写过的人排在前面，没开始的单独一组',
+    /const written = rows\.filter\(r => r\.entries\.length\)\.sort/.test(appSeg) &&
+    /'最近写过'/.test(appSeg) && /'还没开始'/.test(appSeg));
 }
 
 console.log('\n[108] 剧场的返回栈：别把 App 压两层');

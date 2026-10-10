@@ -7311,13 +7311,12 @@ const APPS = [
         const all = list();
         const totalSeg = all.reduce((a, c) => a + SJ.offlineEntries(c.id).length, 0);
         const wrote = all.filter(c => SJ.offlineEntries(c.id).length).length;
-        box.append(SJ.el('div', { class: 'of-hero' }, [
-          SJ.el('div', { class: 'of-hero-t' }, '把没说出口的，写在同一个地方。'),
-          totalSeg ? SJ.el('div', { class: 'of-hero-m' }, [
+        if (totalSeg) {
+          box.append(SJ.el('div', { class: 'of-meta' }, [
             SJ.el('b', {}, String(totalSeg)), SJ.el('span', {}, ' 段 · 和 '),
             SJ.el('b', {}, String(wrote)), SJ.el('span', {}, ' 个人写过')
-          ]) : null
-        ].filter(Boolean)));
+          ]));
+        }
 
         if (!all.length) {
           box.append(emptyState('heart', '还没有人可遇见',
@@ -7328,36 +7327,44 @@ const APPS = [
           return;
         }
 
-        box.append(SJ.el('div', { class: 'group-title' }, all.length + ' 个可以遇见的人'));
-
-        /* 一张卡一个人：头像 + 名字 + 写了多少，底下再接一句他/她的最后一句。
-           比原来那行「头像 + 两行字」更像一本册子，也更看得清谁写得多。 */
-        all.forEach(c => {
+        const rows = all.map(c => {
           const entries = SJ.offlineEntries(c.id);
-          const o = SJ.offlineOf(c.id);
           const last = entries.slice(-1)[0];
           const at = last && last.at ? new Date(last.at).getTime() : 0;
-          const quote = last ? String(last.text).replace(/\s+/g, ' ').trim() : '';
-          box.append(SJ.el('div', { class: 'of-card', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
-            SJ.el('div', { class: 'of-card-top' }, [
-              avatarNode(c),
-              SJ.el('div', { class: 'of-card-who' }, [
-                SJ.el('div', { class: 'of-card-name' }, [
-                  SJ.el('span', {}, c.name || '（没名字）'),
-                  c.relation ? SJ.el('span', { class: 'of-card-tag' }, c.relation) : null
-                ].filter(Boolean)),
-                SJ.el('div', { class: 'of-card-meta' }, entries.length
-                  ? entries.length + ' 段 · ' + (SJ.fmtAgo(at) || '刚刚')
-                  : '还没见过面')
-              ]),
-              SJ.el('span', { class: 'of-card-go', html: svg('right', 16) })
-            ]),
-            quote
-              ? SJ.el('div', { class: 'of-card-quote' }, quote)
-              : SJ.el('div', { class: 'of-card-quote none' },
-                  o.outline || '还没写下第一句。进去写一句，故事就从这儿开始。')
-          ]));
+          return { c, entries, at, quote: last ? String(last.text).replace(/\s+/g, ' ').trim() : '' };
         });
+        const written = rows.filter(r => r.entries.length).sort((a, b) => b.at - a.at);
+        const fresh = rows.filter(r => !r.entries.length);
+
+        function row(r) {
+          const c = r.c, meta = r.entries.length
+            ? r.entries.length + ' 段 · ' + (SJ.fmtAgo(r.at) || '刚刚')
+            : '还没见过面';
+          return SJ.el('div', { class: 'of-row', onclick: () => { offlineFrom = 'app'; offlineView(c.id, root, listView); } }, [
+            avatarNode(c),
+            SJ.el('div', { class: 'of-row-main' }, [
+              SJ.el('div', { class: 'of-row-top' }, [
+                SJ.el('span', { class: 'of-row-name' }, c.name || '（没名字）'),
+                c.relation ? SJ.el('span', { class: 'of-row-tag' }, c.relation) : null,
+                SJ.el('span', { class: 'of-row-when' }, meta)
+              ].filter(Boolean)),
+              r.quote
+                ? SJ.el('div', { class: 'of-row-quote' }, r.quote)
+                : SJ.el('div', { class: 'of-row-quote none' },
+                    SJ.offlineOf(c.id).outline || '还没写下第一句。进去写一句，故事就从这儿开始。')
+            ])
+          ]);
+        }
+
+        if (written.length) {
+          box.append(SJ.el('div', { class: 'of-sect' }, '最近写过'));
+          written.forEach(r => box.append(row(r)));
+        }
+        if (fresh.length) {
+          box.append(SJ.el('div', { class: 'of-sect' }, '还没开始'));
+          fresh.forEach(r => box.append(row(r)));
+        }
+
         root.append(box);
       }
 

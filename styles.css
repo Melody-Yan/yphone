@@ -4841,3 +4841,48 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 #phone.dark .of-hero-t, #phone.dark .of-hero-m b { color: var(--ink); }
 #phone.dark .of-hero-m { color: var(--ink-3); }
+
+/* 此刻相遇 · 目录（方案 A）：用留白和分组代替卡片，不靠暖色块。 */
+.of-meta {
+  padding: 16px var(--sp-5) 6px;
+  font-size: var(--fs-sm); color: var(--ink-3);
+}
+.of-meta b { color: var(--ink); font-weight: 600; }
+.of-sect {
+  padding: 18px var(--sp-5) 8px;
+  font-size: var(--fs-sm); font-weight: 500; color: var(--ink-2);
+  letter-spacing: .4px;
+}
+.of-row {
+  display: flex; gap: 12px; padding: 14px var(--sp-5);
+  border-top: 1px solid var(--line); cursor: pointer;
+}
+.of-sect + .of-row { border-top: 0; }
+.of-row:active { background: var(--accent-soft); }
+.of-row .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 24px; }
+.of-row-main { flex: 1; min-width: 0; }
+.of-row-top { display: flex; align-items: baseline; gap: 8px; }
+.of-row-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 15.5px; font-weight: 600;
+}
+.of-row-tag {
+  flex: none; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; color: var(--ink-2); background: var(--accent-soft);
+}
+.of-row-when {
+  flex: none; margin-left: auto; font-size: 11.5px; color: var(--ink-3);
+}
+.of-row-quote {
+  margin-top: 7px; font-size: 13px; line-height: 1.6; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.of-row-quote.none { color: var(--ink-3); }
+
+/* 目录是内容流，不再套一层大磨砂面板。 */
+#phone .app-offline > .list {
+  margin: var(--sp-2) 0 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}

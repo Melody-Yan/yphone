@@ -7359,6 +7359,7 @@ const APPS = [
             ])
           ]);
           frame.dataset.i = String(i);
+          frame.style.setProperty('--of-tint', c.color || '#9cb9c2');
           strip.append(frame);
           const tick = SJ.el('button', {
             class: 'of-tick',

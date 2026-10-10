@@ -4841,13 +4841,14 @@ input.field[type="range"]::-webkit-slider-thumb {
 }
 .of-frame-window {
   flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden;
-  background: var(--bg-2); border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--of-tint, var(--bg-2)) 24%, var(--card));
+  border: 1px solid var(--line);
 }
-.of-frame-window .avatar {
-  width: 64px; height: 64px; border-radius: 34%; font-size: 32px; filter: grayscale(1);
+#phone .of-frame-window .avatar {
+  width: 84px; height: 84px; border-radius: 34%; font-size: 42px; filter: grayscale(1);
   transition: width var(--dur-2) var(--ease-out), height var(--dur-2) var(--ease-out), font-size var(--dur-2), filter var(--dur-2);
 }
-.of-frame.on .of-frame-window .avatar { width: 96px; height: 96px; font-size: 48px; filter: none; }
+#phone .of-frame.on .of-frame-window .avatar { width: 132px; height: 132px; font-size: 66px; filter: none; }
 .of-frame-copy {
   height: 25%; padding: 12px; display: flex; flex-direction: column; gap: 6px;
   border-top: 1px solid var(--line); background: var(--card);

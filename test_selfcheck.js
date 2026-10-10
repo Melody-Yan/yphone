@@ -7964,6 +7964,8 @@ console.log('\n[114] 此刻相遇 · 记忆胶片交互');
   const root = S.SHELL.stack[0].node;
   const frames = walk(root).filter(n => n._class && n._class.has('of-frame'));
   ok('胶片页每个角色都渲染成一帧', frames.length >= 2, frames.length + ' 帧');
+  ok('每一帧都带角色自己的淡色',
+    frames.every(f => !!f.style.getPropertyValue('--of-tint')));
   ok('默认第一帧是当前帧', frames[0]._class.has('on') && !frames[1]._class.has('on'));
   frames[1].click();
   ok('点第二帧会切换当前帧', frames[1]._class.has('on') && !frames[0]._class.has('on'));

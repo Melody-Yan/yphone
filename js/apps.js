@@ -1476,18 +1476,47 @@ const APPS = [
             ])
             ])
           ]);
-          /* 回桌面这条路不能丢（用户以前报过「点进去出不来」）——
-             挂在抽屉底部，class 用 back，自检的返回契约照旧成立。 */
-          panel.querySelector('.sdr-inner').append(SJ.el('button', {
-            class: 'sdr-back back',
-            onclick: () => { dismiss(mask); if (window.SHELL) window.SHELL.closeTop(); }
-          }, [
-            SJ.el('span', { class: 'sdr-ico', html: svg('back', 19) }),
-            SJ.el('span', { class: 'sdr-main' }, [SJ.el('span', { class: 'sdr-t' }, '返回桌面')]),
-            SJ.el('span', { class: 'sdr-go' }, '›')
-          ]));
           mask.append(panel);
           mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
+          /* 向左滑关闭抽屉：跟手位移，松手过阈值才收走。
+             面板从左边滑出来，往回滑就是最自然的那一下。 */
+          let dx0 = null, dragging = false;
+          const start = e => {
+            e.stopPropagation && e.stopPropagation();   // 别让全局左缘返回手势同时起手
+            const t = e.touches ? e.touches[0] : e;
+            dx0 = { x: t.clientX, y: t.clientY };
+            dragging = false;
+          };
+          const move = e => {
+            if (!dx0) return;
+            e.stopPropagation && e.stopPropagation();
+            const t = e.touches ? e.touches[0] : e;
+            const dx = t.clientX - dx0.x, dy = Math.abs(t.clientY - dx0.y);
+            if (!dragging) {
+              if (dx > -8 || Math.abs(dx) < dy) return;   // 只认向左的横滑
+              dragging = true;
+              panel.style.transition = 'none';
+            }
+            panel.style.transform = 'translateX(' + Math.min(0, dx) + 'px)';
+            mask.style.background = 'rgba(20,22,24,' + (.30 * Math.max(0, 1 + dx / 260)) + ')';
+          };
+          const end = e => {
+            if (!dx0) return;
+            e.stopPropagation && e.stopPropagation();
+            const t = (e.changedTouches && e.changedTouches[0]) || e;
+            const dx = t.clientX - dx0.x;
+            dx0 = null;
+            if (!dragging) return;
+            dragging = false;
+            panel.style.transition = '';
+            mask.style.background = '';
+            if (dx < -70) { panel.style.transform = 'translateX(-100%)'; dismiss(mask); }
+            else panel.style.transform = '';
+          };
+          mask.addEventListener('touchstart', start, { passive: true });
+          mask.addEventListener('touchmove', move, { passive: true });
+          mask.addEventListener('touchend', end);
+          mask.addEventListener('touchcancel', end);
           root.append(mask);
         }
 

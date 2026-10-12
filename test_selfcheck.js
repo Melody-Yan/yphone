@@ -264,10 +264,18 @@ let noBack = [];
 for (const a of S.APPS) {
   S.openApp(a.id);
   const v = S.SHELL.stack[0].node;
-  /* 微信的返回入口收在左上角抽屉里（Alcove 那套信息架构）：
-     有汉堡就先展开抽屉，再到抽屉里找返回。没有汉堡的 App 照旧直接找。 */
+  /* 微信改成了「左上角抽屉 + 左滑关闭」：没有返回按钮，
+     返回路径由抽屉手势承担，所以单独断言遮罩挂上了滑动监听。 */
   const menu = walk(v).find(n => n._class && n._class.has('wnav-menu'));
-  if (menu) menu.click();
+  if (menu) {
+    menu.click();
+    const mask = walk(v).find(n => n._class && n._class.has('sdrawer-mask'));
+    const hasSwipe = !!(mask && mask._listeners && mask._listeners.touchmove && mask._listeners.touchend);
+    if (!hasSwipe) noBack.push(a.id + '(抽屉没有左滑关闭)');
+    mask && mask.remove();
+    S.closeTop(true);
+    continue;
+  }
   const backBtn = walk(v).find(n => n._class && n._class.has('back'));
   if (!backBtn) { noBack.push(a.id + '(没有返回键)'); S.closeTop(true); continue; }
   backBtn.click();

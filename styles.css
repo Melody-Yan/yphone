@@ -5149,6 +5149,136 @@ input.field[type="range"]::-webkit-slider-thumb {
 @media (prefers-reduced-motion: reduce) {
   .of-frame, .of-frame-window .avatar, .of-tick { transition: none; }
 }
+/* ══ 微信左上角汉堡 + 左侧抽屉（Alcove 风）══ */
+.nav.wnav { justify-content: space-between; }
+.wnav-menu {
+  width: 36px; height: 36px; padding: 0; border: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 12px; color: var(--ink); background: transparent; font: inherit;
+}
+.wnav-menu:active { background: var(--bg-2); }
+
+.sdrawer-mask {
+  position: absolute; inset: 0; z-index: 90;
+  background: rgba(20,22,24,.30);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1); backdrop-filter: blur(6px) saturate(1.1);
+  display: flex; align-items: stretch; justify-content: flex-start;
+  animation: sdrFade .22s ease-out;
+}
+.sdrawer-mask.out { animation: sdrFade .2s ease-in reverse; }
+@keyframes sdrFade { from { opacity: 0; } }
+.sdrawer {
+  position: relative; overflow: hidden;
+  width: 84%; max-width: 330px; height: 100%;
+  padding: calc(var(--sb-h) + 14px) 16px 26px;
+  background: linear-gradient(168deg, rgba(255,255,255,.62), rgba(244,246,246,.46));
+  -webkit-backdrop-filter: blur(34px) saturate(1.7); backdrop-filter: blur(34px) saturate(1.7);
+  border-right: 1px solid rgba(255,255,255,.62);
+  box-shadow:
+    30px 0 70px -34px rgba(14,18,20,.60),
+    inset -1px 0 0 rgba(255,255,255,.5);
+  animation: sdrIn .32s cubic-bezier(.22,1,.36,1);
+}
+.sdrawer-mask.out .sdrawer { animation: sdrIn .22s cubic-bezier(.4,0,1,1) reverse; }
+@keyframes sdrIn { from { transform: translateX(-100%); } }
+
+/* 磨砂底：壁纸先铺满、放大虚化，再压一层洗白的雾 —— 面板底下必须「有东西」，
+   纯色底怎么排都像设置页。 */
+.sdr-bg {
+  position: absolute; inset: -40px; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center;
+  filter: blur(30px) saturate(.9) brightness(1.12);
+  transform: scale(1.18);
+}
+.sdr-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background-image: var(--grain),
+    linear-gradient(180deg, rgba(255,255,255,.80) 0%, rgba(255,255,255,.74) 40%, rgba(248,249,249,.88) 100%);
+}
+.sdr-word, .sdr-inner { position: relative; z-index: 1; }
+.sdr-inner { height: calc(100% - 46px); overflow-y: auto; padding-bottom: 4px; }
+.sdr-inner::-webkit-scrollbar { display: none; }
+
+/* 报头字标：斜体衬线，压在整块面板上方居中 */
+.sdr-word {
+  flex: none; margin: 2px 0 20px; text-align: center;
+  font: italic 400 26px/1 Georgia, "Songti SC", "Noto Serif SC", serif;
+  letter-spacing: .01em; color: var(--ink);
+  text-shadow: 0 1px 0 rgba(255,255,255,.6);
+}
+
+/* 顶部身份卡 */
+.sdr-top { display: flex; gap: 10px; align-items: stretch; margin-bottom: 24px; }
+.sdr-me {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  padding: 15px; border-radius: 22px;
+  background: linear-gradient(160deg, rgba(255,255,255,.74), rgba(255,255,255,.44));
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,.72);
+  box-shadow: 0 18px 44px -32px rgba(16,22,24,.52), inset 0 1px 0 rgba(255,255,255,.85);
+}
+.sdr-me .avatar { width: 46px; height: 46px; border-radius: 15px; font-size: 23px; flex: none; }
+.sdr-me-main { min-width: 0; }
+.sdr-me-name { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
+.sdr-on { width: 7px; height: 7px; border-radius: 50%; background: #4fae62; font-style: normal; }
+.sdr-me-sub { margin-top: 2px; font-family: var(--serif); font-size: 17px; line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdr-me-sub b { font-weight: 400; }
+.sdr-me-sub span { font-size: 13px; margin-left: 3px; }
+.sdr-me-coin { margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+.sdr-stats { flex: none; width: 74px; display: flex; flex-direction: column; }
+.sdr-stat {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255,255,255,.66), rgba(255,255,255,.38));
+  -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,.68);
+  box-shadow: 0 14px 34px -28px rgba(16,22,24,.5), inset 0 1px 0 rgba(255,255,255,.82);
+}
+.sdr-stat + .sdr-stat { margin-top: 8px; }
+.sdr-stat b { font-family: var(--serif); font-size: 17px; font-weight: 400; }
+.sdr-stat span { margin-top: 1px; font-size: 10px; color: var(--ink-3); }
+
+/* 分组行 */
+.sdr-group + .sdr-group { margin-top: 22px; }
+.sdr-cap { padding: 0 6px 10px; font-size: 12px; font-weight: 600; font-family: var(--serif); font-style: italic; }
+.sdr-cap { display: flex; align-items: baseline; gap: 8px; }
+.sdr-cap-t { font-family: var(--sans); font-style: normal; font-weight: 600; font-size: 13px; color: var(--ink); }
+.sdr-cap-sub { font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 11px; color: var(--ink-3); }
+.sdr-row {
+  width: 100%; display: flex; align-items: center; gap: 13px;
+  padding: 14px 16px; margin-bottom: 9px; text-align: left;
+  border-radius: 20px; cursor: pointer; font: inherit;
+  background: linear-gradient(158deg, rgba(255,255,255,.70), rgba(255,255,255,.40));
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255,255,255,.70);
+  box-shadow: 0 16px 40px -32px rgba(16,22,24,.5), inset 0 1px 0 rgba(255,255,255,.85);
+  transition: transform var(--dur-1) var(--ease-out), background var(--dur-2), box-shadow var(--dur-2);
+}
+.sdr-row:active { transform: scale(.985); background: linear-gradient(158deg, rgba(255,255,255,.86), rgba(255,255,255,.60)); }
+.sdr-row.off { opacity: .45; }
+.sdr-ico { flex: none; width: 22px; display: inline-flex; color: var(--ink-2); }
+.sdr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sdr-t { font-size: 14px; font-weight: 600; }
+.sdr-s { margin-top: 2px; font-size: 11.5px; color: var(--ink-2); }
+.sdr-badge {
+  flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--badge, #d1483c); color: #fff; font-size: 10.5px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sdr-go { flex: none; color: var(--ink-3); font-size: 17px; }
+
+#phone.dark-wall .sdrawer, #phone.dark .sdrawer { background: rgba(28,30,32,.80); border-right-color: rgba(255,255,255,.12); }
+#phone.dark-wall .sdr-me, #phone.dark .sdr-me,
+#phone.dark-wall .sdr-stat, #phone.dark .sdr-stat,
+#phone.dark-wall .sdr-row, #phone.dark .sdr-row { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+#phone.dark-wall .sdr-cap, #phone.dark .sdr-cap,
+#phone.dark-wall .sdr-t, #phone.dark .sdr-t,
+#phone.dark-wall .sdr-me-name, #phone.dark .sdr-me-name,
+#phone.dark-wall .sdr-me-sub, #phone.dark .sdr-me-sub,
+#phone.dark-wall .sdr-stat b, #phone.dark .sdr-stat b,
+#phone.dark-wall .sdr-ico, #phone.dark .sdr-ico { color: #f2f2f2; }
+
 /* ══ 通讯录 / YMessage：沙龙式「照片横幅 + 上滑纸面」 ══
    只作用于这两个 App 的主列表；会话页、编辑页、选人页一律不动。
    不用新素材：横幅直接拿用户在用的那张壁纸虚化、压暗当底。 */

@@ -264,6 +264,10 @@ let noBack = [];
 for (const a of S.APPS) {
   S.openApp(a.id);
   const v = S.SHELL.stack[0].node;
+  /* 微信的返回入口收在左上角抽屉里（Alcove 那套信息架构）：
+     有汉堡就先展开抽屉，再到抽屉里找返回。没有汉堡的 App 照旧直接找。 */
+  const menu = walk(v).find(n => n._class && n._class.has('wnav-menu'));
+  if (menu) menu.click();
   const backBtn = walk(v).find(n => n._class && n._class.has('back'));
   if (!backBtn) { noBack.push(a.id + '(没有返回键)'); S.closeTop(true); continue; }
   backBtn.click();

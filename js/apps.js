@@ -1312,12 +1312,19 @@ const APPS = [
         root.innerHTML = '';
         /* 导航上只留一个 ＋：朋友圈底部页签已经有了，重复放一个没意义；
            发起群聊、加人这些收进 ＋ 的卡片菜单里。 */
-        root.append(navBar('微信', {
-          right: SJ.el('button', {
+        /* 左上角改成汉堡按钮：点开左侧抽屉（参考 Alcove 那套信息架构）。
+           返回桌面的动作交给抽屉外的遮罩横滑 / 底部小白条。 */
+        root.append(SJ.el('div', { class: 'nav wnav' }, [
+          SJ.el('button', {
+            class: 'wnav-menu', title: '菜单', onclick: sideMenu,
+            html: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>'
+          }),
+          SJ.el('span', { class: 'nav-title' }, '微信'),
+          SJ.el('button', {
             class: 'nav-btn', title: '更多', html: svg('plus', 19),
             onclick: () => plusMenu()
           })
-        }));
+        ]));
         const box = SJ.el('div', { class: 'list' });
         const rows = SJ.chatList();
 
@@ -1385,6 +1392,105 @@ const APPS = [
             }
           }
         }
+
+        /* ── 左侧抽屉 ──
+           参考 Alcove：顶部身份卡 + 分组玻璃行，整块从左边滑出来。
+           只挂当前 App 自己的入口，不复制全局导航。 */
+        function sideMenu() {
+          const mask = SJ.el('div', { class: 'sdrawer-mask' });
+          const me = SJ.state.settings || {};
+          const meName = me.userName || '我';
+          const rows = SJ.chatList();
+          const firstChar = rows.length ? (rows.find(r => r.c && !r.g) || {}).c : null;
+          const days = firstChar ? (SJ.spaceDays(firstChar.ts || 0) || 0) : 0;
+          const un = SJ.unreadTotal();
+
+          const group = (label, sub, rows) => {
+            const g = SJ.el('div', { class: 'sdr-group' }, [
+              SJ.el('div', { class: 'sdr-cap' }, [
+                SJ.el('span', { class: 'sdr-cap-t' }, label),
+                sub ? SJ.el('i', { class: 'sdr-cap-sub' }, sub) : null
+              ].filter(Boolean))
+            ]);
+            rows.forEach(r => g.append(SJ.el('button', {
+              class: 'sdr-row' + (r.off ? ' off' : ''),
+              onclick: () => {
+                if (r.off) return;
+                dismiss(mask);
+                setTimeout(() => r.run(), 210);
+              }
+            }, [
+              SJ.el('span', { class: 'sdr-ico', html: r.svg ? svg(r.svg, 19) : '' }),
+              SJ.el('span', { class: 'sdr-main' }, [
+                SJ.el('span', { class: 'sdr-t' }, r.label),
+                r.sub ? SJ.el('span', { class: 'sdr-s' }, r.sub) : null
+              ].filter(Boolean)),
+              r.badge ? SJ.el('span', { class: 'sdr-badge' }, r.badge) : null,
+              SJ.el('span', { class: 'sdr-go' }, '›')
+            ].filter(Boolean))));
+            return g;
+          };
+
+          /* 抽屉底：把当前壁纸虚化、洗成雾面 —— Alcove 那股高级感一半来自
+             「面板底下有照片」，平底白面板怎么排都像设置页。 */
+          const bg = SJ.el('div', { class: 'sdr-bg' });
+          bg.style.background = SJ.wallCSS(SJ.state.settings.wallpaper);
+          const panel = SJ.el('div', { class: 'sdrawer' }, [
+            bg,
+            SJ.el('div', { class: 'sdr-word' }, 'Yphone'),
+            SJ.el('div', { class: 'sdr-inner' }, [
+            SJ.el('div', { class: 'sdr-top' }, [
+              SJ.el('div', { class: 'sdr-me' }, [
+                myAvatarNode(),
+                SJ.el('div', { class: 'sdr-me-main' }, [
+                  SJ.el('div', { class: 'sdr-me-name' }, [meName, SJ.el('i', { class: 'sdr-on' })]),
+                  SJ.el('div', { class: 'sdr-me-sub' }, [
+                    SJ.el('b', {}, String(rows.length)),
+                    SJ.el('span', {}, ' letters')
+                  ]),
+                  SJ.el('div', { class: 'sdr-me-coin' }, '余额 ¥' + SJ.walletBalance().toFixed(2))
+                ])
+              ]),
+              SJ.el('div', { class: 'sdr-stats' }, [
+                SJ.el('div', { class: 'sdr-stat' }, [
+                  SJ.el('b', {}, days ? String(days) : '—'),
+                  SJ.el('span', {}, days ? '与 ' + (firstChar.name || 'TA') : '还没记日子')
+                ]),
+                SJ.el('div', { class: 'sdr-stat' }, [SJ.el('b', {}, String(un)), SJ.el('span', {}, '未读')])
+              ])
+            ]),
+            group('主要', 'principles', [
+              { svg: 'chat', label: 'Chat', sub: '回到你们正在说的话', run: listView },
+              { svg: 'people', label: '圆桌', sub: '发起群聊', run: newGroup },
+              { svg: 'photo', label: '朋友圈', sub: '看看 TA 最近在做什么', run: momentsView },
+              { svg: 'user', label: '通讯录', sub: '角色与关系', run: () => { if (window.SHELL) window.SHELL.openApp('contacts'); } }
+            ]),
+            group('正在发生', 'still growing', [
+              { svg: 'heart', label: '我们的空间', sub: '纪念日、心愿与共同日记', run: () => { if (window.SHELL) window.SHELL.openApp('space'); } },
+              { svg: 'wallet', label: '钱包', sub: '余额 ¥' + SJ.walletBalance().toFixed(2), run: walletView },
+              { svg: 'globe', label: 'cee论坛', sub: '外面的人在聊什么', run: () => { if (window.SHELL) window.SHELL.openApp('forum'); } }
+            ]),
+            group('设置', 'settings', [
+              { svg: 'palette', label: '配色', sub: '换一套这个 App 的颜色', run: () => salonSheet('ymessage', listView) },
+              { svg: 'gear', label: '设置', sub: '接口、主题与数据', run: () => { if (window.SHELL) window.SHELL.openApp('settings'); } }
+            ])
+            ])
+          ]);
+          /* 回桌面这条路不能丢（用户以前报过「点进去出不来」）——
+             挂在抽屉底部，class 用 back，自检的返回契约照旧成立。 */
+          panel.querySelector('.sdr-inner').append(SJ.el('button', {
+            class: 'sdr-back back',
+            onclick: () => { dismiss(mask); if (window.SHELL) window.SHELL.closeTop(); }
+          }, [
+            SJ.el('span', { class: 'sdr-ico', html: svg('back', 19) }),
+            SJ.el('span', { class: 'sdr-main' }, [SJ.el('span', { class: 'sdr-t' }, '返回桌面')]),
+            SJ.el('span', { class: 'sdr-go' }, '›')
+          ]));
+          mask.append(panel);
+          mask.addEventListener('click', e => { if (e.target === mask) dismiss(mask); });
+          root.append(mask);
+        }
+
         /* ＋ 的卡片菜单：集成几个真用得上的动作 */
         function plusMenu() {
           const un = SJ.unreadTotal();

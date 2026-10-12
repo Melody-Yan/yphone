@@ -1002,6 +1002,46 @@ function goPage(i) {
 let locked = !!SJ.state.lock;
 let pendingApp = null;   // 锁屏快捷按钮点了谁，解锁后直接进去
 
+/* 锁屏通知：把「未读消息 + 今天还没到的日程」揉成一列卡片。
+   只读现有状态，不新增存储 —— 关掉通知卡片的开关沿用 lockWidgets。 */
+function paintLockNotif() {
+  const box = SJ.$('#lock-notif');
+  if (!box) return;
+  box.innerHTML = '';
+  if (SJ.state.settings.lockWidgets === false) { box.hidden = true; return; }
+
+  const items = [];
+  /* 微信未读：每个有未读的角色取最后一条没读的消息 */
+  (typeof SJ.chatList === 'function' ? SJ.chatList() : []).forEach(r => {
+    const n = (typeof SJ.unreadOf === 'function') ? SJ.unreadOf(r.c.id) : 0;
+    if (!n || !r.last || r.last.me) return;
+    items.push({
+      app: 'MESSAGE', who: r.c.name || '无名', avatar: r.c.avatar || '🙂',
+      color: r.c.color || '#cfd8d5', text: String(r.last.text || '').slice(0, 40),
+      ts: r.last.ts || 0
+    });
+  });
+  /* 只放未读消息 —— 今日安排已经由下面的 .lw-ev 卡片负责，别重复。 */
+  if (!items.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.append(SJ.el('div', { class: 'ln-head' }, [
+    SJ.el('span', { class: 'ln-k' }, 'NOTIFICATIONS · ' + String(items.length).padStart(2, '0')),
+    SJ.el('button', {
+      class: 'ln-clear', title: '全部已读',
+      onclick: () => { if (SJ.clearAllUnread) SJ.clearAllUnread(); paintLockNotif(); }
+    }, '清除')
+  ]));
+  items.slice(0, 3).forEach(it => box.append(SJ.el('div', { class: 'ln-card' }, [
+    SJ.el('span', { class: 'ln-av', style: { background: it.color } }, it.avatar),
+    SJ.el('span', { class: 'ln-body' }, [
+      SJ.el('span', { class: 'ln-app' }, it.app),
+      SJ.el('div', { class: 'ln-who' }, it.who),
+      it.text ? SJ.el('div', { class: 'ln-msg' }, it.text) : null
+    ].filter(Boolean)),
+    it.ts ? SJ.el('span', { class: 'ln-tm' }, SJ.fmtTime(new Date(it.ts))) : null
+  ].filter(Boolean))));
+}
+
 /* 锁屏上的「今日安排」卡片，数据来自日历 App 的 events */
 function paintLockWidgets() {
   const box = SJ.$('#lock-widgets');
@@ -1035,72 +1075,23 @@ function paintLockWidgets() {
   const grid = SJ.el('div', { class: 'lw-grid' });
   const card = (cls, kids) => SJ.el('div', { class: 'lw-card ' + cls }, kids);
 
-  /* ── 年份：跨两列，含今年与今天两条细进度 ── */
-  grid.append(card('lw-w lw-year', [
-    SJ.el('div', { class: 'lw-year-top' }, [
-      SJ.el('span', { class: 'lw-year-n' }, String(yearLeft)),
-      SJ.el('span', { class: 'lw-year-t' }, '天后 ' + (Y + 1) + ' 年')
-    ]),
-    SJ.el('div', { class: 'lw-bar' + ' thin' }, [SJ.el('i', { style: { width: Math.max(2, yearPct) + '%' } })]),
-    SJ.el('div', { class: 'lw-year-sub' }, [
-      SJ.el('span', {}, Y + ' 年已过 ' + Math.round(yearPct) + '%'),
-      SJ.el('span', {}, '今天 ' + Math.round(dayPct) + '%')
-    ])
-  ]));
-
-  /* ── 第二行：电量（左）+ 今天剩余（右）──
-     用户点名的排布：一行长进度、第二行两块并排、第三行备忘。 */
+  /* ── 底部只留一张信息卡：日期 + 今天剩余 + 电量 + 未读 ──
+     设计稿方案 A 的收口：原来的年份 / 电量 / 今日 / 备忘四张卡去掉，
+     把最常看的两三个数字压进一行，锁屏中间让给通知。 */
   const bl = (typeof batteryLevel === 'function') ? batteryLevel() : null;
-  const hasBatt = (bl !== null && bl !== undefined);
-  if (hasBatt) {
-    const pct = Math.round(bl);   /* batteryLevel() 已经是百分比，别再乘 100 */
-    grid.append(card('lw-s lw-ring', [
-      SJ.el('div', { class: 'lw-ring-ico', html: ring(pct, 46, 4) }),
-      SJ.el('div', { class: 'lw-ring-b' }, [
-        SJ.el('div', { class: 'lw-k' }, '电量'),
-        SJ.el('div', { class: 'lw-v' }, pct + '%' + (batteryCharging() ? ' \u2191' : ''))
-      ])
-    ]));
-  }
-  {
-    /* 今天：还剩几个小时 + 今天已过的进度。原来是跨两列的长条，收成方卡跟电量并排 */
-    const leftH = Math.max(0, 24 - now.getHours() - now.getMinutes() / 60);
-    const arcC = Math.PI * 7;
-    grid.append(card('lw-s lw-day', [
-      SJ.el('div', { class: 'lw-day-top' }, [
-        SJ.el('span', { class: 'lw-day-art', html: '<svg viewBox="0 0 18 18" width="18" height="18">' +
-          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.6" stroke-linecap="round"/>' +
-          '<path d="M9 2 A 7 7 0 0 1 9 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
-          'stroke-dasharray="' + arcC.toFixed(1) + '" stroke-dashoffset="' + (arcC * (1 - dayPct / 200)).toFixed(1) + '"/>' +
-          '</svg>' }),
-        SJ.el('span', { class: 'lw-k' }, '今天')
-      ]),
-      SJ.el('div', { class: 'lw-day-n' }, '还剩 ' + leftH.toFixed(1) + ' 小时'),
-      SJ.el('div', { class: 'lw-bar' }, [SJ.el('i', { style: { width: Math.max(2, dayPct) + '%' } })])
-    ]));
-  }
-
-  /* ── 第三行：最近的备忘（跨两列）── */
-  const nt = (SJ.state.notes || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
-  if (nt && (nt.title || nt.body)) {
-    grid.append(card('lw-w lw-nt', [
-      SJ.el('div', { class: 'lw-k' }, '最近的备忘'),
-      SJ.el('div', { class: 'lw-nt-title' }, String(nt.title || nt.body).slice(0, 28))
-    ]));
-  }
-
-  /* ── 其余：未读 / 音乐 / 今日安排，有内容才占地方 ── */
+  const leftH = Math.max(0, 24 - now.getHours() - now.getMinutes() / 60);
   const un = SJ.unreadTotal();
-  const rows = SJ.chatList().filter(r => r.last && !r.last.me);
-  if (un > 0 && rows.length) {
-    const last = rows[0];
-    grid.append(card('lw-s lw-un', [
-      SJ.el('div', { class: 'lw-un-n' }, un > 99 ? '99+' : String(un)),
-      SJ.el('div', { class: 'lw-k' }, '条未读'),
-      SJ.el('div', { class: 'lw-un-who' }, String(last.c.name).slice(0, 8) +
-        (rows.length > 1 ? ' 等 ' + rows.length + ' 个' : ''))
-    ]));
-  }
+  const parts = [];
+  parts.push('还剩 ' + leftH.toFixed(1) + ' 小时');
+  if (bl !== null && bl !== undefined) parts.push('电量 ' + Math.round(bl) + '%');
+  if (un > 0) parts.push('未读 ' + un);
+  grid.append(card('lw-w lw-sum', [
+    SJ.el('div', { class: 'lw-sum-top' }, [
+      SJ.el('div', { class: 'lw-sum-title' }, '今天 · 星期一'),
+      SJ.el('span', { class: 'lw-sum-go' }, '›')
+    ]),
+    SJ.el('div', { class: 'lw-sum-sub' }, parts.join(' · '))
+  ]));
 
   const mu = SJ.state.music || {};
   const tr = mu.playing
@@ -1172,6 +1163,7 @@ function renderLock(anim) {
       SJ.el('span', { class: 'lt-rule' }),
       SJ.el('span', { class: 'lt-cap' }, 'LOCKED / LOCAL TIME')
     );
+    paintLockNotif();
     paintLockWidgets();
   };
   paint();

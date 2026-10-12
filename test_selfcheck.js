@@ -125,7 +125,7 @@ const mk = id => { const n = makeEl('div'); n.attrs.id = id; byId[id] = n; retur
   home.append(mk('pages'), mk('dots'), mk('dock'));
 
   const lock = mk('lock'), lpad = mk('lock-pad');
-  lock.append(mk('lock-time'), mk('lock-date'), mk('lock-widgets'), mk('lock-hint'), mk('lock-quick'), lpad);
+  lock.append(mk('lock-time'), mk('lock-date'), mk('lock-notif'), mk('lock-widgets'), mk('lock-hint'), mk('lock-quick'), lpad);
   lpad.hidden = true;
 
   const stage = mk('stage'), phone = mk('phone');

@@ -11,17 +11,17 @@ const KEY = 'xiaoshouji.v1';
    单一来源：外观 App 拿它渲染缩略图，app.js 拿它判断桌面文字颜色，别再各写一份。
    ⚠️ id 是写死的字面量，不是下标 —— 往中间插一张不会把老存档的壁纸串位。 */
 const WALLS = [
-  /* 从 图片素材/ 里挑的三张中性图（按亮度/饱和度量的，不是随手挑的）：
-     石板 = 中间调、饱和 4%，做默认；亚麻 = 浅中性，做锁屏；墨 = 偏暗的一档。 */
+  /* 从 图片素材/ 里重新挑的一组：冷雨、雾花、百合、树影、门廊。
+     旧 id 保留，老存档不会串位；只是把不满意的照片换成同色温、更安静的新素材。 */
   ['p8', '石板', 'url("img/wall-slate.webp") center / cover no-repeat', false],
-  ['p9', '亚麻', 'url("img/wall-linen.webp") center / cover no-repeat', false],
-  ['p10', '墨', 'url("img/wall-ink.webp") center / cover no-repeat', true],
-  ['p0', '窗边', 'url("img/wall-window.webp") center / cover no-repeat', true],
+  ['p9', '雨帘', 'url("img/wall-rain-veil.webp") center / cover no-repeat', true],
+  ['p10', '墨枝', 'url("img/wall-ink-branch.webp") center / cover no-repeat', true],
+  ['p0', '窗光', 'url("img/wall-window.webp") center / cover no-repeat', true],
   ['p1', '雨窗', 'url("img/wall-rain.webp") center / cover no-repeat', true],
-  ['p2', '抹茶', 'url("img/wall-matcha.webp") center / cover no-repeat', true],
-  ['p3', '青梅', 'url("img/wall-plums.webp") center / cover no-repeat', true],
-  ['p4', '早餐', 'url("img/wall-tray.webp") center / cover no-repeat', true],
-  ['p5', '新叶', 'url("img/wall-leaves.webp") center / cover no-repeat', false],
+  ['p2', '雾花', 'url("img/wall-fog-flower.webp") center / cover no-repeat', false],
+  ['p3', '百合', 'url("img/wall-lily.webp") center / cover no-repeat', false],
+  ['p4', '门廊', 'url("img/wall-porch.webp") center / cover no-repeat', false],
+  ['p5', '叶影', 'url("img/wall-shadow-leaf.webp") center / cover no-repeat', true],
   ['p6', '枯枝', 'url("img/wall-branch.webp") center / cover no-repeat', false],
   ['p7', '郁金香', 'url("img/wall-tulip.webp") center / cover no-repeat', false],
   /* 七张渐变全部改成灰阶：黑白界面里留一张绿的紫的没有意义。
@@ -247,7 +247,7 @@ const DEFAULTS = {
     autoMemory: true,    // 攒够就自动总结
     autoEvery: 20,       // 攒够多少条新消息自动总结一次
     /* 锁屏 */
-    lockWallpaper: 'p9', // 默认「亚麻」（素材里的浅中性图）
+    lockWallpaper: 'p9', // 默认「雨帘」，新用户不用先调锁屏
   theme: 'light',       // 'light' | 'dark' | 'auto'（auto = 跟系统）
   lockStyle: 'classic', // 锁屏样子：'classic' 居中 | 'left' 左对齐 | 'mono' 等宽极简
     lockWidgets: true,   // 锁屏上显示「今日安排」
@@ -1226,9 +1226,9 @@ function importThemePack(text, slot) {
    都是纯变量，不引图片。 */
 const BUILTIN_THEMES = [
   {
-    id: 'bi-paper', slot: 'desktop', name: '旧纸',
-    vars: { bg: '#efe9dd', 'bg-2': '#e6dfd0', card: '#fbf7ef', line: 'rgba(90,72,48,.16)', ink: '#2e2820', 'ink-2': '#6b6154', accent: '#8a6a3f', 'accent-ink': '#7a5c33', 'accent-solid': '#4a3c28' },
-    dark: { bg: '#211f1b', card: '#2c2924', line: 'rgba(255,240,215,.14)', ink: '#f0e9dd', 'ink-2': 'rgba(240,233,221,.72)', accent: '#c8a273', 'accent-ink': '#d8b589', 'accent-solid': '#c8a273' },
+    id: 'bi-paper', slot: 'desktop', name: '月白',
+    vars: { bg: '#eef1f1', 'bg-2': '#e2e8e9', card: '#fafcfc', line: 'rgba(41,55,58,.14)', ink: '#1e292b', 'ink-2': '#617073', accent: '#6f8f8a', 'accent-ink': '#4e6d68', 'accent-solid': '#54736e' },
+    dark: { bg: '#141b1d', card: '#1e292b', line: 'rgba(226,242,243,.14)', ink: '#e8f0f1', 'ink-2': 'rgba(232,240,241,.72)', accent: '#8fb3ac', 'accent-ink': '#a9cbc4', 'accent-solid': '#8fb3ac' },
     wall: ''
   },
   {
@@ -1239,8 +1239,8 @@ const BUILTIN_THEMES = [
   },
   {
     id: 'bi-night', slot: 'chat', name: '夜聊',
-    vars: { 'bubble-me': '#3a4a6b', 'bubble-me-ink': '#ffffff', 'bubble-ta': '#f2f3f7', 'bubble-ta-ink': '#1b1e26', 'bubble-radius': '18px', accent: '#3a4a6b', 'accent-ink': '#3a4a6b' },
-    dark: { 'bubble-me': '#5a6f9c', 'bubble-me-ink': '#ffffff', 'bubble-ta': '#262b36', 'bubble-ta-ink': '#e9ecf3', accent: '#8aa3d4', 'accent-ink': '#a8bde6' },
+    vars: { 'bubble-me': '#45625d', 'bubble-me-ink': '#ffffff', 'bubble-ta': '#f4f7f7', 'bubble-ta-ink': '#1c292b', 'bubble-radius': '18px', accent: '#45625d', 'accent-ink': '#38524e' },
+    dark: { 'bubble-me': '#658b84', 'bubble-me-ink': '#071412', 'bubble-ta': '#222d2f', 'bubble-ta-ink': '#e8f0f1', accent: '#8fb3ac', 'accent-ink': '#a9cbc4' },
     wall: ''
   },
   {
@@ -1254,6 +1254,24 @@ const BUILTIN_THEMES = [
     vars: { 'bubble-me': '#1f6f43', 'bubble-me-ink': '#eafff2', 'bubble-ta': '#eceee9', 'bubble-ta-ink': '#17231b', 'bubble-radius': '4px', accent: '#1f6f43', 'accent-ink': '#1a5c38', font: "'SFMono-Regular', ui-monospace, monospace" },
     dark: { 'bubble-me': '#2f9c60', 'bubble-me-ink': '#04160c', 'bubble-ta': '#1b221d', 'bubble-ta-ink': '#d8e6dc', accent: '#2f9c60', 'accent-ink': '#48bd7c' },
     wall: ''
+  },
+  {
+    id: 'bi-candy', slot: 'desktop', name: '糖罐',
+    vars: { bg: '#f1f3f3', 'bg-2': '#e5eaeb', card: '#fcfdfd', line: 'rgba(44,57,60,.13)', ink: '#243033', 'ink-2': '#667477', accent: '#a0848f', 'accent-ink': '#806570', 'accent-solid': '#806570' },
+    dark: { bg: '#171c1e', card: '#222a2d', line: 'rgba(232,240,241,.14)', ink: '#eef3f3', 'ink-2': 'rgba(238,243,243,.72)', accent: '#c2a3ad', 'accent-ink': '#d4b7c0', 'accent-solid': '#c2a3ad' },
+    wall: ''
+  },
+  {
+    id: 'bi-rain', slot: 'desktop', name: '雨幕',
+    vars: { bg: '#e8edef', 'bg-2': '#dce4e7', card: '#f8fbfb', line: 'rgba(38,55,61,.15)', ink: '#1d292d', 'ink-2': '#5d6c71', accent: '#5f7f88', 'accent-ink': '#476770', 'accent-solid': '#476770' },
+    dark: { bg: '#11181a', card: '#1b2528', line: 'rgba(220,236,240,.14)', ink: '#e6eef0', 'ink-2': 'rgba(230,238,240,.72)', accent: '#86a9b2', 'accent-ink': '#a0c1c9', 'accent-solid': '#86a9b2' },
+    wall: 'p9'
+  },
+  {
+    id: 'bi-film', slot: 'desktop', name: '胶片',
+    vars: { bg: '#e9e8e5', 'bg-2': '#dedcd8', card: '#f8f7f4', line: 'rgba(49,47,44,.15)', ink: '#252422', 'ink-2': '#6b6863', accent: '#7d746a', 'accent-ink': '#635b52', 'accent-solid': '#635b52' },
+    dark: { bg: '#171615', card: '#242220', line: 'rgba(240,237,232,.14)', ink: '#f0ede8', 'ink-2': 'rgba(240,237,232,.72)', accent: '#b0a496', 'accent-ink': '#c5b9ab', 'accent-solid': '#b0a496' },
+    wall: 'p10'
   }
 ];
 
@@ -1396,6 +1414,22 @@ function imgSrc(v) {
   const s = String(v || '');
   if (s.slice(0, IMG_REF.length) !== IMG_REF) return s;
   return URL_CACHE.get(s.slice(IMG_REF.length)) || BLANK_IMG;
+}
+/* 给沙箱 iframe 用：它拿不到父页面的 blob: URL，只能喂 data:。
+   只处理 idb: 引用，别的值原样返回；读不到就返回空串（调用方自行判空）。 */
+async function imgDataUri(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s.slice(0, IMG_REF.length) !== IMG_REF) return s;
+  if (typeof FileReader === 'undefined') return '';
+  const id = s.slice(IMG_REF.length);
+  const blob = await idbRun('readonly', st => st.get(id)).catch(() => null);
+  if (!blob) return '';
+  return new Promise(resolve => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => resolve('');
+    fr.readAsDataURL(blob);
+  });
 }
 
 /* 开机第一件事：把存档里引用到的图全部变成内存里的 blob URL。
@@ -6099,7 +6133,7 @@ window.SJ = {
   spaceOf, spaceDays, forumOf, forumPosts,
   exportState, importState,
   /* 图片仓：字节进 IndexedDB，存档里只留 'idb:' 引用 */
-  IMG_REF, BLANK_IMG, imgSrc, putImg, imgBoot, imgSweep, imgClean, imgPurge, imgWipe,
+  IMG_REF, BLANK_IMG, imgSrc, imgDataUri, putImg, imgBoot, imgSweep, imgClean, imgPurge, imgWipe,
   storageReport, persistAsk, onSaveError,
   /* 主题包：桌面 / 聊天 / 短信 三个槽位分开存、分开导入 */
   THEME_VARS, THEME_SLOTS, BUILTIN_THEMES,

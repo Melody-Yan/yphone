@@ -120,6 +120,16 @@ function setDebug(on) {
    ══════════════════════════════════════════════════════ */
 const stack = [];   // [{id, node, onUnmount}]
 const MAX_DEPTH = 8;
+/* 转场的唯一时长来源：CSS 读 --dur-screen，JS 也读它。
+   以前 JS 里的 460 和 CSS 里的 .3s 是两处魔数，改一边就会在动画中途摘节点。 */
+function screenDur() {
+  try {
+    const v = getComputedStyle(document.getElementById('phone')).getPropertyValue('--dur-screen');
+    const n = parseFloat(v);
+    if (isFinite(n) && n > 0) return v.trim().indexOf('ms') >= 0 ? n : n * 1000;
+  } catch (e) {}
+  return 360;
+}
 
 /* arg 可选：直接打开某个 App 的深层视图（比如通讯录里点「发消息」直达和那个角色的对话） */
 /* 哪个 App 用哪个槽位的主题。没列在这儿的 App 不套主题，永远用默认那套。 */
@@ -145,6 +155,13 @@ function openApp(id, arg) {
   const slot = THEME_APP_SLOT[id];
   if (slot) SJ.applyThemeTo(node, slot, phone.classList.contains('dark'));
 
+  /* 新页从右侧进入的同时，上一页轻微后退 + 变暗。
+     这一层让「打开 App」有前后关系，而不是新纸片直接盖上来。 */
+  const prev = stack.length > 1 ? stack[stack.length - 2].node : homeEl;
+  if (prev && prev !== node) {
+    prev.classList.add('behind');
+    prev.classList.remove('front');
+  }
   requestAnimationFrame(() => node.classList.add('in'));
   if (stack.length === 1) { homeEl.classList.add('pushed'); phone.classList.add('app-open'); }
   vibrate(8);
@@ -167,6 +184,16 @@ function closeTop(immediate = false) {
      和样式表里的 .3s 是两处独立的数字，改一边就错位（改成 380ms 之后，
      280ms 会在动画还剩三分之一的时候把节点摘掉，看起来就是「啪」地消失）。
      现在听 transitionend，再留一个兜底超时：动画被打断、或者开着「关掉动画」时也摘得掉。 */
+  /* 先恢复「下面那一页」的状态 —— 不管走不走动画都要做。
+     之前这段写在 immediate 分支之后，关掉动画时永远不执行，
+     #home 会留在 .behind 的缩放变暗态，看起来像没退回桌面。 */
+  const below = stack.length ? stack[stack.length - 1].node : homeEl;
+  if (below) {
+    below.classList.remove('behind');
+    below.classList.add('front');
+    below.style.transform = '';
+    below.style.opacity = '';
+  }
   let quiet = false;
   try {
     const p = document.getElementById('phone');
@@ -177,7 +204,7 @@ function closeTop(immediate = false) {
   rec.node.addEventListener('transitionend', e => {
     if (e.target === rec.node && (e.propertyName === 'transform' || e.propertyName === 'opacity')) finish();
   });
-  setTimeout(finish, 460);      // 退场 260ms，兜底也不能拖太久
+  setTimeout(finish, screenDur() + 120);
 }
 
 function closeAll() { while (stack.length) closeTop(true); }
@@ -187,8 +214,9 @@ let swipe = null;
 function swipeStart(e) {
   if (!stack.length) return;
   const t = e.touches ? e.touches[0] : e;
-  if (t.clientX > 40) return;                 // 只从屏幕左边缘起手
-  swipe = { x0: t.clientX, y0: t.clientY, dx: 0, active: false };
+  if (t.clientX > 56) return;                 // 只从屏幕左边缘起手
+  const rec = stack[stack.length - 1];
+  swipe = { x0: t.clientX, y0: t.clientY, dx: 0, active: false, node: rec && rec.node, w: 1 };
 }
 function swipeMove(e) {
   if (!swipe) return;
@@ -196,22 +224,50 @@ function swipeMove(e) {
   const dx = t.clientX - swipe.x0;
   const dy = Math.abs(t.clientY - swipe.y0);
   if (!swipe.active) {
-    if (dx < 12 || dy > Math.abs(dx)) return;  // 纵向滑动不抢
+    if (dx < 8 || dy > Math.abs(dx) * .9) return;  // 纵向滑动不抢
     swipe.active = true;
   }
   swipe.dx = Math.max(0, dx);
-  stackEl.style.transform = `translateX(${swipe.dx}px)`;
-  stackEl.style.opacity = String(1 - swipe.dx / 600);
+  // 跟手：当前页横移，底下的页面同步从 92% 回到 100%，形成真实的返回空间感。
+  const p = Math.min(1, swipe.dx / Math.max(220, phone.clientWidth * .7));
+  if (swipe.node) {
+    swipe.node.style.transition = 'none';
+    swipe.node.style.transform = `translateX(${swipe.dx}px)`;
+    swipe.node.style.boxShadow = `-18px 0 44px -24px rgba(0,0,0,${.20 * (1 - p)})`;
+  }
+  const below = stack.length > 1 ? stack[stack.length - 2].node : homeEl;
+  if (below) {
+    below.style.transition = 'none';
+    /* 不能写成 scale(...) 覆盖：底层此时是 .behind 的 translateX(-5%) scale(.965)，
+       内联纯 scale 会先把那 5% 的位移抹掉，手势一开始就横向跳一下。
+       保留同样的 translateX 分量，只把缩放从 .965 跟手推到 1。 */
+    below.style.transform = `translateX(${-5 * (1 - p)}%) scale(${.965 + .035 * p})`;
+    below.style.opacity = String(.72 + .28 * p);
+  }
 }
 function swipeEnd() {
   if (!swipe) return;
   const { dx, active } = swipe;
   swipe = null;
-  stackEl.style.transition = 'transform .22s cubic-bezier(.22,1,.36,1), opacity .22s';
-  if (active && dx > 90) closeTop();
-  stackEl.style.transform = '';
-  stackEl.style.opacity = '';
-  setTimeout(() => { stackEl.style.transition = ''; }, 240);
+  const node = stack.length ? stack[stack.length - 1].node : null;
+  const below = stack.length > 1 ? stack[stack.length - 2].node : homeEl;
+  const w = phone.clientWidth || 390;
+  const shouldClose = active && dx > Math.min(110, w * .28);
+  if (node) {
+    node.style.transition = `transform ${screenDur()}ms cubic-bezier(.22,1,.36,1), opacity ${screenDur()}ms`;
+    node.style.transform = '';
+    node.style.boxShadow = '';
+  }
+  if (below) {
+    below.style.transition = `transform ${screenDur()}ms cubic-bezier(.22,1,.36,1), opacity ${screenDur()}ms`;
+    below.style.transform = '';
+    below.style.opacity = '';
+  }
+  if (shouldClose) closeTop();
+  setTimeout(() => {
+    if (node) node.style.transition = '';
+    if (below) below.style.transition = '';
+  }, screenDur() + 40);
 }
 
 /* ══ 状态栏 ══ */
@@ -250,7 +306,11 @@ function tickStatus() {
 
   // 锁屏上的大时钟也得跟着走（以前只在 renderLock 时写一次，会冻在开屏那一刻）
   if (locked) {
-    SJ.$('#lock-time').textContent = SJ.fmtTime(now);
+    /* 只改 .lt-main，不要写 #lock-time.textContent —— 那样会把分隔线和
+       LOCKED / LOCAL TIME 两个字节点一起抹掉（每 5 秒跳一次）。 */
+    const t = SJ.$('#lock-time .lt-main');
+    if (t) t.textContent = SJ.fmtTime(now);
+    else SJ.$('#lock-time').textContent = SJ.fmtTime(now);
     SJ.$('#lock-date').textContent = SJ.fmtDate();
   }
 
@@ -295,8 +355,17 @@ function widgetBody(type) {
   switch (type) {
     case 'clock':
       return [
-        SJ.el('div', { class: 'widget-time wg-clock-time' }, SJ.fmtTime(SJ.virtualNow())),
-        SJ.el('div', { class: 'widget-date wg-clock-date' }, SJ.fmtDate())
+        SJ.el('div', { class: 'wg-clock-cover' }, [
+          SJ.el('div', { class: 'wg-clock-main' }, [
+            SJ.el('div', { class: 'wg-clock-kicker' }, 'LOCAL TIME / 01'),
+            SJ.el('div', { class: 'widget-time wg-clock-time' }, SJ.fmtTime(SJ.virtualNow()))
+          ]),
+          SJ.el('div', { class: 'wg-clock-aside' }, [
+            SJ.el('div', { class: 'widget-date wg-clock-date' }, SJ.fmtDate()),
+            SJ.el('div', { class: 'wg-clock-line' }),
+            SJ.el('div', { class: 'wg-clock-note' }, '今天也慢慢来')
+          ])
+        ])
       ];
 
     case 'calendar': {
@@ -413,14 +482,31 @@ function widgetBody(type) {
   return [];
 }
 
-function customWidgetDocument(cw) {
-  const vals = JSON.stringify((cw && cw.values) || {}).replace(/</g, '\\u003c');
+function customWidgetDocument(cw, values) {
+  const vals = JSON.stringify(values || (cw && cw.values) || {}).replace(/</g, '\\u003c');
   const css = String((cw && cw.css) || '').replace(/<\/style/gi, '<\\/style');
   const html = String((cw && cw.html) || '');
-  const bridge = '<script>window.__YW_STATE__=' + vals + ';window.widget={getState:function(k){return Object.prototype.hasOwnProperty.call(window.__YW_STATE__,k)?window.__YW_STATE__[k]:"";},setState:function(k,v){window.__YW_STATE__[k]=v;try{parent.postMessage({type:"yphone-widget-set",key:k,value:v},"*")}catch(e){}return v;}};<\/script>';
+  const bridge = '<script>window.__YW_STATE__=' + vals +
+    ';window.widget={getState:function(k){return Object.prototype.hasOwnProperty.call(window.__YW_STATE__,k)?window.__YW_STATE__[k]:"";},setState:function(k,v){window.__YW_STATE__[k]=v;try{parent.postMessage({type:"yphone-widget-set",key:k,value:v},"*")}catch(e){}return v;}};<\/script>';
   const reset = 'html,body{width:100%;height:100%;margin:0;overflow:hidden;background:transparent;}';
   const emptyImg = 'img:not([src]),img[src=""]{display:none!important;}';
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + reset + css + emptyImg + '</style>' + bridge + '</head><body>' + html + '</body></html>';
+}
+
+/* 小组件文档：sandbox iframe 读不到父页面的 blob: URL，
+   所以图片字段要先在父页面里换成 data: URI 再注入。 */
+async function customWidgetDocumentReady(cw) {
+  const vals = Object.assign({}, (cw && cw.values) || {});
+  if (cw && typeof SJ.imgDataUri === 'function') {
+    await Promise.all((cw.imageKeys || []).map(async k => {
+      const v = vals[k];
+      if (typeof v === 'string' && v.slice(0, 4) === 'idb:') {
+        const data = await SJ.imgDataUri(v).catch(() => '');
+        if (data) vals[k] = data;
+      }
+    }));
+  }
+  return customWidgetDocument(cw, vals);
 }
 
 function importCustomWidget(pageIndex) {
@@ -476,6 +562,9 @@ function widgetNode(pageIndex, w) {
       frame.setAttribute('srcdoc', customWidgetDocument(cw));
       frame.setAttribute('title', cw.name || '自定义小组件');
       node.append(frame);
+      customWidgetDocumentReady(cw).then(doc => {
+        if (frame.isConnected && doc) frame.setAttribute('srcdoc', doc);
+      });
     } else {
       node.append(SJ.el('div', { class: 'wg-empty' }, '小组件模板已丢失'));
     }
@@ -618,8 +707,30 @@ function editCustomWidget(pageIndex, w) {
   (cw.imageKeys || []).forEach((key, i) => items.push({
     svg: 'image', label: '图片 ' + (i + 1), hint: cw.values[key] ? '已设置' : '未设置',
     run: () => {
-      if (typeof window.askText !== 'function') return;
-      window.askText('图片 ' + (i + 1), 'https://...', '填写图片地址', v => { SJ.setCustomWidgetValue(cw.id, key, v); renderHome(); }, '保存');
+      const apply = v => { SJ.setCustomWidgetValue(cw.id, key, v); renderHome(); };
+      window.sheet([
+        {
+          svg: 'image', label: '从本地选图片', hint: '存进本机图片仓',
+          run: async () => {
+            if (typeof window.pickToStore !== 'function') return toast('这个环境不能选图片');
+            const ref = await window.pickToStore(1600, .86);
+            if (!ref) return;
+            apply(ref);
+            toast('本地图片已放进小组件');
+          }
+        },
+        {
+          svg: 'right', label: '填写图片链接', hint: 'https://...',
+          run: () => {
+            if (typeof window.askText !== 'function') return;
+            window.askText('图片 ' + (i + 1), 'https://...', '填写图片地址', apply, '保存');
+          }
+        },
+        cw.values[key] ? {
+          svg: 'trash', label: '清除这张图片',
+          run: () => apply('')
+        } : null
+      ].filter(Boolean), '图片 ' + (i + 1));
     }
   }));
   if (!items.length) items.push({ svg: 'info', label: '这个模板没有可编辑字段', off: true });
@@ -1050,8 +1161,17 @@ function paintLockQuick() {
 
 function renderLock(anim) {
   const paint = () => {
-    SJ.$('#lock-time').textContent = SJ.fmtTime(SJ.virtualNow());
+    const t = SJ.fmtTime(SJ.virtualNow());
     SJ.$('#lock-date').textContent = SJ.fmtDate();
+    const timeEl = SJ.$('#lock-time');
+    /* 把 00:54 变成「00:54 + 细线 + 小字日期」。不拆节点，锁屏自检和
+       旧样式都还认这个 ID；只是用两个 span 让字体层级能分开。 */
+    timeEl.innerHTML = '';
+    timeEl.append(
+      SJ.el('span', { class: 'lt-main' }, t),
+      SJ.el('span', { class: 'lt-rule' }),
+      SJ.el('span', { class: 'lt-cap' }, 'LOCKED / LOCAL TIME')
+    );
     paintLockWidgets();
   };
   paint();

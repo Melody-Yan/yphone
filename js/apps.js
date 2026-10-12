@@ -834,6 +834,7 @@ async function pickToStore(max, q) {
   if (!raw) return '';
   try { return await SJ.putImg(raw); } catch (e) { return raw; }
 }
+window.pickToStore = pickToStore;
 
 /* 聊天背景选择器：一张预览 + 「换一张 / 用默认」。只留一张，不搞图库。 */
 function bgStrip(getCur, pick) {
@@ -8277,6 +8278,7 @@ const APPS = [
       /* ── 选人 ── */
       function listView() {
         root.innerHTML = '';
+        root.classList.remove('sp-full');
         root.append(navBar('我们的空间'));
         const all = chars();
         const box = SJ.el('div', { class: 'list' });
@@ -8285,19 +8287,25 @@ const APPS = [
             '空间是给每个角色单独开的一间 —— 先去通讯录里造一个人。',
             '去通讯录', () => { if (window.SHELL) window.SHELL.openApp('contacts'); }));
         } else {
-          box.append(SJ.el('div', { class: 'group-title' }, all.length + ' 个人的空间'));
+          box.append(SJ.el('div', { class: 'sp-list-head' }, [
+            SJ.el('div', { class: 'sp-list-kicker' }, 'LE RÉPERTOIRE / ' + String(all.length).padStart(2, '0')),
+            SJ.el('div', { class: 'sp-list-title' }, 'Le répertoire'),
+            SJ.el('div', { class: 'sp-list-lead' }, 'portraits & lettres')
+          ]));
           all.forEach(c => {
             const sp = SJ.spaceOf(c.id);
             const left = sp.wishes.filter(w => !w.done).length;
             const d = SJ.spaceDays(c.ts);
-            box.append(SJ.el('div', { class: 'row', onclick: () => spaceView(c.id) }, [
+            box.append(SJ.el('div', { class: 'sp-list-card', onclick: () => spaceView(c.id) }, [
+              SJ.el('div', { class: 'sp-list-no' }, 'N° ' + String(all.indexOf(c) + 1).padStart(2, '0')),
               avatarNode(c),
-              SJ.el('div', { class: 'row-main' }, [
-                SJ.el('div', { class: 'row-title' }, c.name || '无名'),
-                SJ.el('div', { class: 'row-sub' },
-                  (d ? '相伴 ' + d + ' 天' : '还没记相识的日子') + (left ? ' · ' + left + ' 个心愿没做' : ''))
+              SJ.el('div', { class: 'sp-list-main' }, [
+                SJ.el('div', { class: 'sp-list-name' }, c.name || '无名'),
+                SJ.el('div', { class: 'sp-list-sub' },
+                  (d ? '相伴 ' + d + ' 天' : '还没记相识的日子') + (left ? ' · ' + left + ' 个心愿没做' : '')),
+                SJ.el('div', { class: 'sp-list-rule' })
               ]),
-              SJ.el('div', { class: 'row-time' }, '进入 ›')
+              SJ.el('span', { class: 'sp-list-go' }, '›')
             ]));
           });
         }
@@ -8307,91 +8315,148 @@ const APPS = [
       /* ── 一个人的空间 ── */
       function spaceView(cid) {
         root.innerHTML = '';
+        root.classList.add('sp-full');
         const c = faceOf(cid);
         const sp = SJ.spaceOf(cid);
         const redraw = () => spaceView(cid);
-        root.append(navBar((c.name || '无名') + '的空间', { back: chars().length > 1 ? listView : null }));
-
-        /* 头图条：底色用这个人自己的颜色，相伴天数挂在这一条上 */
+        /* 整屏头图：照片从屏幕最顶上铺下来，压在状态栏下面（参考「糖果罐」那批图）。
+           主标题是固定的编辑式标题 Le répertoire，角色名放回天数那一行。 */
         const days = SJ.spaceDays(c.ts);
-        const scroll = SJ.el('div', { class: 'sp-scroll' }, [
-          SJ.el('div', { class: 'sp-hero', style: { background: c.color || '' } }, [
-            SJ.el('span', { class: 'sp-hero-face' }, avatarNode(c)),
-            SJ.el('div', { class: 'sp-hero-main' }, [
-              SJ.el('div', { class: 'sp-hero-name' }, c.name || '无名'),
-              SJ.el('div', { class: 'sp-hero-days' }, days
-                ? ['相伴 ', SJ.el('b', {}, String(days)), ' 天']
-                : '刚认识 · 相识那天还没记')
-            ])
+        /* 空间头图固定用雨窗这张：参考图就是这个氛围，不跟着桌面/锁屏壁纸跑。 */
+        const heroImg = 'url("img/wall-rain.webp") center 30% / cover no-repeat';
+        const hero = SJ.el('div', { class: 'sp-cover' });
+        hero.style.background = heroImg;
+        hero.style.backgroundPosition = 'center 38%';
+        hero.append(
+          SJ.el('div', { class: 'sp-cover-veil' }),
+          SJ.el('div', { class: 'sp-cover-bar' }, [
+            SJ.el('button', {
+              class: 'sp-cover-btn back', title: '返回',
+              onclick: () => { if (chars().length > 1) listView(); else if (window.SHELL) window.SHELL.closeTop(); }
+            }, '‹'),
+            SJ.el('div', { class: 'sp-cover-title' }, '我们的空间'),
+            SJ.el('button', {
+              class: 'sp-cover-btn', title: '更多',
+              /* 「再加一个纪念日」参考图里没有，但功能不能丢 —— 收进这里。 */
+              onclick: () => sheet([
+                { svg: 'plus', label: '添加一个纪念日', hint: '生日 / 在一起的那天', run: askAnniv }
+              ], '空间')
+            }, '⋯')
+          ]),
+          SJ.el('div', { class: 'sp-cover-copy' }, [
+            SJ.el('div', { class: 'sp-cover-kicker' }, 'TOGETHER / 01'),
+            SJ.el('div', { class: 'sp-cover-name' }, 'Le répertoire'),
+            SJ.el('div', { class: 'sp-cover-days' }, days
+              ? ['与', SJ.el('b', { class: 'sp-cover-who' }, c.name || '无名'), '一起 ', SJ.el('b', {}, String(days)), ' 天']
+              : '刚认识 · 相识那天还没记')
           ])
+        );
+
+        const scroll = SJ.el('div', { class: 'sp-scroll sp-cool' }, [
+          hero
         ]);
 
-        const head = (ico, title, act, run) => SJ.el('div', { class: 'sp-h' }, [
-          SJ.el('span', { class: 'sp-h-ico', html: svg(ico, 16) }),
-          SJ.el('span', { class: 'sp-h-t' }, title),
-          act ? SJ.el('button', { class: 'sp-h-act', onclick: run }, act) : null
-        ]);
+        const body = SJ.el('div', { class: 'sp-body' });
 
-        /* 纪念日：最近那个大字倒数，其余最多三行列在下面 */
+        /* 纪念日：一张票根。上面一行是 ANNIVERSAIRE + 日期，虚线撕口，
+           下面是标题和「还有几天」的大数字。功能（写进日历 / 再加一个）都在。 */
         const anniv = sp.anniv.slice().sort((a, b) => daysTo(a.date) - daysTo(b.date));
         const near = anniv[0];
-        const annivBody = [
-          near
-            ? SJ.el('div', { class: 'sp-cd' }, [
-                SJ.el('div', { class: 'sp-cd-n' }, [SJ.el('b', {}, String(daysTo(near.date))), SJ.el('span', {}, '天后')]),
-                SJ.el('div', { class: 'sp-cd-m' }, [
-                  SJ.el('div', { class: 'sp-cd-t' }, near.title || '纪念日'),
-                  SJ.el('div', { class: 'sp-cd-d' }, near.date.replace(/-/g, '.')),
-                  SJ.el('button', { class: 'sp-mini', onclick: () => annivToCal(near) }, '写进日历')
-                ])
-              ])
-            : SJ.el('div', { class: 'sp-none' }, '把生日、在一起的那天记下来，这里替你数着。')
-        ];
-        anniv.slice(1, 4).forEach(a => annivBody.push(SJ.el('div', { class: 'sp-line' }, [
-          SJ.el('span', { class: 'sp-line-t' }, a.title || '纪念日'),
-          SJ.el('span', { class: 'sp-line-d' }, a.date.slice(5).replace('-', '/') + ' · ' + daysTo(a.date) + ' 天')
-        ])));
-        scroll.append(SJ.el('section', { class: 'sp-card' },
-          [head('heart', '纪念日', '＋ 加一个', askAnniv)].concat(annivBody)));
+        const ticket = SJ.el('section', { class: 'sp-ticket' }, [
+          SJ.el('div', { class: 'sp-ticket-top' }, [
+            SJ.el('span', { class: 'sp-ticket-label' }, 'ANNIVERSAIRE'),
+            near ? SJ.el('span', { class: 'sp-ticket-date' }, near.date.replace(/-/g, '.')) : null
+          ].filter(Boolean))
+        ]);
+        if (near) {
+          ticket.append(SJ.el('div', { class: 'sp-ticket-main' }, [
+            SJ.el('div', { class: 'sp-ticket-copy' }, [
+              SJ.el('h2', { class: 'sp-ticket-title' }, near.title || '纪念日'),
+              SJ.el('button', { class: 'sp-ticket-cal', onclick: () => annivToCal(near) }, '写进日历 · 每年提醒')
+            ]),
+            SJ.el('div', { class: 'sp-ticket-days' }, [
+              SJ.el('b', {}, String(daysTo(near.date))),
+              SJ.el('small', {}, '天后')
+            ])
+          ]));
+        } else {
+          ticket.append(SJ.el('button', { class: 'sp-ticket-empty', onclick: askAnniv }, [
+            SJ.el('span', { class: 'sp-ticket-empty-t' }, '把在一起的那天记下来'),
+            SJ.el('span', { class: 'sp-ticket-empty-s' }, '生日、纪念日，这里替你数着')
+          ]));
+        }
+        /* 参考图首屏没有「再加一个」按钮；但纪念日入口不能丢，
+           所以只在还有其它纪念日 / 空态时给一行低调的添加。 */
+        if (near && anniv.length > 1) {
+          anniv.slice(1, 4).forEach(a => ticket.append(SJ.el('div', { class: 'sp-line' }, [
+            SJ.el('span', { class: 'sp-line-t' }, a.title || '纪念日'),
+            SJ.el('span', { class: 'sp-line-d' }, a.date.slice(5).replace('-', '/') + ' · ' + daysTo(a.date) + ' 天')
+          ])));
+        }
+        body.append(ticket);
 
-        /* 心愿清单：没做的排前面，做完的沉下去划掉 */
-        const wishBody = [];
+        /* 心愿清单：不套卡片，直接是编号名册 —— 这是设计稿里最像「目录」的一段。 */
+        const wishSec = SJ.el('section', { class: 'sp-open' }, [
+          SJ.el('div', { class: 'sp-sec-head' }, [
+            SJ.el('span', { class: 'sp-sec-label' }, 'WISHES · ' + String(sp.wishes.length).padStart(2, '0')),
+            SJ.el('button', { class: 'sp-sec-act', onclick: askWish }, '＋ 加一条')
+          ])
+        ]);
         const wishes = sp.wishes.filter(w => !w.done).concat(sp.wishes.filter(w => w.done));
-        if (!wishes.length) wishBody.push(SJ.el('div', { class: 'sp-none' }, '想一起做的事写在这儿，做完打个勾。'));
-        wishes.slice(0, 6).forEach(w => wishBody.push(SJ.el('div', { class: 'sp-wish' + (w.done ? ' done' : '') }, [
-          SJ.el('button', {
-            class: 'sp-check' + (w.done ? ' on' : ''),
-            title: w.done ? '还没做' : '做完了',
-            onclick: () => { w.done = !w.done; SJ.save(); redraw(); }
-          }, w.done ? '✓' : ''),
-          SJ.el('span', { class: 'sp-wish-t' }, w.text),
-          SJ.el('button', {
-            class: 'sp-del', title: '删掉',
-            onclick: () => { sp.wishes = sp.wishes.filter(x => x !== w); SJ.save(); redraw(); }
-          }, '×')
-        ])));
-        scroll.append(SJ.el('section', { class: 'sp-card' },
-          [head('sparkle', '心愿清单', '＋ 加一条', askWish)].concat(wishBody)));
+        if (!wishes.length) wishSec.append(SJ.el('div', { class: 'sp-none' }, '想一起做的事写在这儿，做完打个勾。'));
+        /* 参考图里每行只有「编号 + 文字 + 圆形勾」三样；
+           删除收进长按/右键，不再在每一行挂一个 ×（首屏太吵）。 */
+        wishes.slice(0, 6).forEach((w, i) => {
+          const askDel = () => {
+            if (!window.confirm('删掉这条心愿？\n' + w.text)) return;
+            sp.wishes = sp.wishes.filter(x => x !== w); SJ.save(); redraw();
+          };
+          wishSec.append(SJ.el('div', {
+            class: 'sp-wish' + (w.done ? ' done' : ''),
+            oncontextmenu: e => { e.preventDefault(); askDel(); }
+          }, [
+            SJ.el('span', { class: 'sp-wish-no' }, 'N° ' + String(i + 1).padStart(2, '0')),
+            SJ.el('span', {
+              class: 'sp-wish-t', title: '长按删除',
+              onpointerdown: e => {
+                const t = setTimeout(askDel, 620);
+                const stop = () => { clearTimeout(t); e.target.removeEventListener('pointerup', stop); e.target.removeEventListener('pointercancel', stop); };
+                e.target.addEventListener('pointerup', stop);
+                e.target.addEventListener('pointercancel', stop);
+              }
+            }, w.text),
+            SJ.el('button', {
+              class: 'sp-check' + (w.done ? ' on' : ''),
+              title: w.done ? '还没做' : '做完了',
+              onclick: () => { w.done = !w.done; SJ.save(); redraw(); }
+            }, w.done ? '✓' : '')
+          ]));
+        });
+        body.append(wishSec);
 
-        /* 共同日记：最近三篇，每篇底下挂一个「让 TA 补一句」 */
-        const diaryBody = [];
-        if (!sp.diary.length) diaryBody.push(SJ.el('div', { class: 'sp-none' }, '今天想说的话，写在这儿。'));
+        /* 共同日记：纸面短笺，最新一篇在上。 */
+        const diarySec = SJ.el('section', { class: 'sp-open' }, [
+          SJ.el('div', { class: 'sp-sec-head' }, [
+            SJ.el('span', { class: 'sp-sec-label' }, 'DIARY · 共同日记'),
+            SJ.el('button', { class: 'sp-sec-act', onclick: askDiary }, '写一篇')
+          ])
+        ]);
+        if (!sp.diary.length) diarySec.append(SJ.el('div', { class: 'sp-none' }, '今天想说的话，写在这儿。'));
         sp.diary.slice(0, 3).forEach(d => {
-          diaryBody.push(SJ.el('div', { class: 'sp-diary' }, [
-            SJ.el('div', { class: 'sp-diary-d' }, dayLabel(d.ts)),
+          diarySec.append(SJ.el('article', { class: 'sp-diarycard' }, [
+            SJ.el('div', { class: 'sp-diary-d' }, dayLabel(d.ts) + ' · ' + SJ.fmtTime(new Date(d.ts))),
             SJ.el('div', { class: 'sp-diary-t' }, d.text),
             d.reply
               ? SJ.el('div', { class: 'sp-diary-r' }, [SJ.el('b', {}, (c.name || 'TA') + '：'), d.reply])
               : SJ.el('button', { class: 'sp-mini', onclick: askReply }, '让 TA 补一句')
           ]));
         });
-        scroll.append(SJ.el('section', { class: 'sp-card' },
-          [head('book', '共同日记', '写一篇', askDiary)].concat(diaryBody)));
+        body.append(diarySec);
 
         /* 相册墙 */
         const ph = photosOf(cid);
-        scroll.append(SJ.el('div', { class: 'sp-sec' }, [
-          SJ.el('span', {}, '相册'),
+        body.append(SJ.el('div', { class: 'sp-sec sp-sec-head' }, [
+          SJ.el('span', { class: 'sp-sec-label' }, 'ALBUM · 相册'),
           SJ.el('span', { class: 'sp-sec-n' }, ph.length ? '最近 ' + ph.length + ' 张' : '')
         ]));
         if (ph.length) {
@@ -8399,12 +8464,13 @@ const APPS = [
           ph.forEach(p => wall.append(SJ.el('span', {
             class: 'sp-ph', style: { backgroundImage: 'url("' + SJ.imgSrc(p.ref) + '")' }, title: dayLabel(p.ts)
           })));
-          scroll.append(wall);
+          body.append(wall);
         } else {
-          scroll.append(SJ.el('div', { class: 'sp-card sp-album-none' },
+          body.append(SJ.el('div', { class: 'sp-album-none' },
             '发过的朋友圈图、聊天里收到的图，都会攒到这儿。'));
         }
 
+        scroll.append(body);
         root.append(scroll);
 
         /* ── 三个「加」和一个「补一句」── */

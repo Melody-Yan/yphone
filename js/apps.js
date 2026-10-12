@@ -1459,20 +1459,20 @@ const APPS = [
                 SJ.el('div', { class: 'sdr-stat' }, [SJ.el('b', {}, String(un)), SJ.el('span', {}, '未读')])
               ])
             ]),
-            group('主要', 'principles', [
+            group('Primary', 'principles', [
               { svg: 'chat', label: 'Chat', sub: '回到你们正在说的话', run: listView },
-              { svg: 'people', label: '圆桌', sub: '发起群聊', run: newGroup },
-              { svg: 'photo', label: '朋友圈', sub: '看看 TA 最近在做什么', run: momentsView },
-              { svg: 'user', label: '通讯录', sub: '角色与关系', run: () => { if (window.SHELL) window.SHELL.openApp('contacts'); } }
+              { svg: 'people', label: 'Roundtable', sub: '发起群聊', run: newGroup },
+              { svg: 'photo', label: 'Moments', sub: '看看 TA 最近在做什么', run: momentsView },
+              { svg: 'user', label: 'Contacts', sub: '角色与关系', run: () => { if (window.SHELL) window.SHELL.openApp('contacts'); } }
             ]),
-            group('正在发生', 'still growing', [
-              { svg: 'heart', label: '我们的空间', sub: '纪念日、心愿与共同日记', run: () => { if (window.SHELL) window.SHELL.openApp('space'); } },
-              { svg: 'wallet', label: '钱包', sub: '余额 ¥' + SJ.walletBalance().toFixed(2), run: walletView },
-              { svg: 'globe', label: 'cee论坛', sub: '外面的人在聊什么', run: () => { if (window.SHELL) window.SHELL.openApp('forum'); } }
+            group('Ongoing', 'still growing', [
+              { svg: 'heart', label: 'Space', sub: '纪念日、心愿与共同日记', run: () => { if (window.SHELL) window.SHELL.openApp('space'); } },
+              { svg: 'wallet', label: 'Wallet', sub: '余额 ¥' + SJ.walletBalance().toFixed(2), run: walletView },
+              { svg: 'globe', label: 'Forum', sub: '外面的人在聊什么', run: () => { if (window.SHELL) window.SHELL.openApp('forum'); } }
             ]),
-            group('设置', 'settings', [
-              { svg: 'palette', label: '配色', sub: '换一套这个 App 的颜色', run: () => salonSheet('ymessage', listView) },
-              { svg: 'gear', label: '设置', sub: '接口、主题与数据', run: () => { if (window.SHELL) window.SHELL.openApp('settings'); } }
+            group('Settings', 'the small print', [
+              { svg: 'palette', label: 'Palette', sub: '换一套这个 App 的颜色', run: () => salonSheet('ymessage', listView) },
+              { svg: 'gear', label: 'Settings', sub: '接口、主题与数据', run: () => { if (window.SHELL) window.SHELL.openApp('settings'); } }
             ])
             ])
           ]);
